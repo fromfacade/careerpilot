@@ -6,6 +6,8 @@ import type {
   JobSource,
   JobSourceInput,
   JobState,
+  ListJobsParams,
+  ListJobsResult,
   Preferences,
   SchedulerStatus,
 } from './types';
@@ -70,12 +72,45 @@ export const api = {
   updateJobSource: (id: number, data: Partial<Pick<JobSource, 'is_enabled' | 'fetch_interval_minutes'>>) =>
     request<JobSource>(`/api/job-sources/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
-  listJobs: (params?: { state?: JobState; include_inactive?: boolean }) => {
+  listJobs: async (params?: ListJobsParams): Promise<ListJobsResult> => {
     const query = new URLSearchParams();
-    if (params?.state) query.set('state', params.state);
+    if (params?.view) query.set('view', params.view);
+    (params?.states ?? []).forEach((s) => query.append('states', s));
     if (params?.include_inactive) query.set('include_inactive', 'true');
-    const qs = query.toString();
-    return request<Job[]>(`/api/jobs${qs ? `?${qs}` : ''}`);
+    if (params?.min_score != null) query.set('min_score', String(params.min_score));
+    (params?.role_categories ?? []).forEach((v) => query.append('role_categories', v));
+    (params?.employment_types ?? []).forEach((v) => query.append('employment_types', v));
+    (params?.remote_types ?? []).forEach((v) => query.append('remote_types', v));
+    (params?.eligibility ?? []).forEach((v) => query.append('eligibility', v));
+    (params?.relevance ?? []).forEach((v) => query.append('relevance', v));
+    (params?.companies ?? []).forEach((v) => query.append('companies', v));
+    if (params?.location) query.set('location', params.location);
+    if (params?.posted_within_days != null) query.set('posted_within_days', String(params.posted_within_days));
+    if (params?.sort) query.set('sort', params.sort);
+    query.set('limit', String(params?.limit ?? 50));
+    query.set('offset', String(params?.offset ?? 0));
+
+    let response: Response;
+    try {
+      response = await fetch(`${BASE_URL}/api/jobs?${query.toString()}`, {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (err) {
+      throw new ApiError(0, `Could not reach the CareerPilot API at ${BASE_URL}. Is the backend running? (${String(err)})`);
+    }
+    if (!response.ok) {
+      let detail = response.statusText;
+      try {
+        const body = await response.json();
+        detail = body.detail ?? JSON.stringify(body);
+      } catch {
+        // no JSON body
+      }
+      throw new ApiError(response.status, detail);
+    }
+    const jobs = (await response.json()) as Job[];
+    const total = Number(response.headers.get('X-Total-Count') ?? jobs.length);
+    return { jobs, total };
   },
   setJobState: (jobId: number, state: JobState, stateReason?: string) =>
     request<Job>(`/api/jobs/${jobId}/state`, {

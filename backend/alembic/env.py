@@ -18,9 +18,20 @@ if config.config_file_name is not None:
 
 # Single source of truth for the DB URL: app.core.config.Settings, which
 # reads backend/.env. This avoids keeping a second, driftable URL in
-# alembic.ini.
-settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# alembic.ini -- BUT callers (e.g. tests/conftest.py's `test_engine`
+# fixture, which needs migrations applied to `careerpilot_test`, not dev)
+# are allowed to set `sqlalchemy.url` on the Config object before invoking
+# Alembic, and that explicit choice must win. `alembic.ini` deliberately
+# leaves `sqlalchemy.url` unset (see comment there), so "already set" only
+# ever means a caller set it on purpose.
+#
+# This used to unconditionally overwrite whatever the caller set, which
+# silently defeated conftest.py's attempt to migrate the test database --
+# the test suite happened to pass anyway only because the dev and test
+# schemas were kept in sync by hand. Fixed here.
+if not config.get_main_option("sqlalchemy.url"):
+    settings = get_settings()
+    config.set_main_option("sqlalchemy.url", settings.database_url)
 
 target_metadata = Base.metadata
 

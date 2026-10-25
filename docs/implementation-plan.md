@@ -114,3 +114,60 @@ tracker, analytics, full audit logging — and eventually, only within configure
 authorization and after end-to-end testing, autonomous submission) has **not** been started and
 should not begin without further direction, since no Phase 2 code exists yet and none of its
 specific safety requirements have been implemented or tested.
+
+## 5. Phase 2 increment: job discovery, filtering & matching improvements
+
+Done ahead of full Phase 2 because it fixes real quality issues in the existing Phase 1 discovery
+pipeline, rather than adding new modules (7–13) to the system.
+
+- [x] **1. Deterministic sorting.** `GET /api/jobs?sort=` supports `score_desc` (default),
+      `score_asc`, `most_eligible_first`, `newest_first`, `oldest_first`, `company_asc`,
+      `company_desc` — all computed in SQL across the *entire* filtered result set (not just the
+      currently-loaded page) and always tie-broken by `Job.id` for determinism.
+      (`app/services/job_service.py::list_jobs`.)
+- [x] **2. Combinable advanced filters, display-only.** Minimum match score, job category,
+      employment type, remote/hybrid/on-site, eligibility, company (substring), location
+      (substring), posting age (`posted_within_days`, only applied when `posted_at` is actually
+      known), and saved/dismissed/not-yet-reviewed state — all combinable, all applied in SQL
+      before pagination (fixing a real pre-existing bug where filtering happened *after*
+      pagination). A `view=recommended` / `view=all` toggle selects a pre-baked filter preset;
+      `all` applies none of it, matching the pre-existing "no params → everything" contract.
+      Filtering never deletes or mutates a `Job` row — see the integration test
+      `test_filtering_never_deletes_jobs_from_the_database`. Frontend: "Clear filters" button in
+      `JobsSection.tsx` resets all filter state back to empty.
+- [x] **3. Eligibility/relevance/matching fix** (see `docs/architecture.md` §6a for the full
+      writeup). Added `Relevance` (separate from `Eligibility`) and `SeniorityLevel` /
+      `is_non_technical` title-keyword inference (`app/sources/normalize.py`). A
+      `Relevance.NOT_RELEVANT` verdict caps the match score via `apply_relevance_cap`.
+      `min_match_score_to_surface` is now actually enforced by `view=recommended` (previously
+      never enforced anywhere — this was the root cause of the reported bug: an "Administrative
+      Business Partner" role in Singapore shown as `eligible` at a 5/100 score despite a
+      configured floor of 51). A one-time backfill (`scripts/backfill_job_classification.py`) was
+      run against `careerpilot_dev` to reclassify the ~2127 already-discovered jobs and recompute
+      every candidate's assessments, since discovery itself only reclassifies a job when its
+      content changes.
+- [x] **4. Job card redesign.** Each card now shows company, position, location, employment type,
+      match score, eligibility *and* relevance as visually distinct badges, an always-visible
+      "why this ranking" line (never silently blank), verified-vs-unverified posting date,
+      save/dismiss buttons, a working "View original posting" link, and a disabled
+      "Apply with AI — Coming soon" button (`frontend/src/components/JobCard.tsx`).
+- [x] **5. Documentation for the future AI Application Agent.** `docs/architecture.md` §11 now
+      specifies the ten requirements (opening supported forms, resume tailoring/upload, field
+      auto-fill, drafting free-response answers from verified facts, a learning answer library,
+      asking rather than guessing on missing info, gated autonomous-submission mode, hard safety
+      boundaries, genuine-confirmation-only status updates, duplicate-submission prevention +
+      emergency stop) in detail. **No code for any of this was written this iteration**, per
+      explicit instruction — documentation only.
+
+Tests: 112 pre-existing backend tests still pass unmodified; 14 new backend integration tests
+cover sorting/filtering/pagination/views (`tests/integration/test_jobs_api.py`); unit tests for
+`infer_seniority_level`/`infer_is_non_technical` and the relevance/scoring-cap logic bring the
+full backend suite to **119 passed**. Frontend: `tsc -b`, `npm run build`, and `npm run lint`
+(`oxlint`) all pass with no errors.
+
+A real, pre-existing migration-plumbing bug was also found and fixed in the course of this work:
+`alembic/env.py` unconditionally overwrote whatever `sqlalchemy.url` a caller had already set on
+the `Config` object, which silently defeated `tests/conftest.py`'s attempt to run migrations
+against `careerpilot_test` specifically — the test suite had only been passing because the dev
+and test schemas were kept in sync by hand. `env.py` now respects an already-set URL and only
+falls back to `settings.database_url` when none was provided.

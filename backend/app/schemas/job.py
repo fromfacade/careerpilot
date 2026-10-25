@@ -4,7 +4,15 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.enums import Eligibility, EmploymentType, JobState, RemoteType, RoleCategory
+from app.models.enums import (
+    Eligibility,
+    EmploymentType,
+    JobState,
+    Relevance,
+    RemoteType,
+    RoleCategory,
+    SeniorityLevel,
+)
 
 
 class JobLocationRead(BaseModel):
@@ -22,6 +30,8 @@ class JobAssessmentRead(BaseModel):
 
     eligibility: Eligibility
     eligibility_reasons: list
+    relevance: Relevance
+    relevance_reasons: list
     match_score: int
     match_reasons: list
     computed_at: datetime
@@ -37,6 +47,8 @@ class JobRead(BaseModel):
     employment_type: EmploymentType
     role_category: RoleCategory
     remote_type: RemoteType
+    seniority_level: SeniorityLevel
+    is_non_technical: bool
     description_text: str
     apply_url: str
     canonical_url: str

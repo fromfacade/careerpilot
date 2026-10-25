@@ -19,7 +19,15 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 from app.models.candidate import Candidate, CandidateLocationPreference, CandidatePreference, CandidateRolePreference
-from app.models.enums import Eligibility, EmploymentType, LocationPreferenceType, RemoteType, TriState
+from app.models.enums import (
+    Eligibility,
+    EmploymentType,
+    LocationPreferenceType,
+    RemoteType,
+    Relevance,
+    SeniorityLevel,
+    TriState,
+)
 from app.models.job import Job
 
 _NO_SPONSORSHIP_PHRASES = [
@@ -133,6 +141,114 @@ def _assess_graduation_timing(candidate: Candidate, job: Job, today: date) -> di
         )
 
     return None  # rule not applicable to this employment type
+
+
+def _relevance_reason(rule: str, result: str, detail: str) -> dict:
+    return {"rule": rule, "result": result, "detail": detail}
+
+
+def assess_relevance(candidate: Candidate, job: Job) -> tuple[Relevance, list[dict]]:
+    """Is this job in-scope for the candidate's stated career goals at all?
+
+    Deliberately separate from `assess_eligibility` (hard application
+    requirements) and from `compute_match_score` (numeric strength of fit).
+    A job can be perfectly ELIGIBLE (no visa/timing blocker) and still
+    NOT_RELEVANT -- e.g. a non-technical business role, or a
+    director/executive-level posting, neither of which an eligibility check
+    has any business opining on. See `docs/architecture.md` §6.
+
+    This never returns RELEVANT with high confidence for roles we can't
+    actually classify -- ambiguous titles (role_category == OTHER with no
+    non-technical/seniority signal) come back UNKNOWN rather than a
+    confident verdict in either direction.
+    """
+    reasons: list[dict] = []
+
+    if job.is_non_technical:
+        reasons.append(
+            _relevance_reason(
+                "role_scope",
+                Relevance.NOT_RELEVANT.value,
+                f"\"{job.title}\" looks like a non-technical position (administrative/business/sales/HR/legal/"
+                "finance-style title), outside your configured technical-role scope.",
+            )
+        )
+        return Relevance.NOT_RELEVANT, reasons
+
+    if job.seniority_level in (
+        SeniorityLevel.STAFF_OR_PRINCIPAL,
+        SeniorityLevel.MANAGER_OR_DIRECTOR,
+        SeniorityLevel.EXECUTIVE,
+    ):
+        reasons.append(
+            _relevance_reason(
+                "seniority",
+                Relevance.NOT_RELEVANT.value,
+                f"Job title indicates a {job.seniority_level.value.replace('_', ' ')} level position, which does "
+                "not match an internship / new-grad / early-career profile.",
+            )
+        )
+        return Relevance.NOT_RELEVANT, reasons
+
+    if job.seniority_level == SeniorityLevel.SENIOR:
+        reasons.append(
+            _relevance_reason(
+                "seniority",
+                Relevance.UNKNOWN.value,
+                "Job title includes a \"senior\"-style keyword; relevance to an early-career profile is uncertain "
+                "rather than ruled out.",
+            )
+        )
+        return Relevance.UNKNOWN, reasons
+
+    if job.role_category.value == "other":
+        reasons.append(
+            _relevance_reason(
+                "role_scope",
+                Relevance.UNKNOWN.value,
+                "Could not confidently classify this role as technical or non-technical from the title alone.",
+            )
+        )
+        return Relevance.UNKNOWN, reasons
+
+    reasons.append(
+        _relevance_reason(
+            "role_scope",
+            Relevance.RELEVANT.value,
+            f"\"{job.title}\" is a recognized technical role ({job.role_category.value}) at an "
+            "early-career-appropriate seniority level.",
+        )
+    )
+    return Relevance.RELEVANT, reasons
+
+
+# A job that is NOT_RELEVANT (non-technical title, or director+ seniority)
+# should never display a numerically "decent" match score just because it
+# happens to be remote and full-time -- that is the exact bug reported for
+# the Singapore "Administrative Business Partner" example. We keep the raw
+# per-factor reasons from compute_match_score() for transparency, but add
+# an explicit cap + reason so the final number can never be misleadingly
+# non-trivial for an out-of-scope role.
+NOT_RELEVANT_SCORE_CAP = 10
+
+
+def apply_relevance_cap(score: int, reasons: list[dict], relevance: Relevance) -> tuple[int, list[dict]]:
+    if relevance != Relevance.NOT_RELEVANT or score <= NOT_RELEVANT_SCORE_CAP:
+        return score, reasons
+
+    capped_reasons = reasons + [
+        {
+            "factor": "relevance_cap",
+            "weight": None,
+            "contribution": NOT_RELEVANT_SCORE_CAP - score,
+            "detail": (
+                f"Score capped at {NOT_RELEVANT_SCORE_CAP} because this role was classified as not relevant to "
+                "your technical job search (see relevance reasons) -- a high per-factor score here would be "
+                "coincidental, not meaningful."
+            ),
+        }
+    ]
+    return NOT_RELEVANT_SCORE_CAP, capped_reasons
 
 
 def assess_eligibility(candidate: Candidate, job: Job) -> tuple[Eligibility, list[dict]]:

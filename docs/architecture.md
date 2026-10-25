@@ -123,8 +123,8 @@ careerpilot/
 | 2 | Configurable Job Source Registry | **Implemented.** `job_sources` table + admin-editable config for which employer boards to poll per provider. |
 | 3 | Job Discovery & Normalization | **Implemented** for Greenhouse, Lever, Ashby. |
 | 4 | Job Deduplication | **Implemented.** Canonical URL normalization + content hash + per-source external ID uniqueness. |
-| 5 | Eligibility Checking | **Implemented**, rule-based only (work authorization / sponsorship / grad-date window / location). |
-| 6 | Explainable Match Scoring | **Implemented**, rule-based with a reasons breakdown returned to the UI. |
+| 5 | Eligibility Checking | **Implemented**, rule-based only (work authorization / sponsorship / grad-date window / location). As of Phase 2, deliberately scoped to *hard application requirements only* — see §6a for why this is a separate concept from Relevance. |
+| 6 | Explainable Match Scoring | **Implemented**, rule-based with a reasons breakdown returned to the UI; a `Relevance.NOT_RELEVANT` verdict caps the score (see §6a) so an out-of-scope role can never show a coincidentally high number. |
 | 7 | Resume Tailoring & Versioning | Not built. Schema reserves `resumes`/`resume_versions` tables conceptually (documented, not migrated). |
 | 8 | AI Provider Management | Not built. Interface sketched in architecture only; no code. |
 | 9 | Application Answer Library | Not built. |
@@ -156,6 +156,39 @@ careerpilot/
 - `app/scheduling` — APScheduler `BackgroundScheduler` configured from settings
   (`DISCOVERY_INTERVAL_MINUTES`), calls the same `discovery_service` entry point the manual
   "Run discovery" button uses, so there is exactly one code path for discovery.
+
+### 6a. Eligibility vs. Relevance vs. Match Score (added Phase 2)
+
+Three signals are computed per (job, candidate) and must never be collapsed into one verdict or
+conflated in the UI:
+
+- **Eligibility** (`Eligibility`: `eligible` / `ineligible` / `unknown`) — whether an *explicit,
+  hard application requirement* is satisfied: work authorization/sponsorship, graduation-date
+  window. This is narrow by design. A job can be fully `eligible` and still be a terrible fit —
+  eligibility says nothing about whether the role is technical, senior-appropriate, or in-scope.
+- **Relevance** (`Relevance`: `relevant` / `not_relevant` / `unknown`) — whether the posting falls
+  within the candidate's stated career scope at all: is it a technical role, and is the seniority
+  level appropriate for an early-career candidate? Computed from title-keyword inference
+  (`SeniorityLevel`, `is_non_technical` — see `app/sources/normalize.py`), deliberately simple and
+  explainable rather than ML-based. Absence of a seniority/category keyword yields `unknown`, never
+  a silently-assumed "fine" — this project never treats missing information as satisfied.
+- **Match score** (0–100) — numeric strength of alignment against the candidate's preferences
+  (role category, location, employment type, remote/hybrid/on-site). If `Relevance.NOT_RELEVANT`,
+  the score is capped at a low ceiling (10) via `apply_relevance_cap` regardless of how well
+  secondary factors happen to line up, because a "decent" score on an out-of-scope role is
+  coincidental, not meaningful.
+
+**Concrete motivating example** (a real bug this fixes): an "Administrative Business Partner"
+role in Singapore was shown as `eligible` (correctly — no sponsorship/grad-date blocker exists for
+that posting) with a match score of 5/100, while the candidate's minimum-score-to-surface
+preference was 51. Two separate problems, both now fixed:
+
+1. The minimum-score preference (`min_match_score_to_surface`) was never actually enforced
+   anywhere in job listing — fixed by `job_service.list_jobs`'s `view=recommended` behavior.
+2. `eligible` alone was misleading without a visible, separate `relevance` signal — the job *is*
+   eligible (no hard requirement blocks it) and simultaneously *not relevant* (non-technical,
+   executive-titled role, completely outside a SWE job search). The UI renders both as distinct
+   badges so neither implies the other.
 
 ## 7. Error handling, timeouts, retries, rate limits
 
@@ -203,6 +236,12 @@ These are listed so that Phase 1 code does not have to be reworked later:
   job list (saved/dismissed/new), "Run discovery" button, and the latest discovery run status.
   All data comes from real backend endpoints; **no hardcoded job data**. Loading/empty/error UI
   states are implemented explicitly per data-fetching hook, not simulated.
+- `src/components/JobsSection.tsx` (added Phase 2) — "Recommended" vs. "All Jobs" view toggle, a
+  sort dropdown (7 deterministic orderings, always tie-broken server-side by `Job.id`), a
+  combinable advanced-filter panel with a "Clear filters" button, and page-at-a-time pagination
+  driven by the real total count from the `X-Total-Count` response header (never just the count
+  of the currently-loaded page). All filtering is display-only — see §6a and `job_service.list_jobs`
+  — a job discovered once stays in the database no matter how it's filtered out of view.
 - State management: React Query–style data fetching is implemented with small custom hooks using
   `useState`/`useEffect` to avoid adding a dependency in Phase 1; revisit if complexity grows.
 
@@ -219,3 +258,58 @@ These are listed so that Phase 1 code does not have to be reworked later:
 - A small number of **manual/opt-in live checks** may hit real public job board endpoints during
   development to validate adapters against reality, but these are not part of the default test
   suite (so CI stays deterministic) and are explicitly noted when run.
+
+## 11. Future: AI Application Agent (requirements only — **not implemented in this iteration**)
+
+This section documents target requirements for modules 7–13 (Resume Tailoring, AI Provider
+Management, Application Answer Library, Form Automation Adapters, Submission Authorization
+Policy Engine, Application Queue & State Machine, Application Tracker) in more concrete detail
+than §5's module map, so future implementation work has a clear spec to build against. **No code
+for any of the following exists yet; this is documentation only**, per explicit instruction.
+
+The agent's responsibilities, once built, will be:
+
+1. **Open supported application forms.** Given a job's `apply_url`, detect and open the
+   application form for platforms the Form Automation Adapters module explicitly supports
+   (allow-listed, not a generic scraper).
+2. **Tailor and upload a resume.** Select/generate a resume version (module 7) relevant to the
+   specific posting and attach it to the form.
+3. **Auto-fill standard fields.** Name, email, phone, school, graduation date, links, etc. from
+   the verified Candidate Profile / Fact Vault (module 1) — never fabricated, never guessed.
+4. **Draft personalized free-response answers.** Using verified candidate facts plus writing
+   samples (module 9, Application Answer Library) to produce draft answers to open-ended
+   application questions, always presented for review before use.
+5. **Maintain a reusable, learning answer library.** Approved answers are stored and reused for
+   similar future questions; the library is updated based on the candidate's edits to drafts, so
+   quality improves over time instead of regenerating from scratch every time.
+6. **Detect missing information and ask, rather than guess.** If a form field or question
+   requires information not present (and not inferable with high confidence) in the Fact Vault,
+   the agent must pause and explicitly ask the candidate — mirroring this project's existing
+   "never silently assume" rule for eligibility/relevance (§6a).
+7. **Support an explicit autonomous submission mode**, gated by:
+   - a standing authorization policy the candidate configures in advance (what kinds of
+     applications may be auto-submitted, and under what conditions),
+   - a per-site/per-platform permission check (submission is only attempted on platforms
+     explicitly enabled, never a default-allow),
+   - and a requirement that every answer used was previously verified/approved — no
+     never-reviewed answer is used.
+8. **Hard safety boundaries, non-negotiable:**
+   - Never fabricate personal information under any circumstance.
+   - Never attempt to bypass anti-bot controls (CAPTCHAs, bot-detection challenges) — if a
+     platform blocks automation, the agent stops and flags it for manual handling, it does not
+     try to work around the block.
+   - Never submit on a platform not explicitly present on the allow-list, no matter how
+     confident the match score or answer quality.
+9. **Record genuine submission confirmations only.** An application is only marked `submitted` in
+   the Application Tracker (module 13) when the target platform returns real confirmation (a
+   confirmation page/ID/email receipt) — never optimistically marked based on "the form was
+   filled out" or "no error was thrown".
+10. **Prevent duplicate submissions and support an emergency stop.** The Application Queue state
+    machine (module 12) must make it structurally impossible to submit the same
+    (candidate, job) pair twice, and a single, always-checked kill switch (the "emergency pause
+    switch" already reserved in §8) must be able to halt all in-flight and future autonomous
+    submissions immediately.
+
+None of the above has any corresponding code path today — there is no form automation, no AI
+provider integration, and no submission logic anywhere in the Phase 1/2 codebase, so none of
+these risks are reachable by construction, not merely by configuration.

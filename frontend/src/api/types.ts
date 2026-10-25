@@ -25,6 +25,29 @@ export type TriggerType = 'manual' | 'scheduled';
 export type RunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'partial';
 export type JobState = 'new' | 'saved' | 'dismissed';
 export type Eligibility = 'eligible' | 'ineligible' | 'unknown';
+// Deliberately separate from Eligibility (hard requirements) and from
+// match_score (numeric alignment) -- see docs/architecture.md §6. A job can
+// be `eligible` (no visa/timing blocker) and still `not_relevant` (e.g. a
+// non-technical or director-level posting); the UI must never conflate
+// these two.
+export type Relevance = 'relevant' | 'not_relevant' | 'unknown';
+export type SeniorityLevel =
+  | 'entry'
+  | 'senior'
+  | 'staff_or_principal'
+  | 'manager_or_director'
+  | 'executive'
+  | 'unknown';
+// Query-param-only, never persisted -- see backend JobSort/JobView.
+export type JobSort =
+  | 'score_desc'
+  | 'score_asc'
+  | 'most_eligible_first'
+  | 'newest_first'
+  | 'oldest_first'
+  | 'company_asc'
+  | 'company_desc';
+export type JobView = 'recommended' | 'all';
 
 export interface Candidate {
   id: number;
@@ -115,6 +138,8 @@ export interface MatchReason {
 export interface JobAssessment {
   eligibility: Eligibility;
   eligibility_reasons: MatchReason[];
+  relevance: Relevance;
+  relevance_reasons: MatchReason[];
   match_score: number;
   match_reasons: MatchReason[];
   computed_at: string;
@@ -128,6 +153,8 @@ export interface Job {
   employment_type: EmploymentType;
   role_category: RoleCategory;
   remote_type: RemoteType;
+  seniority_level: SeniorityLevel;
+  is_non_technical: boolean;
   description_text: string;
   apply_url: string;
   canonical_url: string;
@@ -173,4 +200,31 @@ export interface SchedulerStatus {
   enabled: boolean;
   interval_minutes: number;
   running: boolean;
+}
+
+/** Display-only filters for `GET /api/jobs` -- never deletes/hides jobs
+ * from the database, only from a given query's result set. */
+export interface ListJobsParams {
+  view?: JobView;
+  states?: JobState[];
+  include_inactive?: boolean;
+  min_score?: number;
+  role_categories?: RoleCategory[];
+  employment_types?: EmploymentType[];
+  remote_types?: RemoteType[];
+  eligibility?: Eligibility[];
+  relevance?: Relevance[];
+  companies?: string[];
+  location?: string;
+  posted_within_days?: number;
+  sort?: JobSort;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListJobsResult {
+  jobs: Job[];
+  /** Count across the *entire* filtered result set, not just this page --
+   * read from the `X-Total-Count` response header. */
+  total: number;
 }

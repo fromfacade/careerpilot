@@ -13,7 +13,7 @@ import html
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from app.models.enums import EmploymentType, RemoteType, RoleCategory
+from app.models.enums import EmploymentType, RemoteType, RoleCategory, SeniorityLevel
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -181,3 +181,103 @@ def infer_remote_type(locations: list[str], raw_hint: str | None) -> RemoteType:
             return RemoteType.REMOTE
 
     return RemoteType.UNKNOWN
+
+
+# --- Seniority + "is this a technical role at all" inference -------------
+# These feed `Relevance` (app/services/eligibility_service.py), which is
+# kept deliberately separate from `Eligibility`: a non-technical or
+# director-level posting is not a "hard requirement" failure, it's simply
+# out of scope for an early-career technical job search. Keyword rules are
+# intentionally simple/transparent, not ML-based, same rationale as the
+# role-category rules above. Order matters within each list: first match
+# wins. Known simplification: a handful of ambiguous titles (e.g. "Lead
+# Product Manager" vs "Engineering Lead") may be misclassified; this is a
+# title-only heuristic, not a parse of the full job description.
+
+_EXECUTIVE_KEYWORDS = ["chief ", "chief technology", " cto ", " ceo ", " coo ", " cfo ", "vice president", " vp ", " vp,", "president"]
+_MANAGER_OR_DIRECTOR_KEYWORDS = ["director", "head of", "engineering manager", "people manager", " manager"]
+_STAFF_OR_PRINCIPAL_KEYWORDS = ["principal ", "staff ", "distinguished "]
+_SENIOR_KEYWORDS = ["senior ", "sr. ", "sr ", " lead ", "lead "]
+
+# Checked in this order: most senior signal wins if a title (unusually)
+# contains multiple keywords, e.g. "Senior Director" -> manager_or_director.
+_SENIORITY_RULES: list[tuple[list[str], SeniorityLevel]] = [
+    (_EXECUTIVE_KEYWORDS, SeniorityLevel.EXECUTIVE),
+    (_MANAGER_OR_DIRECTOR_KEYWORDS, SeniorityLevel.MANAGER_OR_DIRECTOR),
+    (_STAFF_OR_PRINCIPAL_KEYWORDS, SeniorityLevel.STAFF_OR_PRINCIPAL),
+    (_SENIOR_KEYWORDS, SeniorityLevel.SENIOR),
+]
+
+# Deliberately excludes titles like "account manager", "product manager" is
+# NOT excluded (genuinely a people/strategy leadership signal worth
+# surfacing), but we do avoid over-matching generic "manager" substrings
+# inside unrelated words by requiring a leading space/boundary above.
+_MANAGER_FALSE_POSITIVE_GUARDS = ["account manager", "office manager"]
+
+
+def infer_seniority_level(title: str) -> SeniorityLevel:
+    title_lower = f" {title.lower()} "  # pad so leading-space keyword checks match at string start too
+
+    if any(guard in title_lower for guard in _MANAGER_FALSE_POSITIVE_GUARDS):
+        # "Account Manager" / "Office Manager" are not people-management
+        # seniority signals in the sense we care about here. Strip the
+        # generic "manager" keyword's match for these titles and fall
+        # through to the remaining rules (most such titles end up UNKNOWN,
+        # which is correct — we don't actually know their seniority).
+        remaining_rules = [(kws, lvl) for kws, lvl in _SENIORITY_RULES if lvl != SeniorityLevel.MANAGER_OR_DIRECTOR]
+    else:
+        remaining_rules = _SENIORITY_RULES
+
+    for keywords, level in remaining_rules:
+        if any(keyword in title_lower for keyword in keywords):
+            return level
+    return SeniorityLevel.UNKNOWN
+
+
+# Non-technical role keywords: deliberately scoped to clearly
+# administrative/business/sales/HR/legal/finance titles, matching the
+# user's stated technical-only scope (SWE/backend/full-stack/infra/AI
+# engineering/cybersecurity/QA/IT support). Ambiguous roles (e.g. product
+# management, design) are intentionally NOT flagged here to avoid false
+# positives — they fall through to RoleCategory.OTHER and an UNKNOWN
+# relevance signal instead of a confident NOT_RELEVANT one.
+_NON_TECHNICAL_KEYWORDS = [
+    "business partner",
+    "administrative",
+    "executive assistant",
+    "office manager",
+    "chief of staff",
+    "recruiter",
+    "recruiting",
+    "talent acquisition",
+    "sourcer",
+    "sales",
+    "account executive",
+    "account manager",
+    "business development",
+    "marketing",
+    "communications",
+    "public relations",
+    "copywriter",
+    "paralegal",
+    "legal counsel",
+    "attorney",
+    "human resources",
+    " hr ",
+    "people operations",
+    "people ops",
+    "accountant",
+    "accounting",
+    "bookkeeper",
+    "payroll",
+    "procurement",
+    "facilities",
+    "real estate",
+    "customer success",
+    "customer support",
+]
+
+
+def infer_is_non_technical(title: str) -> bool:
+    title_lower = f" {title.lower()} "
+    return any(keyword in title_lower for keyword in _NON_TECHNICAL_KEYWORDS)

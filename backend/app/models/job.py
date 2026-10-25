@@ -18,7 +18,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 from app.models.base import TimestampMixin, pg_enum
-from app.models.enums import Eligibility, EmploymentType, JobState, RemoteType, RoleCategory
+from app.models.enums import Eligibility, EmploymentType, JobState, Relevance, RemoteType, RoleCategory, SeniorityLevel
 
 
 class Job(TimestampMixin, Base):
@@ -45,6 +45,15 @@ class Job(TimestampMixin, Base):
         nullable=False,
         default=RemoteType.UNKNOWN,
         server_default=RemoteType.UNKNOWN.value,
+    )
+    seniority_level: Mapped[SeniorityLevel] = mapped_column(
+        pg_enum(SeniorityLevel, "seniority_level_enum"),
+        nullable=False,
+        default=SeniorityLevel.UNKNOWN,
+        server_default=SeniorityLevel.UNKNOWN.value,
+    )
+    is_non_technical: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
     )
     description_text: Mapped[str] = mapped_column(Text, nullable=False)
     apply_url: Mapped[str] = mapped_column(Text, nullable=False)
@@ -118,6 +127,13 @@ class JobAssessment(Base):
         server_default=Eligibility.UNKNOWN.value,
     )
     eligibility_reasons: Mapped[list] = mapped_column(JSONB().with_variant(JSON, "sqlite"), nullable=False, default=list)
+    relevance: Mapped[Relevance] = mapped_column(
+        pg_enum(Relevance, "relevance_enum"),
+        nullable=False,
+        default=Relevance.UNKNOWN,
+        server_default=Relevance.UNKNOWN.value,
+    )
+    relevance_reasons: Mapped[list] = mapped_column(JSONB().with_variant(JSON, "sqlite"), nullable=False, default=list)
     match_score: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     match_reasons: Mapped[list] = mapped_column(JSONB().with_variant(JSON, "sqlite"), nullable=False, default=list)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

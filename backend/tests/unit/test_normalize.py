@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.models.enums import EmploymentType, RemoteType, RoleCategory
+from app.models.enums import EmploymentType, RemoteType, RoleCategory, SeniorityLevel
 from app.sources import normalize
 
 
@@ -127,3 +127,61 @@ class TestInferRemoteType:
 
     def test_unknown_when_no_signal(self):
         assert normalize.infer_remote_type(["San Francisco, CA"], None) == RemoteType.UNKNOWN
+
+
+class TestInferSeniorityLevel:
+    def test_entry_level_titles_are_unknown_not_assumed_entry(self):
+        # We never guess ENTRY from a title alone -- only an explicit
+        # senior+ keyword produces a non-UNKNOWN result.
+        assert normalize.infer_seniority_level("Software Engineering Intern") == SeniorityLevel.UNKNOWN
+        assert normalize.infer_seniority_level("Software Engineer I") == SeniorityLevel.UNKNOWN
+
+    def test_senior(self):
+        assert normalize.infer_seniority_level("Senior Software Engineer") == SeniorityLevel.SENIOR
+        assert normalize.infer_seniority_level("Sr. Backend Engineer") == SeniorityLevel.SENIOR
+
+    def test_staff_or_principal(self):
+        assert normalize.infer_seniority_level("Staff Software Engineer") == SeniorityLevel.STAFF_OR_PRINCIPAL
+        assert normalize.infer_seniority_level("Principal Engineer") == SeniorityLevel.STAFF_OR_PRINCIPAL
+
+    def test_manager_or_director(self):
+        assert normalize.infer_seniority_level("Director of Engineering") == SeniorityLevel.MANAGER_OR_DIRECTOR
+        assert normalize.infer_seniority_level("Engineering Manager") == SeniorityLevel.MANAGER_OR_DIRECTOR
+        assert normalize.infer_seniority_level("Head of Platform") == SeniorityLevel.MANAGER_OR_DIRECTOR
+
+    def test_executive(self):
+        assert normalize.infer_seniority_level("Chief Technology Officer") == SeniorityLevel.EXECUTIVE
+        assert normalize.infer_seniority_level("VP of Engineering") == SeniorityLevel.EXECUTIVE
+
+    def test_most_senior_signal_wins_on_conflicting_keywords(self):
+        assert normalize.infer_seniority_level("Senior Director of Engineering") == SeniorityLevel.MANAGER_OR_DIRECTOR
+
+    def test_account_and_office_manager_are_not_flagged_as_management(self):
+        # These are the exact real-world titles that motivated this guard --
+        # "Account Manager" / "Office Manager" are not people-leadership
+        # seniority signals, and we'd rather say UNKNOWN than mislabel them.
+        assert normalize.infer_seniority_level("Strategic Account Manager") == SeniorityLevel.UNKNOWN
+        assert normalize.infer_seniority_level("Office Manager") == SeniorityLevel.UNKNOWN
+
+
+class TestInferIsNonTechnical:
+    def test_administrative_business_partner_is_non_technical(self):
+        # The exact real-world example that motivated this: a job titled
+        # "Administrative Business Partner" must never be treated as a
+        # relevant match for a technical job search.
+        assert normalize.infer_is_non_technical("Administrative Business Partner") is True
+
+    def test_recruiting_sales_and_hr_titles_are_non_technical(self):
+        assert normalize.infer_is_non_technical("Technical Recruiter") is True
+        assert normalize.infer_is_non_technical("Account Executive") is True
+        assert normalize.infer_is_non_technical("HR Business Partner") is True
+
+    def test_software_engineer_is_not_flagged(self):
+        assert normalize.infer_is_non_technical("Senior Software Engineer") is False
+
+    def test_product_manager_and_designer_are_not_flagged(self):
+        # Deliberately ambiguous roles are left alone here (see comment in
+        # normalize.py) rather than risk a false "not relevant" verdict --
+        # they fall through to an UNKNOWN relevance signal instead.
+        assert normalize.infer_is_non_technical("Product Manager") is False
+        assert normalize.infer_is_non_technical("Product Designer") is False

@@ -109,3 +109,56 @@ class Eligibility(str, enum.Enum):
     ELIGIBLE = "eligible"
     INELIGIBLE = "ineligible"
     UNKNOWN = "unknown"
+
+
+class Relevance(str, enum.Enum):
+    """Whether a job falls within the candidate's stated career scope
+    (technical category + an early-career-appropriate seniority level) —
+    deliberately separate from `Eligibility` (hard application requirements)
+    and from `match_score` (how strongly it aligns numerically). A job can
+    be ELIGIBLE (no visa/timing blocker) and still NOT_RELEVANT (e.g. a
+    non-technical or director-level posting), and the two must never be
+    conflated in the UI. See docs/architecture.md §6."""
+
+    RELEVANT = "relevant"
+    NOT_RELEVANT = "not_relevant"
+    UNKNOWN = "unknown"
+
+
+class SeniorityLevel(str, enum.Enum):
+    """Inferred from the job title only (keyword-based, explainable — see
+    app/sources/normalize.py:infer_seniority_level). Defaults to UNKNOWN
+    rather than guessing ENTRY when no seniority keyword is present, per
+    the project's "never silently assume" rule for anything that feeds
+    eligibility/relevance."""
+
+    ENTRY = "entry"
+    SENIOR = "senior"
+    STAFF_OR_PRINCIPAL = "staff_or_principal"
+    MANAGER_OR_DIRECTOR = "manager_or_director"
+    EXECUTIVE = "executive"
+    UNKNOWN = "unknown"
+
+
+class JobSort(str, enum.Enum):
+    """Query-param-only enum (never persisted to the DB) describing how
+    `GET /api/jobs` should order the *entire* filtered result set before
+    pagination — see job_service.list_jobs."""
+
+    SCORE_DESC = "score_desc"
+    SCORE_ASC = "score_asc"
+    MOST_ELIGIBLE_FIRST = "most_eligible_first"
+    NEWEST_FIRST = "newest_first"
+    OLDEST_FIRST = "oldest_first"
+    COMPANY_ASC = "company_asc"
+    COMPANY_DESC = "company_desc"
+
+
+class JobView(str, enum.Enum):
+    """Query-param-only enum selecting which pre-baked filter set to apply
+    on top of any explicit filters. ALL never excludes/deletes anything —
+    it is purely a display filter; every discovered job always stays in
+    the database regardless of which view is active."""
+
+    RECOMMENDED = "recommended"
+    ALL = "all"

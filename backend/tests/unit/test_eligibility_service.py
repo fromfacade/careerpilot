@@ -20,14 +20,21 @@ from app.models.enums import (
     EmploymentType,
     JobProvider,
     LocationPreferenceType,
+    Relevance,
     RemoteType,
     RoleCategory,
+    SeniorityLevel,
     TriState,
     WorkAuthStatus,
 )
 from app.models.job import Job, JobLocation
 from app.models.job_source import Employer, JobSource
-from app.services.eligibility_service import assess_eligibility, compute_match_score
+from app.services.eligibility_service import (
+    apply_relevance_cap,
+    assess_eligibility,
+    assess_relevance,
+    compute_match_score,
+)
 
 
 def _make_job(
@@ -37,6 +44,8 @@ def _make_job(
     role_category: RoleCategory = RoleCategory.SWE_BACKEND,
     employment_type: EmploymentType = EmploymentType.FULL_TIME,
     remote_type: RemoteType = RemoteType.UNKNOWN,
+    seniority_level: SeniorityLevel = SeniorityLevel.UNKNOWN,
+    is_non_technical: bool = False,
     description_text: str = "Build great software.",
     locations: list[str] | None = None,
 ) -> Job:
@@ -53,6 +62,8 @@ def _make_job(
         role_category=role_category,
         employment_type=employment_type,
         remote_type=remote_type,
+        seniority_level=seniority_level,
+        is_non_technical=is_non_technical,
         description_text=description_text,
         apply_url="https://example.com/apply",
         canonical_url="https://example.com/apply",
@@ -346,3 +357,153 @@ class TestMatchScoring:
 
         assert score == sum(r["contribution"] for r in reasons)
         assert score == 100
+
+
+class TestAssessRelevance:
+    def test_non_technical_role_is_not_relevant_regardless_of_eligibility(self, db_session):
+        # The exact real-world case that motivated this feature: a US-based
+        # CS student with no sponsorship need, looking at a non-technical
+        # "Administrative Business Partner" role in Singapore. Eligibility
+        # (sponsorship/timing) has nothing to say about this -- it's a
+        # relevance problem, and must be labeled as such, not as
+        # "ineligible".
+        candidate = _make_candidate(
+            db_session, work_authorization_status=WorkAuthStatus.US_CITIZEN, requires_sponsorship=TriState.NO
+        )
+        job = _make_job(
+            db_session,
+            title="Administrative Business Partner",
+            role_category=RoleCategory.OTHER,
+            employment_type=EmploymentType.FULL_TIME,
+            remote_type=RemoteType.HYBRID,
+            is_non_technical=True,
+            locations=["Singapore, Singapore"],
+        )
+
+        eligibility, _ = assess_eligibility(candidate, job)
+        relevance, relevance_reasons = assess_relevance(candidate, job)
+
+        # Eligibility is genuinely ELIGIBLE here (no sponsorship conflict,
+        # no applicable graduation-timing rule) -- that is correct and must
+        # not be papered over. The bug was never equating "eligible" with
+        # "you should apply"; relevance is what communicates that instead.
+        assert eligibility == Eligibility.ELIGIBLE
+        assert relevance == Relevance.NOT_RELEVANT
+        assert any(r["rule"] == "role_scope" for r in relevance_reasons)
+
+    def test_director_level_role_is_not_relevant(self, db_session):
+        candidate = _make_candidate(db_session)
+        job = _make_job(
+            db_session,
+            title="Director of Engineering",
+            role_category=RoleCategory.SWE_BACKEND,
+            seniority_level=SeniorityLevel.MANAGER_OR_DIRECTOR,
+        )
+
+        relevance, reasons = assess_relevance(candidate, job)
+
+        assert relevance == Relevance.NOT_RELEVANT
+        assert any(r["rule"] == "seniority" for r in reasons)
+
+    def test_senior_role_is_uncertain_not_ruled_out(self, db_session):
+        candidate = _make_candidate(db_session)
+        job = _make_job(
+            db_session,
+            title="Senior Software Engineer",
+            role_category=RoleCategory.SWE_BACKEND,
+            seniority_level=SeniorityLevel.SENIOR,
+        )
+
+        relevance, _ = assess_relevance(candidate, job)
+
+        assert relevance == Relevance.UNKNOWN
+
+    def test_entry_level_technical_role_is_relevant(self, db_session):
+        candidate = _make_candidate(db_session)
+        job = _make_job(
+            db_session,
+            title="Software Engineering Intern",
+            role_category=RoleCategory.SWE_BACKEND,
+            employment_type=EmploymentType.INTERNSHIP,
+        )
+
+        relevance, reasons = assess_relevance(candidate, job)
+
+        assert relevance == Relevance.RELEVANT
+        assert any(r["rule"] == "role_scope" and r["result"] == "relevant" for r in reasons)
+
+    def test_ambiguous_other_category_is_unknown_not_assumed_relevant(self, db_session):
+        candidate = _make_candidate(db_session)
+        job = _make_job(db_session, title="Technical Program Manager", role_category=RoleCategory.OTHER)
+
+        relevance, reasons = assess_relevance(candidate, job)
+
+        assert relevance == Relevance.UNKNOWN
+        assert any(r["rule"] == "role_scope" and r["result"] == "unknown" for r in reasons)
+
+
+class TestApplyRelevanceCap:
+    def test_caps_score_for_not_relevant_jobs(self):
+        reasons = [{"factor": "remote_alignment", "weight": 10, "contribution": 60, "detail": "coincidental"}]
+        score, capped_reasons = apply_relevance_cap(60, reasons, Relevance.NOT_RELEVANT)
+
+        assert score == 10
+        assert sum(r["contribution"] for r in capped_reasons) == 10
+        assert any(r["factor"] == "relevance_cap" for r in capped_reasons)
+
+    def test_does_not_cap_relevant_jobs(self):
+        reasons = [{"factor": "role_category", "weight": 40, "contribution": 40, "detail": "match"}]
+        score, capped_reasons = apply_relevance_cap(40, reasons, Relevance.RELEVANT)
+
+        assert score == 40
+        assert capped_reasons == reasons
+
+    def test_does_not_raise_score_that_is_already_below_cap(self):
+        reasons: list[dict] = []
+        score, capped_reasons = apply_relevance_cap(0, reasons, Relevance.NOT_RELEVANT)
+
+        assert score == 0
+        assert capped_reasons == reasons
+
+    def test_realistic_singapore_example_end_to_end(self, db_session):
+        # Reproduces the user-reported bug exactly: full-time, hybrid,
+        # non-technical role far from any configured location preference.
+        # Role (0) + location (0) + employment_type (0, prefs want
+        # internship) + remote (5, hybrid is neutral) = 5/100 raw, which is
+        # what was actually observed -- but because it's NOT_RELEVANT, it
+        # must stay capped and clearly explained, not just "coincidentally
+        # low".
+        candidate = _make_candidate(db_session)
+        prefs = CandidatePreference(
+            candidate_id=candidate.id, remote_ok=True, target_employment_types=[EmploymentType.INTERNSHIP]
+        )
+        db_session.add(prefs)
+        db_session.add(
+            CandidateLocationPreference(
+                candidate_id=candidate.id, label="California", location_type=LocationPreferenceType.STATE, priority=0
+            )
+        )
+        db_session.add(
+            CandidateRolePreference(candidate_id=candidate.id, role_category=RoleCategory.SWE_BACKEND, priority=0)
+        )
+        db_session.flush()
+        db_session.refresh(candidate)
+
+        job = _make_job(
+            db_session,
+            title="Administrative Business Partner",
+            role_category=RoleCategory.OTHER,
+            employment_type=EmploymentType.FULL_TIME,
+            remote_type=RemoteType.HYBRID,
+            is_non_technical=True,
+            locations=["Singapore, Singapore"],
+        )
+
+        raw_score, match_reasons = compute_match_score(job, candidate.preferences)
+        relevance, _ = assess_relevance(candidate, job)
+        final_score, final_reasons = apply_relevance_cap(raw_score, match_reasons, relevance)
+
+        assert raw_score == 5
+        assert relevance == Relevance.NOT_RELEVANT
+        assert final_score == 5  # already below the cap -- stays as-is, no misleading inflation to begin with
+        assert final_reasons == match_reasons

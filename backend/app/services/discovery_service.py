@@ -69,6 +69,8 @@ def _upsert_job(db: Session, job_source: JobSource, employer_name: str, raw: Raw
     employment_type = normalize.infer_employment_type(raw.title, raw.employment_type_hint)
     role_category = normalize.infer_role_category(raw.title)
     remote_type = normalize.infer_remote_type(raw.locations, raw.remote_hint)
+    seniority_level = normalize.infer_seniority_level(raw.title)
+    is_non_technical = normalize.infer_is_non_technical(raw.title)
     canonical_url = normalize.normalize_url(raw.canonical_url or raw.apply_url)
     apply_url = raw.apply_url or raw.canonical_url
     content_hash = normalize.compute_content_hash(raw.title, description_text, raw.locations)
@@ -88,6 +90,8 @@ def _upsert_job(db: Session, job_source: JobSource, employer_name: str, raw: Raw
             existing.employment_type = employment_type
             existing.role_category = role_category
             existing.remote_type = remote_type
+            existing.seniority_level = seniority_level
+            existing.is_non_technical = is_non_technical
             existing.apply_url = apply_url
             existing.canonical_url = canonical_url
             existing.content_hash = content_hash
@@ -112,6 +116,8 @@ def _upsert_job(db: Session, job_source: JobSource, employer_name: str, raw: Raw
         employment_type=employment_type,
         role_category=role_category,
         remote_type=remote_type,
+        seniority_level=seniority_level,
+        is_non_technical=is_non_technical,
         description_text=description_text,
         apply_url=apply_url,
         canonical_url=canonical_url,
