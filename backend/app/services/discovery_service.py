@@ -35,11 +35,26 @@ from app.sources.registry import get_adapter
 logger = get_logger(__name__)
 
 
+def _dedupe_preserving_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        key = value.strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            result.append(value)
+    return result
+
+
 def _replace_locations(db: Session, job: Job, location_strings: list[str]) -> None:
     for existing in list(job.locations):
         db.delete(existing)
     db.flush()
-    for raw_text in location_strings:
+    # Real-world providers (observed: Ashby) sometimes list the same office
+    # in both the primary `location` and `secondaryLocations` fields; dedupe
+    # defensively here regardless of which adapter produced the list, since
+    # (job_id, raw_text) is a unique constraint.
+    for raw_text in _dedupe_preserving_order(location_strings):
         db.add(
             JobLocation(
                 job_id=job.id,
