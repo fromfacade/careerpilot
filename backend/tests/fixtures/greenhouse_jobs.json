@@ -1,0 +1,31 @@
+{
+  "jobs": [
+    {
+      "id": 1001,
+      "title": "Software Engineer, Backend Infrastructure",
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/1001",
+      "location": { "name": "San Francisco, CA" },
+      "content": "&lt;p&gt;Join our &lt;strong&gt;backend infrastructure&lt;/strong&gt; team.&lt;/p&gt;",
+      "updated_at": "2026-10-20T10:00:00-07:00",
+      "first_published": "2026-10-01T09:00:00-07:00"
+    },
+    {
+      "id": 1002,
+      "title": "Software Engineering Intern - Summer 2027",
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/1002",
+      "location": { "name": "Remote - US" },
+      "content": "&lt;p&gt;Internship for students graduating in 2027 or 2028.&lt;/p&gt;",
+      "updated_at": "2026-10-18T10:00:00-07:00",
+      "first_published": "2026-10-05T09:00:00-07:00"
+    },
+    {
+      "id": 1003,
+      "title": "IT Support Specialist",
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/1003",
+      "location": { "name": "Seattle, WA" },
+      "content": "&lt;p&gt;Provide desktop support to employees.&lt;/p&gt;",
+      "updated_at": "2026-10-15T10:00:00-07:00",
+      "first_published": "2026-09-20T09:00:00-07:00"
+    }
+  ]
+}

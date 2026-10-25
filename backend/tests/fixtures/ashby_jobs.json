@@ -1,0 +1,56 @@
+{
+  "apiVersion": "1",
+  "jobs": [
+    {
+      "id": "b2c3d4e5-0000-0000-0000-000000000001",
+      "title": "New Grad Software Engineer",
+      "department": "Engineering",
+      "team": "Engineering",
+      "employmentType": "FullTime",
+      "location": "Seattle, Washington",
+      "secondaryLocations": [],
+      "publishedAt": "2026-09-15T12:00:00.000Z",
+      "isListed": true,
+      "isRemote": false,
+      "workplaceType": "Onsite",
+      "jobUrl": "https://jobs.ashbyhq.com/acme/b2c3d4e5-0000-0000-0000-000000000001",
+      "applyUrl": "https://jobs.ashbyhq.com/acme/b2c3d4e5-0000-0000-0000-000000000001/application",
+      "descriptionHtml": "<p>Join as a new grad engineer.</p>",
+      "descriptionPlain": "Join as a new grad engineer."
+    },
+    {
+      "id": "b2c3d4e5-0000-0000-0000-000000000002",
+      "title": "QA Engineer",
+      "department": "Engineering",
+      "team": "Quality",
+      "employmentType": "Intern",
+      "location": "San Jose, California",
+      "secondaryLocations": [],
+      "publishedAt": "2026-09-10T12:00:00.000Z",
+      "isListed": true,
+      "isRemote": false,
+      "workplaceType": "Hybrid",
+      "jobUrl": "https://jobs.ashbyhq.com/acme/b2c3d4e5-0000-0000-0000-000000000002",
+      "applyUrl": "https://jobs.ashbyhq.com/acme/b2c3d4e5-0000-0000-0000-000000000002/application",
+      "descriptionHtml": "<p>QA internship for Summer 2027.</p>",
+      "descriptionPlain": "QA internship for Summer 2027."
+    },
+    {
+      "id": "b2c3d4e5-0000-0000-0000-000000000003",
+      "title": "Unlisted Draft Role",
+      "department": "Engineering",
+      "team": "Engineering",
+      "employmentType": "FullTime",
+      "location": "Remote",
+      "secondaryLocations": [],
+      "publishedAt": "2026-09-01T12:00:00.000Z",
+      "isListed": false,
+      "isRemote": true,
+      "workplaceType": "Remote",
+      "jobUrl": "https://jobs.ashbyhq.com/acme/b2c3d4e5-0000-0000-0000-000000000003",
+      "applyUrl": "https://jobs.ashbyhq.com/acme/b2c3d4e5-0000-0000-0000-000000000003/application",
+      "descriptionHtml": "<p>Should never appear in results.</p>",
+      "descriptionPlain": "Should never appear in results."
+    }
+  ]
+}

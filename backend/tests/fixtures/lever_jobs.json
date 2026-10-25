@@ -1,0 +1,34 @@
+[
+  {
+    "id": "a1b2c3d4-0000-0000-0000-000000000001",
+    "text": "Full Stack Engineer",
+    "categories": {
+      "commitment": "Full-time",
+      "location": "New York, New York",
+      "team": "Engineering",
+      "allLocations": ["New York, New York"]
+    },
+    "hostedUrl": "https://jobs.lever.co/acme/a1b2c3d4-0000-0000-0000-000000000001",
+    "applyUrl": "https://jobs.lever.co/acme/a1b2c3d4-0000-0000-0000-000000000001/apply",
+    "createdAt": 1759276800000,
+    "descriptionPlain": "Build and ship full stack features end to end.",
+    "description": "<p>Build and ship full stack features end to end.</p>",
+    "workplaceType": "hybrid"
+  },
+  {
+    "id": "a1b2c3d4-0000-0000-0000-000000000002",
+    "text": "Security Engineer",
+    "categories": {
+      "commitment": "Full-time",
+      "location": "Remote - US",
+      "team": "Security",
+      "allLocations": ["Remote - US"]
+    },
+    "hostedUrl": "https://jobs.lever.co/acme/a1b2c3d4-0000-0000-0000-000000000002",
+    "applyUrl": "https://jobs.lever.co/acme/a1b2c3d4-0000-0000-0000-000000000002/apply",
+    "createdAt": 1759536000000,
+    "descriptionPlain": "Protect our systems. We are not able to sponsor work visas for this role.",
+    "description": "<p>Protect our systems. We are not able to sponsor work visas for this role.</p>",
+    "workplaceType": "remote"
+  }
+]
