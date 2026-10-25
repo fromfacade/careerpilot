@@ -3,13 +3,25 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.exceptions import ConflictError
 from app.models.enums import TriggerType
 from app.schemas.discovery import DiscoveryRunRead, DiscoveryRunSourceRead
+from app.scheduling.scheduler import is_scheduler_running
 from app.services import candidate_service, discovery_service, job_service
 
 router = APIRouter(prefix="/api/discovery", tags=["discovery"])
+
+
+@router.get("/scheduler-status")
+def scheduler_status():
+    settings = get_settings()
+    return {
+        "enabled": settings.discovery_scheduler_enabled,
+        "interval_minutes": settings.discovery_interval_minutes,
+        "running": is_scheduler_running(),
+    }
 
 
 def _to_read(run) -> DiscoveryRunRead:

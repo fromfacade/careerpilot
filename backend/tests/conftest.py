@@ -10,6 +10,14 @@ session into an external transaction" pattern.
 
 from __future__ import annotations
 
+import os
+
+# Must happen before any `app.*` module is imported: app.core.config.get_settings()
+# is process-wide cached, and we never want the periodic APScheduler job
+# running against the real engine during a test session (it would bypass the
+# per-test transaction rollback and could fire against real credentials).
+os.environ.setdefault("DISCOVERY_SCHEDULER_ENABLED", "false")
+
 from pathlib import Path
 
 import pytest

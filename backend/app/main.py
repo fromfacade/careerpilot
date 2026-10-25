@@ -12,6 +12,7 @@ from app.api.job_sources import router as job_sources_router
 from app.api.jobs import router as jobs_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
+from app.scheduling.scheduler import start_scheduler, stop_scheduler
 
 logger = get_logger(__name__)
 
@@ -19,7 +20,9 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("careerpilot_api_startup", extra={"extra_fields": {"version": app.version}})
+    start_scheduler()
     yield
+    stop_scheduler()
     logger.info("careerpilot_api_shutdown")
 
 
