@@ -181,6 +181,37 @@ class TestDiscoveryServiceEndToEnd:
         duplicates = [j for j in all_jobs if j.duplicate_of_job_id is not None]
         assert len(duplicates) == 3  # the second source's 3 jobs are flagged as duplicates
 
+    def test_duplicate_raw_location_strings_from_provider_do_not_crash(self, db_session, monkeypatch):
+        # Regression test: a real Ashby response (OpenAI's board, encountered
+        # during manual live verification) listed the same office in both
+        # `location` and `secondaryLocations`, which violated the
+        # (job_id, raw_text) unique constraint on job_locations before the
+        # dedupe fix in discovery_service._replace_locations.
+        self._make_job_source_helper(db_session)
+        fixture = {
+            "jobs": [
+                {
+                    "id": "dup-loc-1",
+                    "title": "Backend Engineer",
+                    "absolute_url": "https://boards.greenhouse.io/acme/jobs/dup-loc-1",
+                    "location": {"name": "San Francisco, CA, San Francisco, CA"},
+                    "content": "Build things.",
+                    "updated_at": "2026-10-20T10:00:00-07:00",
+                }
+            ]
+        }
+        _install_fake_get(monkeypatch, {"acme-gh": fixture})
+
+        run = discovery_service.run_discovery(db_session, TriggerType.MANUAL)
+
+        assert run.status == RunStatus.SUCCEEDED
+        job = db_session.execute(select(Job)).scalars().one()
+        assert len(job.locations) == 1  # deduped
+
+    @staticmethod
+    def _make_job_source_helper(db):
+        return _make_job_source(db, employer_name="Acme Corp", provider=JobProvider.GREENHOUSE, board_token="acme-gh")
+
     def test_discovery_run_rejected_while_one_is_in_progress(self, db_session, monkeypatch):
         from app.core.exceptions import ConflictError
 
