@@ -151,7 +151,7 @@ docker-compose.yml, backend/Dockerfile, frontend/Dockerfile   (untested, see abo
 
 ## Current status
 
-Phase 1 is implemented and its full test suite passes (92 backend tests; frontend type-checks and
+Phase 1 is implemented and its full test suite passes (119 backend tests; frontend type-checks and
 builds cleanly). See `docs/implementation-plan.md` for the increment-by-increment checklist and
 `docs/architecture.md` for where later-phase safety requirements (submission policy engine,
 pause switch, audit logging) will attach once that work begins.
