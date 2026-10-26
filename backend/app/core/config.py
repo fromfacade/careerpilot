@@ -41,6 +41,16 @@ class Settings(BaseSettings):
     discovery_scheduler_enabled: bool = Field(default=True)
     discovery_interval_minutes: int = Field(default=180)
 
+    # --- Resumes (Phase 2.1) ---
+    resume_storage_dir: str = Field(
+        default="storage/resumes",
+        description="Directory (relative to the backend process cwd, or absolute) where "
+        "uploaded resume files are written. Never committed -- see .gitignore.",
+    )
+    resume_max_upload_mb: float = Field(
+        default=10.0, description="Reject uploads larger than this before writing to disk."
+    )
+
     @property
     def cors_allowed_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]

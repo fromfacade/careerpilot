@@ -8,6 +8,7 @@ from app.models.candidate import Candidate, CandidateLocationPreference, Candida
 from app.models.discovery import DiscoveryRun, DiscoveryRunSource
 from app.models.job import Job, JobAssessment, JobCandidateState, JobLocation
 from app.models.job_source import Employer, JobSource
+from app.models.resume import CandidateFact, Resume
 
 __all__ = [
     "Candidate",
@@ -22,4 +23,6 @@ __all__ = [
     "JobAssessment",
     "DiscoveryRun",
     "DiscoveryRunSource",
+    "Resume",
+    "CandidateFact",
 ]

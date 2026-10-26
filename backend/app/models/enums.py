@@ -162,3 +162,59 @@ class JobView(str, enum.Enum):
 
     RECOMMENDED = "recommended"
     ALL = "all"
+
+
+class ResumeFileFormat(str, enum.Enum):
+    """The only two formats milestone 2.1 accepts. Any other extension or
+    content-type is rejected at upload time (HTTP 415) before anything is
+    written to disk — see app/api/resumes.py."""
+
+    PDF = "pdf"
+    DOCX = "docx"
+
+
+class ResumeParseStatus(str, enum.Enum):
+    """`failed` means text extraction itself raised (corrupt/unreadable
+    file) — zero facts are created, but the original upload is still
+    persisted (immutability: a parse failure never loses the file). The
+    SUCCESS/PARTIAL/FAILED spectrum mirrors the job-source FetchStatus
+    pattern: one failure must never crash the whole request."""
+
+    PENDING = "pending"
+    SUCCESS = "success"
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
+class FactType(str, enum.Enum):
+    """Categories pulled from a resume per Phase 2 objective #2. `OTHER` is
+    the explicit, never-silently-dropped fallback bucket used when section
+    detection can't confidently segment some or all of the document — see
+    app/resume_parsing/section_parser.py."""
+
+    EDUCATION = "education"
+    SKILL = "skill"
+    PROJECT = "project"
+    WORK_EXPERIENCE = "work_experience"
+    ACHIEVEMENT = "achievement"
+    OTHER = "other"
+
+
+class FactSource(str, enum.Enum):
+    RESUME_EXTRACTION = "resume_extraction"
+    MANUAL_ENTRY = "manual_entry"
+
+
+class FactVerificationStatus(str, enum.Enum):
+    """Deliberately no numeric confidence score (see docs/data-model.md).
+    Every fact starts UNVERIFIED and only a human action
+    (PATCH /api/candidate/facts/{id}) can move it to VERIFIED/EDITED/
+    REJECTED — `verified_at` is set at that point, never automatically.
+    Rejected facts are kept (status flips), never hard-deleted, matching
+    this project's existing soft-state philosophy (jobs.is_active,
+    duplicate_of_job_id)."""
+
+    UNVERIFIED = "unverified"
+    VERIFIED = "verified"
+    EDITED = "edited"
+    REJECTED = "rejected"

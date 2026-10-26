@@ -5,6 +5,7 @@ import { JobSourcesPanel } from '../components/JobSourcesPanel'
 import { JobsSection } from '../components/JobsSection'
 import { PreferencesPanel } from '../components/PreferencesPanel'
 import { ProfilePanel } from '../components/ProfilePanel'
+import { ResumePanel } from '../components/ResumePanel'
 import { ErrorBlock } from '../components/StatusViews'
 
 export function Dashboard() {
@@ -33,6 +34,7 @@ export function Dashboard() {
 
       <ProfilePanel onChanged={bump} />
       <PreferencesPanel onChanged={bump} />
+      <ResumePanel />
       <JobSourcesPanel />
       <DiscoveryPanel onRunCompleted={bump} />
       <JobsSection refreshSignal={refreshSignal} />

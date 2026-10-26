@@ -23,6 +23,25 @@ class ValidationError(CareerPilotError):
     """Raised for business-rule validation failures not already caught by Pydantic."""
 
 
+class UnsupportedFileFormatError(CareerPilotError):
+    """Raised at the API boundary when an uploaded file's extension/content
+    type isn't one of the explicitly supported resume formats. Mapped to
+    HTTP 415 -- the file is rejected before anything is written to disk."""
+
+
+class FileTooLargeError(CareerPilotError):
+    """Raised when an uploaded file exceeds `settings.resume_max_upload_mb`.
+    Mapped to HTTP 413, checked before writing anything to disk."""
+
+
+class ResumeExtractionError(CareerPilotError):
+    """Raised by app/resume_parsing/extractors.py when text cannot be
+    pulled from an otherwise-correctly-formatted file (corrupt/encrypted/
+    empty PDF or DOCX). Caught by resume_service, which still persists the
+    original upload with parse_status=FAILED -- a parse failure must never
+    lose the file (immutability requirement) or crash the request."""
+
+
 class JobSourceFetchError(CareerPilotError):
     """Raised by job source adapters when a fetch ultimately fails after retries.
 

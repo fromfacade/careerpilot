@@ -50,7 +50,7 @@ table so later phases (multiple resume targets, multi-user) don't require a rede
 | `linkedin_url` | `TEXT` | NULL | |
 | `github_url` | `TEXT` | NULL | |
 | `portfolio_url` | `TEXT` | NULL | |
-| `base_resume_filename` | `TEXT` | NULL | reserved for Phase 2 resume module; not used in Phase 1 |
+| `base_resume_filename` | `TEXT` | NULL | unused legacy placeholder — Phase 2.1's resume module uses the separate `resumes` table (§2a.1) instead, so a candidate can have more than one uploaded resume over time; this column is not read or written by any code |
 | `notes` | `TEXT` | NULL | free-form, candidate-authored |
 | `created_at` | `TIMESTAMPTZ` | NOT NULL, default `now()` | |
 | `updated_at` | `TIMESTAMPTZ` | NOT NULL, default `now()` | updated on write |
@@ -240,6 +240,65 @@ the dashboard is fast and so there's a record of *why* a score was what it was a
 | `computed_at` | `TIMESTAMPTZ` | NOT NULL, default `now()` | |
 | UNIQUE | | `(job_id, candidate_id)` | upserted on recompute |
 
+## 2a. Phase 2.1 tables — resume upload, parsing, verified fact storage
+
+Added for Phase 2 milestone 2.1 (module 1/9 "Verified Fact Vault" + module 7 "Resume Tailoring"
+prerequisites). Migration: `alembic/versions/6503438e5cd3_add_resumes_and_candidate_facts.py`.
+
+### 2a.1 `resumes`
+
+One row per uploaded resume file. **Immutable by construction**: no update/delete endpoint
+exists for this table or the files it references — the only writes are the initial `INSERT` at
+upload time and the one-time `parse_status`/`parse_error` set during that same request. This is
+how "maintain an immutable copy of the original resume" is enforced: not by convention, but by
+the absence of any code path that could mutate a row after creation.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `BIGSERIAL` | PK | |
+| `candidate_id` | `BIGINT` | NOT NULL, FK → `candidates.id` ON DELETE CASCADE | |
+| `original_filename` | `TEXT` | NOT NULL | client-supplied name, display only — never used to build a filesystem path |
+| `file_format` | `resume_file_format_enum` | NOT NULL | `pdf, docx` |
+| `storage_path` | `TEXT` | NOT NULL | path under `resume_storage_dir` (gitignored, see `.gitignore` `backend/storage/`); filename is the SHA-256 checksum + extension, never the client-supplied name, to eliminate path-traversal risk |
+| `file_size_bytes` | `BIGINT` | NOT NULL | |
+| `sha256_checksum` | `TEXT` | NOT NULL | content hash; re-uploading identical bytes reuses the same stored file |
+| `parse_status` | `resume_parse_status_enum` | NOT NULL, default `pending` | `pending, success, partial, failed` — `partial` means at least one extracted fact fell back to `FactType.OTHER` (headers not fully recognized), `failed` means text extraction itself raised |
+| `parse_error` | `TEXT` | NULL | human-readable extraction failure detail, set only when `parse_status = failed` |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | NOT NULL | |
+
+### 2a.2 `candidate_facts`
+
+A verified-fact row extracted from a resume (or, later, entered manually). This is the concrete
+implementation of the "generalized fact vault" sketched in the old §5 below, scoped for Phase
+2.1 to resume-derived facts only.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `BIGSERIAL` | PK | |
+| `candidate_id` | `BIGINT` | NOT NULL, FK → `candidates.id` ON DELETE CASCADE | |
+| `resume_id` | `BIGINT` | NULL, FK → `resumes.id` ON DELETE CASCADE | null reserved for future non-resume-sourced facts (e.g. manual entry) |
+| `fact_type` | `fact_type_enum` | NOT NULL | `education, skill, project, work_experience, achievement, other` — `other` is the explicit, non-fabricating fallback bucket used when section headers aren't recognized |
+| `fact_key` | `TEXT` | NOT NULL | short label, e.g. institution name, employer name, skill category |
+| `fact_value` | `JSONB` | NOT NULL | structured payload, shape varies by `fact_type` (e.g. `{bullets: [...], dates_text: "..."}` for work experience; `{items: [...]}` for skills) |
+| `raw_text` | `TEXT` | NULL | the verbatim source block this fact was parsed from, kept for human review/audit — never discarded even after the structured fields are extracted |
+| `source` | `fact_source_enum` | NOT NULL, default `resume_extraction` | `resume_extraction, manual_entry` |
+| `verification_status` | `fact_verification_status_enum` | NOT NULL, default `unverified` | `unverified, verified, edited, rejected` — see note below on why this replaces a numeric confidence score |
+| `verified_at` | `TIMESTAMPTZ` | NULL | set whenever `verification_status` changes away from its current value |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | NOT NULL | |
+
+**Deviation from the original §5 sketch, intentional:** the original sketch below lists a numeric
+`confidence` column. Phase 2.1 omits it in favor of `verification_status`, an explicit human
+review state machine (`unverified → verified | edited | rejected`). A numeric confidence score
+implies a precision the deterministic section parser doesn't actually have, and risks being
+treated as "good enough, don't bother reviewing" past some threshold — which conflicts directly
+with "never fabricate experience/qualifications" and "use AI for language improvements... not for
+inventing facts." Requiring an explicit human action instead keeps the uncertainty honest.
+
+**Dates are never parsed into a real `DATE`.** `fact_value.dates_text`, when present, is the
+verbatim matched substring (e.g. `"Sep 2021 - Jun 2025"`) — never coerced into a `date` object,
+since doing so would assert a precision (exact day) the source resume text doesn't actually give.
+This mirrors the existing `graduation_date_precision` pattern on `candidates`.
+
 ## 3. Enum reference
 
 | Enum | Values |
@@ -258,6 +317,11 @@ the dashboard is fast and so there's a record of *why* a score was what it was a
 | `run_status_enum` | `pending, running, succeeded, failed, partial` |
 | `job_state_enum` | `new, saved, dismissed` |
 | `eligibility_enum` | `eligible, ineligible, unknown` |
+| `resume_file_format_enum` | `pdf, docx` |
+| `resume_parse_status_enum` | `pending, success, partial, failed` |
+| `fact_type_enum` | `education, skill, project, work_experience, achievement, other` |
+| `fact_source_enum` | `resume_extraction, manual_entry` |
+| `fact_verification_status_enum` | `unverified, verified, edited, rejected` |
 
 ## 4. Deduplication strategy (module 4)
 
@@ -278,17 +342,19 @@ URL normalization (used for `canonical_url` and indirectly for dedupe) lower-cas
 host, strips default ports, strips known tracking query params (`utm_*`, `gh_src`, `lever-source`,
 etc.), and removes trailing slashes.
 
-## 5. Future (not migrated in Phase 1)
+## 5. Future (not migrated yet)
 
-Documented here so Phase 1 tables are designed to not conflict with them later — **no migration
+Documented here so existing tables are designed to not conflict with them later — **no migration
 for these exists yet**:
 
-- `candidate_facts` — generalized verified-fact vault: `(candidate_id, fact_key, fact_value,
-  source, confidence, verified_at)` for arbitrary screening-question answers (module 1/9).
-- `resumes`, `resume_versions` — base resume + tailored variants per job, with generated DOCX/PDF
-  file references (module 7).
+- `candidate_facts` sourced from `manual_entry` (screening-question answers not derived from a
+  resume) — the table and `source` enum value already exist (§2a.2) and support this; only the
+  manual-entry UI/endpoint is not built yet (module 9).
+- `resume_versions` — job-specific tailored variants of a base `resumes` row, with a diff against
+  the original and generated DOCX/PDF file references (module 7, Phase 2 milestones 2.3/2.4).
+  `resumes`/`candidate_facts` themselves are now implemented — see §2a.
 - `ai_provider_configs` — provider name, mode (`cloud/local/mock`), model, endpoint, active flag
-  (module 8).
+  (module 8, Phase 2 milestone 2.2).
 - `application_answers` — reusable Q&A pairs with a `requires_human_review` flag (module 9).
 - `applications` — the submission queue/state machine (module 12): `state` enum including
   `blocked_pending_review`, `authorized`, `submitted`, `confirmed`, `failed`, etc.

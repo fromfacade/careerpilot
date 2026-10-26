@@ -10,6 +10,7 @@ from app.api.discovery import router as discovery_router
 from app.api.health import router as health_router
 from app.api.job_sources import router as job_sources_router
 from app.api.jobs import router as jobs_router
+from app.api.resumes import facts_router, resumes_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
 from app.scheduling.scheduler import start_scheduler, stop_scheduler
@@ -45,6 +46,8 @@ def create_app() -> FastAPI:
     app.include_router(job_sources_router)
     app.include_router(jobs_router)
     app.include_router(discovery_router)
+    app.include_router(resumes_router)
+    app.include_router(facts_router)
 
     return app
 

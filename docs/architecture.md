@@ -85,6 +85,7 @@ careerpilot/
 │   │   ├── api/                    # FastAPI routers (thin HTTP layer only)
 │   │   ├── services/               # business logic, orchestration, pure-ish functions
 │   │   ├── sources/                # job source adapters (greenhouse/lever/ashby) + registry
+│   │   ├── resume_parsing/         # PDF/DOCX text extraction + deterministic section parsing (Phase 2.1); no network calls
 │   │   ├── scheduling/             # APScheduler setup and discovery job wiring
 │   │   └── tests -> (see backend/tests)
 │   ├── tests/
@@ -119,14 +120,14 @@ careerpilot/
 
 | # | Module | Phase 1 status |
 |---|--------|------------------|
-| 1 | Candidate Profile & Verified Fact Vault | **Partial.** Core profile fields (grad date, work authorization, sponsorship) implemented directly on the candidate profile. The generalized fact vault (arbitrary Q&A facts with provenance/confidence, used by the Answer Library) is designed in the data model but not implemented. |
+| 1 | Candidate Profile & Verified Fact Vault | **Partial.** Core profile fields (grad date, work authorization, sponsorship) implemented directly on the candidate profile. Resume-derived facts (education/skills/projects/experience/achievements, with a human `verification_status`) are implemented as of Phase 2.1 — see §6b. Manual-entry Q&A facts for the future Answer Library (module 9) are not yet implemented. |
 | 2 | Configurable Job Source Registry | **Implemented.** `job_sources` table + admin-editable config for which employer boards to poll per provider. |
 | 3 | Job Discovery & Normalization | **Implemented** for Greenhouse, Lever, Ashby. |
 | 4 | Job Deduplication | **Implemented.** Canonical URL normalization + content hash + per-source external ID uniqueness. |
 | 5 | Eligibility Checking | **Implemented**, rule-based only (work authorization / sponsorship / grad-date window / location). As of Phase 2, deliberately scoped to *hard application requirements only* — see §6a for why this is a separate concept from Relevance. |
 | 6 | Explainable Match Scoring | **Implemented**, rule-based with a reasons breakdown returned to the UI; a `Relevance.NOT_RELEVANT` verdict caps the score (see §6a) so an out-of-scope role can never show a coincidentally high number. |
-| 7 | Resume Tailoring & Versioning | Not built. Schema reserves `resumes`/`resume_versions` tables conceptually (documented, not migrated). |
-| 8 | AI Provider Management | Not built. Interface sketched in architecture only; no code. |
+| 7 | Resume Tailoring & Versioning | **Partial (Phase 2.1).** Upload, deterministic PDF/DOCX text extraction, and section parsing into verified `candidate_facts` are implemented — see §6b. Job-specific tailoring, diffing, versioning, and ATS export are later milestones (2.3/2.4), not built. |
+| 8 | AI Provider Management | Not built. Interface sketched in architecture only; no code. Zero network calls exist anywhere in the Phase 2.1 resume pipeline — see §6b. |
 | 9 | Application Answer Library | Not built. |
 | 10 | Form Automation Adapters | Not built. |
 | 11 | Submission Authorization Policy Engine | Not built. Autonomous submission stays disabled by construction — there is no submission code path in Phase 1. |
@@ -189,6 +190,46 @@ preference was 51. Two separate problems, both now fixed:
    eligible (no hard requirement blocks it) and simultaneously *not relevant* (non-technical,
    executive-titled role, completely outside a SWE job search). The UI renders both as distinct
    badges so neither implies the other.
+
+### 6b. Resume upload & verified fact extraction (Phase 2.1)
+
+- `app/resume_parsing` — pure, offline text processing only. Its module docstring states
+  explicitly that no network calls happen anywhere in this subpackage; this is a structural fact,
+  not a configuration flag, satisfying the requirement "do not send resume content to a cloud AI
+  provider without explicit configuration and authorization" by construction for this milestone.
+  - `extractors.py` — `extract_text(file_bytes, file_format)` dispatches to `pypdf` (PDF) or
+    `python-docx` (DOCX, walking both paragraphs and table cells). Encrypted PDFs, zero-text
+    PDFs, corrupt files of either format, and any other failure raise `ResumeExtractionError` —
+    never silently return empty/partial text as if it were a success.
+  - `section_parser.py` — deterministic (non-AI) section detection by header keyword, blank-line
+    block segmentation with a bullet-transition fallback for resumes without blank lines between
+    entries, and comma/bullet/pipe-aware skills parsing. **Always returns at least one fact for
+    non-empty input**: when no headers are recognized, or a detected section is otherwise empty,
+    the full raw text becomes a single `FactType.OTHER` fact rather than being dropped — content
+    is never silently lost, and structure the source text doesn't actually have is never invented.
+    Dates are extracted as a verbatim matched substring (`dates_text`), never parsed into a `date`
+    object, so no false day-level precision is asserted.
+- `app/services/resume_service.py` — orchestrates upload: validates file size/extension against
+  explicit parameters (`storage_dir`, `max_upload_mb` — not read from global settings internally,
+  mirroring the existing `app/sources/http.py` convention, so the service is testable with a
+  `tmp_path` without monkeypatching process-wide config), computes a SHA-256 checksum, writes the
+  file under that checksum (never the client-supplied filename, to remove any path-traversal
+  surface), persists the `Resume` row, then calls `resume_parsing` inside a `try/except
+  ResumeExtractionError` so a parse failure still leaves the upload and the original file intact
+  with `parse_status=failed` and a recorded error — it never discards an uploaded file just
+  because parsing it failed. The sole mutation path for extracted facts is `update_fact`, which
+  requires an explicit human action (edit content or change `verification_status`) and rejects
+  reverting a fact back to `unverified`.
+- `app/api/resumes.py` — `POST /api/resumes` (multipart upload), `GET /api/resumes`,
+  `GET /api/resumes/{id}`, `GET /api/resumes/{id}/facts`,
+  `GET /api/candidate/facts?fact_type=&verification_status=`,
+  `PATCH /api/candidate/facts/{id}`. **No PATCH/PUT/DELETE exists for a `Resume` row** — this is
+  the concrete mechanism behind "maintain an immutable copy of the original resume."
+- Storage: `backend/storage/resumes/` (configurable via `resume_storage_dir`), excluded from git
+  via the pre-existing `backend/storage/` line in `.gitignore` — uploaded resumes and the PII
+  they contain are never committed.
+- Resume/fact data is strictly additive: no code in this module writes to the `candidates` table.
+  Verified profile fields (graduation date, work authorization, etc.) are untouched by uploads.
 
 ## 7. Error handling, timeouts, retries, rate limits
 

@@ -49,6 +49,19 @@ export type JobSort =
   | 'company_desc';
 export type JobView = 'recommended' | 'all';
 
+// --- Phase 2.1: resume upload, parsing, and verified fact storage ---
+export type ResumeFileFormat = 'pdf' | 'docx';
+// `failed` means text extraction itself raised (corrupt/unreadable file) --
+// the upload is still persisted (immutable), just with zero facts. See
+// docs/architecture.md §6b.
+export type ResumeParseStatus = 'pending' | 'success' | 'partial' | 'failed';
+export type FactType = 'education' | 'skill' | 'project' | 'work_experience' | 'achievement' | 'other';
+export type FactSource = 'resume_extraction' | 'manual_entry';
+// Deliberately no numeric confidence score -- an explicit human review
+// state machine instead. 'unverified' is the only initial state and can
+// never be set again via the API once left -- see CandidateFactUpdateInput.
+export type FactVerificationStatus = 'unverified' | 'verified' | 'edited' | 'rejected';
+
 export interface Candidate {
   id: number;
   full_name: string;
@@ -227,4 +240,55 @@ export interface ListJobsResult {
   /** Count across the *entire* filtered result set, not just this page --
    * read from the `X-Total-Count` response header. */
   total: number;
+}
+
+export interface Resume {
+  id: number;
+  candidate_id: number;
+  original_filename: string;
+  file_format: ResumeFileFormat;
+  file_size_bytes: number;
+  sha256_checksum: string;
+  parse_status: ResumeParseStatus;
+  parse_error: string | null;
+  created_at: string;
+}
+
+export interface ResumeUploadResult {
+  resume: Resume;
+  facts_extracted: number;
+}
+
+/** Shape varies by `fact_type`:
+ * - education / work_experience / project: `{ raw_block, bullets: string[], dates_text: string | null }`
+ * - skill: `{ items: string[] }`
+ * - achievement / other: `{ text: string }`
+ * Rendered generically in `ResumePanel` since the backend never promises
+ * one fixed shape across all fact types. */
+export type FactValue = Record<string, unknown>;
+
+export interface CandidateFact {
+  id: number;
+  candidate_id: number;
+  resume_id: number | null;
+  fact_type: FactType;
+  fact_key: string;
+  fact_value: FactValue;
+  raw_text: string | null;
+  source: FactSource;
+  verification_status: FactVerificationStatus;
+  verified_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CandidateFactUpdateInput {
+  fact_key?: string;
+  fact_value?: FactValue;
+  verification_status?: Exclude<FactVerificationStatus, 'unverified'>;
+}
+
+export interface ListCandidateFactsParams {
+  fact_type?: FactType;
+  verification_status?: FactVerificationStatus;
 }

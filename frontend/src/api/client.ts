@@ -1,14 +1,19 @@
 import type {
   Candidate,
+  CandidateFact,
+  CandidateFactUpdateInput,
   CandidateInput,
   DiscoveryRun,
   Job,
   JobSource,
   JobSourceInput,
   JobState,
+  ListCandidateFactsParams,
   ListJobsParams,
   ListJobsResult,
   Preferences,
+  Resume,
+  ResumeUploadResult,
   SchedulerStatus,
 } from './types';
 
@@ -122,4 +127,43 @@ export const api = {
   listDiscoveryRuns: (limit = 10) => request<DiscoveryRun[]>(`/api/discovery/runs?limit=${limit}`),
   getLatestDiscoveryRun: () => request<DiscoveryRun | null>('/api/discovery/runs/latest'),
   getSchedulerStatus: () => request<SchedulerStatus>('/api/discovery/scheduler-status'),
+
+  // --- Phase 2.1: resume upload, parsing, verified fact review ---
+  // Uses `fetch` directly (not the generic `request` helper) because a
+  // multipart/form-data body must NOT get the `Content-Type: application/json`
+  // header `request` always sets -- the browser sets the correct multipart
+  // boundary itself when given a FormData body.
+  uploadResume: async (file: File): Promise<ResumeUploadResult> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    let response: Response;
+    try {
+      response = await fetch(`${BASE_URL}/api/resumes`, { method: 'POST', body: formData });
+    } catch (err) {
+      throw new ApiError(0, `Could not reach the CareerPilot API at ${BASE_URL}. Is the backend running? (${String(err)})`);
+    }
+    if (!response.ok) {
+      let detail = response.statusText;
+      try {
+        const body = await response.json();
+        detail = body.detail ?? JSON.stringify(body);
+      } catch {
+        // no JSON body
+      }
+      throw new ApiError(response.status, detail);
+    }
+    return (await response.json()) as ResumeUploadResult;
+  },
+  listResumes: () => request<Resume[]>('/api/resumes'),
+  listResumeFacts: (resumeId: number) => request<CandidateFact[]>(`/api/resumes/${resumeId}/facts`),
+  listCandidateFacts: (params?: ListCandidateFactsParams) => {
+    const query = new URLSearchParams();
+    if (params?.fact_type) query.set('fact_type', params.fact_type);
+    if (params?.verification_status) query.set('verification_status', params.verification_status);
+    const qs = query.toString();
+    return request<CandidateFact[]>(`/api/candidate/facts${qs ? `?${qs}` : ''}`);
+  },
+  updateCandidateFact: (factId: number, data: CandidateFactUpdateInput) =>
+    request<CandidateFact>(`/api/candidate/facts/${factId}`, { method: 'PATCH', body: JSON.stringify(data) }),
 };
