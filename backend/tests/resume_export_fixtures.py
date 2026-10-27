@@ -27,7 +27,7 @@ class Candidate:
     school = "UC Santa Cruz"
     linkedin_url = "linkedin.com/in/alexrivera"
     github_url = "github.com/alexrivera"
-    portfolio_url = None
+    portfolio_url = "alexrivera.dev"
 
 
 def realistic_facts() -> list[Fact]:

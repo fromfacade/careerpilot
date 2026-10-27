@@ -752,6 +752,21 @@ def assess_resume_quality(
     }
 
 
+def _trim_extra_bullets(row: dict) -> bool:
+    detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
+    indexes = list(detail.get("included_bullet_indexes") or [])
+    bullets = _as_text_list(detail.get("bullets"))
+    if len(indexes) > 2:
+        detail["included_bullet_indexes"] = indexes[:2]
+        row["detail"] = detail
+        return True
+    if not indexes and len(bullets) > 2:
+        detail["included_bullet_indexes"] = list(range(2))
+        row["detail"] = detail
+        return True
+    return False
+
+
 def hide_lowest_priority_content(document: dict) -> bool:
     """Hide one presentation-only item so a one-page export can fit. Facts stay intact."""
     projects = [row for row in (document.get("projects") or []) if row.get("included") is not False]
@@ -760,23 +775,21 @@ def hide_lowest_priority_content(document: dict) -> bool:
         weakest["included"] = False
         weakest["selection_reason"] = ""
         return True
-    for section in ("projects", "work_experience"):
-        for row in document.get(section) or []:
-            if row.get("included") is False:
-                continue
-            detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
-            indexes = list(detail.get("included_bullet_indexes") or [])
-            bullets = _as_text_list(detail.get("bullets"))
-            if len(indexes) > 2:
-                detail["included_bullet_indexes"] = indexes[:-1]
-                row["detail"] = detail
-                return True
-            if not indexes and len(bullets) > 2:
-                detail["included_bullet_indexes"] = list(range(2))
-                row["detail"] = detail
-                return True
     achievements = [row for row in (document.get("achievements") or []) if row.get("included") is not False]
     if achievements:
         achievements[-1]["included"] = False
         return True
+    for section in ("projects", "work_experience"):
+        for row in document.get(section) or []:
+            if row.get("included") is False:
+                continue
+            if _trim_extra_bullets(row):
+                return True
     return False
+
+
+def ranked_project_rows(document: dict) -> list[dict]:
+    return sorted(
+        document.get("projects") or [],
+        key=lambda row: (-(row.get("relevance") or 0), row.get("fact_id") or 0),
+    )

@@ -14,19 +14,25 @@ from pypdf import PdfReader
 
 from app.core.exceptions import ValidationError
 from app.services.resume_tailor import (
+    _MAX_PROJECTS,
+    _MIN_PROJECTS,
     _SECTION_TITLES,
     ascii_safe,
     assess_resume_quality,
     flatten_tailored_lines,
     hide_lowest_priority_content,
     iter_resume_lines,
+    ranked_project_rows,
     structured_entry_lines,
+    _project_reason,
+    _trim_extra_bullets,
 )
 
 _SECTION_HEADINGS = set(_SECTION_TITLES.values())
 _BODY_PT = 10
 _NAME_PT = 14
 _SECTION_PT = 11
+_PAGE_FIT_MARGIN_MM = 10.0
 
 
 def _pdf_safe(text: str) -> str:
@@ -215,17 +221,109 @@ def _sparse_last_page(pages: list[str]) -> bool:
     return len(last) < 80 or last.count("\n") < 3
 
 
+def _is_manual_budget(document: dict) -> bool:
+    return (document.get("presentation") or {}).get("page_budget") == "manual"
+
+
+def _usable_page_height() -> float:
+    pdf = FPDF(format="Letter")
+    pdf.set_margins(17, 14, 17)
+    pdf.set_auto_page_break(auto=False, margin=14)
+    pdf.add_page()
+    return pdf.page_break_trigger - pdf.t_margin
+
+
+def _estimated_height(document: dict) -> float:
+    pdf = FPDF(format="Letter")
+    pdf.set_margins(17, 14, 17)
+    pdf.set_auto_page_break(auto=False, margin=14)
+    pdf.add_page()
+    return sum(_measure_line(pdf, kind, text) for kind, text in iter_resume_lines(document))
+
+
+def _one_page_with_skills(document: dict) -> bool:
+    if _estimated_height(document) > _usable_page_height() - _PAGE_FIT_MARGIN_MM:
+        return False
+    pages, texts = _pdf_page_stats(_render_pdf_document(document))
+    if pages != 1:
+        return False
+    first = texts[0] if texts else ""
+    has_skills = any(row.get("included") is not False for row in (document.get("skills") or []))
+    return (not has_skills) or "SKILLS" in first
+
+
+def _set_included(row: dict, included: bool) -> None:
+    row["included"] = included
+    if not included:
+        row["selection_reason"] = ""
+
+
+def _explain_two_pages(document: dict, reason: str) -> None:
+    presentation = document.setdefault("presentation", {})
+    presentation["two_page_reason"] = reason
+
+
 def _apply_one_page_budget(document: dict) -> None:
-    if (document.get("presentation") or {}).get("page_budget") == "manual":
+    """Keep skills on page one by reserving their height before adding projects."""
+    presentation = document.setdefault("presentation", {})
+    if _is_manual_budget(document):
+        pages, _texts = _pdf_page_stats(_render_pdf_document(document))
+        if pages > 1:
+            _explain_two_pages(
+                document,
+                "The entries you included need a second page. Hide a project or achievement if you want a one-page internship resume.",
+            )
+        else:
+            presentation.pop("two_page_reason", None)
         return
-    for _ in range(6):
-        pages, texts = _pdf_page_stats(_render_pdf_document(document))
-        if pages <= 1:
+
+    ranked = ranked_project_rows(document)
+    preferred = [row for row in ranked if row.get("included") is not False]
+    if not preferred:
+        preferred = [row for row in ranked if (row.get("relevance") or 0) >= 4][:_MAX_PROJECTS]
+    achievements = [row for row in (document.get("achievements") or []) if row.get("included") is not False]
+    for row in ranked:
+        _set_included(row, False)
+    for row in document.get("achievements") or []:
+        _set_included(row, False)
+
+    if not _one_page_with_skills(document):
+        while not _one_page_with_skills(document) and hide_lowest_priority_content(document):
+            continue
+        if not _one_page_with_skills(document):
+            _explain_two_pages(document, "Required sections still need more than one page after hiding optional entries.")
             return
-        if pages == 2 and not _sparse_last_page(texts):
-            return
-        if not hide_lowest_priority_content(document):
-            return
+
+    included: list[dict] = []
+    for row in preferred:
+        if len(included) >= _MAX_PROJECTS:
+            break
+        _set_included(row, True)
+        if not row.get("selection_reason"):
+            row["selection_reason"] = _project_reason(row)
+        if _one_page_with_skills(document):
+            included.append(row)
+            continue
+        if _trim_extra_bullets(row) and _one_page_with_skills(document):
+            included.append(row)
+            continue
+        _set_included(row, False)
+        if len(included) >= _MIN_PROJECTS:
+            break
+
+    for row in achievements:
+        _set_included(row, True)
+        if _one_page_with_skills(document):
+            break
+        _set_included(row, False)
+
+    if _one_page_with_skills(document):
+        presentation.pop("two_page_reason", None)
+        return
+    while not _one_page_with_skills(document) and hide_lowest_priority_content(document):
+        continue
+    if not _one_page_with_skills(document):
+        _explain_two_pages(document, "This internship resume still needs a second page after hiding optional entries.")
 
 
 def export_pdf(document: dict, destination: Path) -> Path:
@@ -256,8 +354,16 @@ def validate_export(path: Path, document: dict, *, kind: str) -> None:
         empty_pages = sum(1 for page in pages if len(page.strip()) < 8)
         if empty_pages:
             raise ValidationError(f"PDF export produced {empty_pages} nearly empty page(s).")
-        if _sparse_last_page(pages):
+        if _sparse_last_page(pages) and not _is_manual_budget(document):
             raise ValidationError("PDF export produced a mostly empty second page.")
+        if (
+            not _is_manual_budget(document)
+            and page_count
+            and page_count > 1
+            and any(row.get("included") is not False for row in (document.get("skills") or []))
+            and "SKILLS" not in pages[0]
+        ):
+            raise ValidationError("Skills were pushed off the first page of the internship resume.")
         if pages and len(extracted.strip()) < 40:
             raise ValidationError("PDF export did not contain extractable resume text.")
     else:

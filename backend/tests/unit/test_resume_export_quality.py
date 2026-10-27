@@ -99,6 +99,8 @@ def test_realistic_backend_export_is_one_page_and_renders(tmp_path: Path):
     assert len(pages) == 1
     text = pages[0]
     assert "Alex Rivera" in text
+    assert "github.com/alexrivera" in text
+    assert "alexrivera.dev" in text
     assert "TaskFlow" in text
     assert "GlucoRelay" in text
     assert "PC Build Visual Builder" not in text
@@ -126,3 +128,41 @@ def test_fullstack_export_is_one_page(tmp_path: Path):
     images = _render_pages(pdf_path, tmp_path / "fullstack-pages")
     assert len(images) == 1
     assert _ink_ratio(images[0]) > 0.04
+
+
+def test_three_projects_do_not_push_skills_off_page_one(tmp_path: Path):
+    """Reproduce tailored-resume-4.pdf: three projects left Skills and SHPE on a sparse page 2."""
+    facts = realistic_facts()
+    original = [dict(fact.fact_value) for fact in facts]
+    tailored = tailor_resume(Candidate(), facts, BACKEND_ANALYSIS)
+    extra = " Coordinated deployment notes, structured logging, and production error handling with the rest of the team."
+    for row in tailored["projects"]:
+        if row["title"] in {"TaskFlow", "GlucoRelay", "Spritz"}:
+            row["included"] = True
+            detail = row["detail"] if isinstance(row["detail"], dict) else {}
+            bullets = [f"{item}{extra}" for item in (detail.get("bullets") or [])]
+            detail["bullets"] = bullets
+            detail["included_bullet_indexes"] = list(range(min(3, len(bullets))))
+            row["detail"] = detail
+    for row in tailored["achievements"]:
+        row["included"] = True
+    overloaded = {**tailored, "presentation": {**tailored.get("presentation", {}), "page_budget": "manual"}}
+    from app.services.resume_export import _pdf_page_stats, _render_pdf_document
+
+    overflow_pages, overflow_texts = _pdf_page_stats(_render_pdf_document(overloaded))
+    assert overflow_pages == 2
+    assert "Programming Languages:" in overflow_texts[1] or "SKILLS" in overflow_texts[1]
+    tailored["presentation"]["page_budget"] = "auto"
+    pdf_path = export_pdf(tailored, tmp_path / "overflow.pdf")
+    pages = [page.extract_text() or "" for page in PdfReader(str(pdf_path)).pages]
+    assert len(pages) == 1
+    assert "SKILLS" in pages[0]
+    assert "Programming Languages:" in pages[0]
+    assert "TaskFlow" in pages[0]
+    included_projects = [row["title"] for row in visible_rows(tailored, "projects")]
+    assert len(included_projects) == 2
+    assert "Spritz" not in included_projects
+    images = _render_pages(pdf_path, tmp_path / "overflow-pages")
+    assert len(images) == 1
+    assert _ink_ratio(images[0]) > 0.04
+    assert [fact.fact_value for fact in facts] == original

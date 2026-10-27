@@ -523,7 +523,7 @@ export interface ApplicationPreparation {
       warnings?: string[];
       page_count?: number | null;
     };
-    presentation?: { omitted_fact_ids?: number[]; note?: string };
+    presentation?: { omitted_fact_ids?: number[]; note?: string; page_budget?: string; two_page_reason?: string };
   };
   tailored_resume_status: PreparationItemStatus;
   design_limitation: string;

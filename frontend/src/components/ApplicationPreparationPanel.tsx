@@ -445,6 +445,9 @@ function TailoredResumeEditor({
         </div>
       ) : null}
       {draft.presentation?.note ? <p className="text-xs text-slate-500">{draft.presentation.note}</p> : null}
+      {draft.presentation?.two_page_reason ? (
+        <p className="text-xs text-amber-900">{draft.presentation.two_page_reason}</p>
+      ) : null}
       <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
         <p className="text-center text-lg font-semibold text-slate-900">{header.full_name}</p>
         {contact ? <p className="mt-1 text-center text-xs text-slate-600">{contact}</p> : null}
