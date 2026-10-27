@@ -11,6 +11,7 @@ from app.models.discovery import DiscoveryRun, DiscoveryRunSource
 from app.models.job import Job, JobAssessment, JobCandidateState, JobLocation
 from app.models.job_source import Employer, JobSource
 from app.models.resume import CandidateFact, Resume
+from app.models.writing_sample import WritingSample
 from app.models.writing_style import WritingStyleProfile
 
 __all__ = [
@@ -33,4 +34,5 @@ __all__ = [
     "ApplicationAnswer",
     "ApplicationAnswerFact",
     "WritingStyleProfile",
+    "WritingSample",
 ]

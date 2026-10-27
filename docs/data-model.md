@@ -381,6 +381,22 @@ One row per candidate. Created with editable defaults on first read.
 | `phrases_to_avoid` | `JSONB` | list of strings |
 | `additional_instructions` | `TEXT` | free-form, editable |
 
+### 2c.2 `writing_samples`
+
+Authentic writing examples. Separate from `canonical_facts` and
+`application_answers`. An AI draft is never stored here unless the candidate
+explicitly adopts it (`origin=adopted_from_answer`).
+
+| Column | Type | Notes |
+|---|---|---|
+| `candidate_id` | `BIGINT` FK → `candidates.id` ON DELETE CASCADE | |
+| `body` | `TEXT` | 20–4000 characters |
+| `content_fingerprint` | `TEXT` | unique with candidate_id |
+| `category` | `writing_sample_category_enum` | technical_experience, motivation, general, other |
+| `origin` | `writing_sample_origin_enum` | `user_written` or `adopted_from_answer` only |
+| `is_approved_style_reference` | `BOOLEAN` | generation uses approved samples only |
+| `source_answer_id` | `BIGINT` NULL FK → `application_answers.id` ON DELETE SET NULL | |
+
 ## 3. Enum reference
 
 | Enum | Values |

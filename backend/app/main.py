@@ -14,6 +14,7 @@ from app.api.health import router as health_router
 from app.api.job_sources import router as job_sources_router
 from app.api.jobs import router as jobs_router
 from app.api.resumes import facts_router, resumes_router
+from app.api.writing_samples import router as writing_samples_router
 from app.api.writing_style import router as writing_style_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
@@ -55,6 +56,7 @@ def create_app() -> FastAPI:
     app.include_router(canonical_router)
     app.include_router(answers_router)
     app.include_router(writing_style_router)
+    app.include_router(writing_samples_router)
     app.include_router(ai_router)
 
     return app

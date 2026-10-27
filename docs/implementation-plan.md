@@ -558,3 +558,10 @@ Increments:
 Missing profiles are created with editable defaults.
 
 Status: **milestone 2.2.1 increment 1 complete.**
+
+### 8.2 Increment 2 — writing samples
+
+Separate `writing_samples` table with explicit user-written vs adopted
+origins, fingerprint dedupe, length limits, and approve-for-style-reference.
+
+Status: **milestone 2.2.1 increment 2 complete.**
