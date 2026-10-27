@@ -584,6 +584,7 @@ export interface AutofillPlan {
     eligible_for_attach: boolean;
     review_required: boolean;
     reason: string;
+    upload_name?: string;
   };
   answers: {
     matched: AutofillAnswerField[];

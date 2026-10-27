@@ -120,6 +120,9 @@ export function AutofillReview({ prep }: { prep: ApplicationPreparation }) {
               <p>
                 Selected resume: {plan.resume.display_name || 'None'} ({plan.resume.kind}). {plan.resume.reason}
               </p>
+              {plan.resume.upload_name && (
+                <p className="text-xs text-slate-500">The application will show this file as {plan.resume.upload_name}.</p>
+              )}
               {!plan.resume.eligible_for_attach && (
                 <p className="text-sm text-amber-800">The selected resume will not be attached. {plan.resume.reason}</p>
               )}
@@ -151,9 +154,10 @@ export function AutofillReview({ prep }: { prep: ApplicationPreparation }) {
                 overwrite={overwrite}
                 onToggle={(id, on) => setOverwrite((current) => ({ ...current, [id]: on }))}
               />
-              <PlainList title="Missing information" rows={[...plan.missing_required.map((field) => field.label), ...plan.answers.missing.map((field) => field.label), ...plan.clarification.map((field) => field.uncertainty || field.label)]} />
-              <PlainList title="Sensitive questions" rows={[...plan.sensitive.map((field) => field.label), ...plan.answers.sensitive.map((field) => field.label)]} />
-              <PlainList title="Unsupported fields" rows={plan.unsupported.map((field) => field.label || field.semantic)} />
+              <PlainList title="Missing candidate data" rows={missingRows(plan)} />
+              <PlainList title="Not selected" rows={unmatchedRows(plan)} />
+              <PlainList title="Sensitive questions" rows={[...plan.sensitive.map(fieldReason), ...plan.answers.sensitive.map(answerReason)]} />
+              <PlainList title="Unsupported form controls" rows={plan.unsupported.map(fieldReason)} />
             </>
           )}
           {['ready_to_fill', 'filled_for_review', 'needs_review'].includes(session.state) && (
@@ -280,6 +284,34 @@ function ReplaceChoices({
       </ul>
     </div>
   )
+}
+
+function fieldReason(field: AutofillPlanField): string {
+  return `${field.label}: ${field.uncertainty || 'This field was not filled.'}`
+}
+
+function answerReason(field: AutofillAnswerField): string {
+  return `${field.label}: ${field.uncertainty || 'No approved answer was entered.'}`
+}
+
+function missingRows(plan: NonNullable<AutofillSession['plan']>): string[] {
+  return [
+    ...plan.missing_required.map(fieldReason),
+    ...plan.answers.missing.map(answerReason),
+    ...plan.clarification.filter((field) => isMissing(field.uncertainty)).map(fieldReason),
+  ]
+}
+
+function unmatchedRows(plan: NonNullable<AutofillSession['plan']>): string[] {
+  return [
+    ...plan.clarification.filter((field) => !isMissing(field.uncertainty)).map(fieldReason),
+    ...plan.answers.ambiguous.map(answerReason),
+  ]
+}
+
+function isMissing(uncertainty: string | null): boolean {
+  const text = uncertainty || ''
+  return text.includes('No verified') || text.includes('not a single city') || text.includes('degree level alone')
 }
 
 function fillingPaused(plan: AutofillSession['plan'] | undefined, state: string): boolean {

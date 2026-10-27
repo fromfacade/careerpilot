@@ -20,6 +20,7 @@ _STANDARD = frozenset(
         "last_name",
         "email",
         "phone",
+        "phone_country",
         "location",
         "resume",
         "linkedin",
@@ -316,8 +317,9 @@ def _to_fields(controls: list[Node], ids: dict[str, Node], root: Node) -> list[D
         primary = members[0]
         label, label_source = _question_label(members, ids, root)
         if _phone_country(primary, label):
-            continue
-        semantic, confidence = _classify(primary, label, label_source)
+            semantic, confidence = "phone_country", "high" if label_source and label_source != "placeholder" else "low"
+        else:
+            semantic, confidence = _classify(primary, label, label_source)
         if semantic in _STANDARD and semantic in seen_standard:
             semantic = "unknown"
             confidence = "low"

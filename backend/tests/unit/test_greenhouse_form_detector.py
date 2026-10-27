@@ -252,6 +252,7 @@ def test_greenhouse_custom_controls_are_recognized_once():
     detection = detect_application(URL, GREENHOUSE_LIKE)
     fields = _by_semantic(detection)
     assert fields["phone"].input_type == "tel"
+    assert fields["phone_country"].label == "Country"
     assert fields["location"].element_id == "city"
     assert fields["resume"].input_type == "file"
     assert fields["resume"].required is True

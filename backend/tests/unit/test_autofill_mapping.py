@@ -200,8 +200,11 @@ def test_required_unknown_and_file_fields_are_not_filled():
     plan = plan_autofill(URL, FORM, [], PROFILE)
     unsupported = _by_id(plan.unsupported)
     assert unsupported["job_application[resume]"].input_type == "file"
-    assert unsupported["school"].semantic == "school"
-    assert unsupported["school"].eligible_for_fill is False
+    school = _by_id(plan.clarification)["school"]
+    assert school.semantic == "school"
+    assert school.eligible_for_fill is False
+    assert school.proposed_value is None
+    assert "No verified value" in (school.uncertainty or "")
     assert unsupported["notes"].semantic == "custom_question"
     assert all(item.proposed_value is None for item in plan.unsupported)
 
@@ -230,3 +233,72 @@ def test_archived_fact_is_not_chosen_over_the_profile():
     email = _by_id(blocked.clarification)["job_application[email]"]
     assert email.proposed_value is None
     assert email.eligible_for_fill is False
+
+
+CONTACT = """
+<form id="application">
+  <label for="phone">Phone</label>
+  <label for="phone_country">Country</label>
+  <select id="phone_country" name="job_application[phone_country]">
+    <option>United States +1</option>
+    <option>Canada +1</option>
+    <option>United Kingdom +44</option>
+  </select>
+  <input id="phone" name="job_application[phone]" type="tel">
+  <label for="city">City</label>
+  <input id="city" name="job_application[city]" type="text">
+  <label for="school">School</label>
+  <select id="school" name="school">
+    <option>Example State University</option>
+    <option>Other</option>
+  </select>
+  <label for="degree">Degree</label>
+  <select id="degree" name="degree">
+    <option>Bachelor of Arts</option>
+    <option>Master of Science</option>
+  </select>
+  <label for="discipline">Discipline</label>
+  <input id="discipline" name="discipline" type="text">
+  <label for="start">Start date</label>
+  <input id="start" name="start" type="text">
+  <div role="combobox" aria-label="School"></div>
+</form>
+"""
+
+
+def test_contact_and_education_use_only_exact_verified_values():
+    education = _fact(
+        3,
+        "Example State University",
+        "",
+        fact_type="education",
+        fact_value={"institution": "Example State University", "degree": "B.S. Computer Science", "major": "Computer Science"},
+    )
+    profile = ProfileView(
+        candidate_id=7,
+        full_name="Ada Lovelace",
+        email="ada@example.com",
+        phone="+44 20 7946 0000",
+        location="Austin, TX",
+        school="Should Not Override",
+        major="Should Not Override",
+    )
+    plan = plan_autofill(URL, CONTACT, [education], profile)
+    ready = _by_id(plan.ready)
+    assert ready["job_application[phone]"].proposed_value == "+44 20 7946 0000"
+    assert ready["job_application[phone_country]"].proposed_value == "United Kingdom +44"
+    assert ready["job_application[city]"].proposed_value == "Austin"
+    assert ready["school"].proposed_value == "Example State University"
+    assert ready["discipline"].proposed_value == "Computer Science"
+    degree = _by_id(plan.clarification)["degree"]
+    assert degree.proposed_value is None
+    assert "exactly matches" in (degree.uncertainty or "")
+    assert _by_id(plan.unsupported)["start"].uncertainty == "This control is not a supported application field."
+    shared = ProfileView(candidate_id=7, full_name="Ada", email="ada@example.com", phone="+1 555-0100", location="Austin, TX")
+    ambiguous = plan_autofill(URL, CONTACT, [], shared)
+    country = _by_id(ambiguous.clarification)["job_application[phone_country]"]
+    assert country.proposed_value is None
+    assert "More than one country" in (country.uncertainty or "")
+    bare = ProfileView(candidate_id=7, full_name="Ada", email="ada@example.com", phone="555-0100")
+    missing_code = plan_autofill(URL, CONTACT, [], bare)
+    assert "country code" in (_by_id(missing_code.clarification)["job_application[phone_country]"].uncertainty or "")

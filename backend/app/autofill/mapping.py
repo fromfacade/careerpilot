@@ -16,6 +16,8 @@ from app.autofill.materials import AnswerPlan, Materials, ResumePlan, apply_mate
 _PERSONAL = frozenset(
     {"first_name", "last_name", "email", "phone", "location", "linkedin", "github", "portfolio"}
 )
+_EDUCATION = frozenset({"school", "degree", "discipline"})
+_FILLABLE = _PERSONAL | _EDUCATION | {"phone_country"}
 _UNSUPPORTED = frozenset({"resume", "cover_letter", "custom_question", "unknown"})
 _USABLE = frozenset({"verified", "edited"})
 _KEY_MAP = {
@@ -95,6 +97,8 @@ class ProfileView:
     linkedin_url: str | None = None
     github_url: str | None = None
     portfolio_url: str | None = None
+    school: str | None = None
+    major: str | None = None
 
 
 @dataclass
@@ -209,11 +213,21 @@ def _map_field(detected: DetectedField, facts: list[FactView], profile: ProfileV
         item.semantic = "sensitive"
         item.uncertainty = "This question is sensitive and was left unanswered."
         return item
-    if detected.semantic not in _PERSONAL or detected.input_type == "file":
-        item.uncertainty = "This field is not mapped to candidate contact information."
+    if detected.input_type == "file" or detected.semantic not in _FILLABLE:
+        item.uncertainty = "This control is not a supported application field."
+        return item
+    if detected.input_type == "select" and not detected.options:
+        item.uncertainty = "This dropdown does not expose its choices, so nothing was selected."
         return item
 
-    proposal = _proposal(detected.semantic, facts, profile)
+    if detected.semantic == "phone_country":
+        proposal = _phone_country_proposal(profile, detected.options)
+    elif detected.semantic in _EDUCATION:
+        proposal = _education_proposal(detected.semantic, facts, profile, detected.options)
+    else:
+        proposal = _proposal(detected.semantic, facts, profile)
+        if detected.semantic == "location":
+            proposal = _narrow_location(detected.label, proposal)
     item.proposed_value = proposal.value
     item.proposed_replacement = None
     item.source_fact_id = proposal.fact_id
@@ -226,9 +240,14 @@ def _map_field(detected: DetectedField, facts: list[FactView], profile: ProfileV
     if detected.confidence != "high" and proposal.value is not None and proposal.uncertainty is None:
         item.mapping_confidence = "low"
         item.uncertainty = "The field label is not reliable enough for automatic filling."
-    if proposal.value and detected.options and not _option_match(proposal.value, detected.options):
-        item.mapping_confidence = "low"
-        item.uncertainty = "The stored value is not one of the listed choices."
+    if proposal.value and detected.options and item.uncertainty is None:
+        chosen = _exact_option(proposal.value, detected.options)
+        if chosen is None:
+            item.proposed_value = None
+            item.mapping_confidence = "low"
+            item.uncertainty = f"No listed choice exactly matches the verified {_reason_name(detected.semantic)}."
+        else:
+            item.proposed_value = chosen
     if existing and proposal.value and _same(existing, proposal.value):
         item.proposed_value = None
         item.mapping_confidence = "none"
@@ -257,6 +276,8 @@ _ABSENT = frozenset(
         "No verified value is available.",
         "The full name has more than two parts, so it was not split.",
         "The stored value is too long to use as a contact field.",
+        "No verified degree name is available. A degree level alone was not entered.",
+        "No verified phone country code is available, so the dialing country was not selected.",
     }
 )
 
@@ -266,7 +287,7 @@ def _bucket(item: PlanField) -> str:
         return "sensitive"
     if item.existing_value:
         return "preserve_existing"
-    if item.semantic not in _PERSONAL or item.input_type == "file":
+    if item.semantic not in _FILLABLE or item.input_type == "file":
         return "unsupported"
     if item.eligible_for_fill:
         return "ready"
@@ -289,6 +310,148 @@ class _Proposal:
     uncertainty: str | None = None
     provenance: list[Provenance] = field(default_factory=list)
     alternatives: list[Alternative] = field(default_factory=list)
+
+
+def _phone_country_proposal(profile: ProfileView, options: list[str]) -> _Proposal:
+    provenance = [Provenance(kind="profile", profile_field="phone", candidate_id=profile.candidate_id)]
+    prefix = _dial_prefix(profile.phone)
+    if not prefix:
+        return _Proposal(uncertainty="No verified phone country code is available, so the dialing country was not selected.")
+    matched = [option for option in options if _has_prefix(option, prefix)]
+    if len(matched) == 1:
+        return _Proposal(value=matched[0], confidence="high", kind="profile", provenance=provenance)
+    if len(matched) > 1:
+        return _Proposal(uncertainty="More than one country uses this phone prefix, so none was selected.")
+    return _Proposal(uncertainty="No listed choice exactly matches the verified phone country.")
+
+
+def _education_proposal(semantic: str, facts: list[FactView], profile: ProfileView, options: list[str]) -> _Proposal:
+    key = {"school": "institution", "degree": "degree", "discipline": "major"}[semantic]
+    usable: list[tuple[str, FactView]] = []
+    held = False
+    for fact in facts:
+        if fact.fact_type != "education":
+            continue
+        raw = _edu_text(fact, key)
+        if not raw:
+            continue
+        if _usable(fact):
+            usable.append((raw, fact))
+        elif fact.status != "archived":
+            held = True
+    distinct: list[tuple[str, list[FactView]]] = []
+    for value, fact in usable:
+        for existing, members in distinct:
+            if _same(existing, value):
+                members.append(fact)
+                break
+        else:
+            distinct.append((value, [fact]))
+    if len(distinct) > 1:
+        return _Proposal(uncertainty=f"More than one verified {_reason_name(semantic)} matches this field.")
+    if held and not distinct:
+        return _Proposal(uncertainty="The matching education record is unverified and was not used.")
+    if distinct:
+        value, chosen = distinct[0]
+        proposal = _Proposal(
+            value=value,
+            confidence="high",
+            kind="canonical_fact",
+            fact_id=chosen[0].id,
+            provenance=[_fact_provenance(fact) for fact in chosen],
+        )
+    else:
+        attr = {"school": "school", "discipline": "major"}.get(semantic)
+        raw = getattr(profile, attr, None) if attr else None
+        value = raw.strip() if isinstance(raw, str) else ""
+        if not value:
+            if semantic == "degree":
+                return _Proposal(uncertainty="No verified degree name is available. A degree level alone was not entered.")
+            return _Proposal(uncertainty="No verified value is available.")
+        proposal = _Proposal(
+            value=value,
+            confidence="high",
+            kind="profile",
+            provenance=[Provenance(kind="profile", profile_field=attr, candidate_id=profile.candidate_id)],
+        )
+    if options:
+        chosen_option = _exact_option(proposal.value or "", options)
+        if chosen_option is None:
+            return _Proposal(uncertainty=f"No listed choice exactly matches the verified {_reason_name(semantic)}.")
+        proposal.value = chosen_option
+    return proposal
+
+
+def _narrow_location(label: str, proposal: _Proposal) -> _Proposal:
+    if not proposal.value or proposal.uncertainty or _normalize(label) not in {"city", "location city"}:
+        return proposal
+    city, problem = _city_from(proposal.value)
+    if problem:
+        return _Proposal(uncertainty=problem, provenance=proposal.provenance)
+    return _Proposal(
+        value=city,
+        confidence=proposal.confidence,
+        kind=proposal.kind,
+        fact_id=proposal.fact_id,
+        provenance=proposal.provenance,
+    )
+
+
+def _city_from(value: str) -> tuple[str | None, str | None]:
+    text = value.strip()
+    if not text or any(char.isdigit() for char in text) or text.count(",") > 1:
+        return None, "The verified location is not a single city."
+    if text.count(",") == 1:
+        city = text.split(",", 1)[0].strip()
+        return (city, None) if city else (None, "The verified location is not a single city.")
+    return text, None
+
+
+def _dial_prefix(phone: str | None) -> str | None:
+    text = (phone or "").strip()
+    if not text.startswith("+"):
+        return None
+    digits: list[str] = []
+    started = False
+    for char in text[1:]:
+        if char.isdigit():
+            digits.append(char)
+            started = True
+            if len(digits) > 3:
+                return None
+        elif started:
+            break
+        elif char != " ":
+            return None
+    if not digits:
+        return None
+    return "+" + "".join(digits)
+
+
+def _has_prefix(option: str, prefix: str) -> bool:
+    return re.search(rf"(?<![\d+]){re.escape(prefix)}(?!\d)", option) is not None
+
+
+def _exact_option(value: str, options: list[str]) -> str | None:
+    matches = [option for option in options if option.strip() and _same(value, option)]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _edu_text(fact: FactView, key: str) -> str | None:
+    value = (fact.fact_value or {}).get(key)
+    if isinstance(value, str) and value.strip() and len(value.strip()) <= _MAX_CONTACT:
+        return value.strip()
+    return None
+
+
+def _reason_name(semantic: str) -> str:
+    return {
+        "phone_country": "phone country",
+        "school": "school",
+        "degree": "degree",
+        "discipline": "discipline",
+        "location": "location",
+    }.get(semantic, "value")
 
 
 def _proposal(semantic: str, facts: list[FactView], profile: ProfileView) -> _Proposal:

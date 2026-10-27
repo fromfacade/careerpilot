@@ -122,6 +122,7 @@ class ResumePlanRead(BaseModel):
     review_required: bool
     reason: str
     field_id: str | None = None
+    upload_name: str = ""
 
 
 class AnswerProposalRead(BaseModel):

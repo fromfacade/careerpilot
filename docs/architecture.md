@@ -130,7 +130,7 @@ careerpilot/
 | 7 | Resume Tailoring & Versioning | **Implemented for Phase 2.3.1.** Uploaded files are resume profiles (category, approval, default). Prepare Application selects an approved original file and explains why. Tailoring is optional and never replaces the selected original. Generated PDFs are validated for extractable text. |
 | 8 | AI Provider Management | **Partial (Phase 2.2).** Common `AnswerProvider` interface, Gemini adapter (httpx), mock for tests. Disabled unless `AI_ENABLED` and a key are set. Status endpoint never returns the key. Resume parsing still has zero AI calls. |
 | 9 | Application Answer Library | **Implemented (Phase 2.2 / 2.2.1).** Manual and AI-draft answers, writing-style profile, approved writing samples as untrusted style references, grounded generation, and rewrite-without-overwrite. No form filling or submission. |
-| 10 | Form Automation Adapters | **Headed Greenhouse fill (Phase 2.4.4).** Detect and plan as before. `POST /api/autofill/sessions` opens an isolated headed Chromium window after a local token check. Fill uses the reviewed plan, re-reads the live form, and does not submit. |
+| 10 | Form Automation Adapters | **Greenhouse fill (Phase 2.4.5).** A headed Chromium window fills reviewed contact and education fields and attaches the approved resume under its original filename. Exact dropdown matches only. Nothing is submitted. |
 | 11 | Submission Authorization Policy Engine | Not built. Autonomous submission stays disabled by construction — there is no submission code path in Phase 1. |
 | 12 | Application Queue & State Machine | Not built. |
 | 13 | Application Tracker | Not built. |
@@ -354,7 +354,10 @@ Phase 2.4.4 opens one isolated headed Chromium window, fills the fields
 the user approved, and can attach the selected resume. A Greenhouse job
 whose public link is the employer career site still opens the
 allow-listed Greenhouse form identified by that job's board token and
-job id. It does not submit. Submission remains unimplemented.
+job id. Phase 2.4.5 attaches that resume under its original filename,
+without renaming the stored file, and fills phone, dialing country,
+city, and education only when a verified value exactly matches the
+control. It does not submit. Submission remains unimplemented.
 
 The browser is a locally controlled headed Playwright window, with one
 adapter per site. The reason for that choice, and why a browser

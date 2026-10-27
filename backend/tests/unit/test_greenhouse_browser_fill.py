@@ -9,7 +9,7 @@ from app.api.autofill import require_browser_token
 from app.autofill.actions import SubmissionBlocked, decide_fill, refuse_submission, resume_marker, reviewed_fields
 from app.autofill.browser_fill import apply_actions, install_navigation_guard, open_application, NavigationBlocked
 from app.autofill.actions import FillAction
-from app.autofill.mapping import ProfileView, plan_autofill
+from app.autofill.mapping import FactView, ProfileView, plan_autofill
 from app.autofill.materials import Materials, ResumeFileView, TailoredFileView
 from app.autofill.urls import navigation_allowed
 from app.core.local_auth import load_or_create_token
@@ -165,6 +165,124 @@ def test_browser_fills_verifies_and_does_not_submit(tmp_path):
         stopped = apply_actions(page, [action], resume_field_id=None, resume_path=None, resume_name="", cancel=cancel)
         assert stopped.stopped == "cancelled"
         assert stopped.outcomes == []
+        browser.close()
+
+
+WIDER = """
+<form id="application" onsubmit="window.__submitted = true; return false;">
+  <label for="phone">Phone</label>
+  <label for="phone_country">Country</label>
+  <select id="phone_country" name="job_application[phone_country]"><option>United Kingdom +44</option></select>
+  <input id="phone" name="job_application[phone]" type="tel">
+  <label for="city">City</label>
+  <input id="city" name="job_application[city]">
+  <label for="school">School</label>
+  <select id="school" name="school"><option>Example State University</option><option>Other</option></select>
+  <label for="degree">Degree</label>
+  <select id="degree" name="degree"><option value="">Select</option><option>Bachelor of Arts</option></select>
+  <label for="start">Start date</label>
+  <input id="start" name="start">
+  <label for="first_name">Given name</label>
+  <input id="first_name" name="job_application[first_name]">
+  <label for="resume">Resume</label>
+  <input id="resume" name="job_application[resume]" type="file" accept=".pdf">
+  <button type="submit">Submit application</button>
+</form>
+<script>window.__submitted = false;</script>
+"""
+
+
+def test_browser_fills_contact_education_and_keeps_the_resume_filename(tmp_path):
+    stored = tmp_path / "8f3c1d0a9b224e77a1c0internal-storage.pdf"
+    payload = b"%PDF-1.4 fictional-bytes"
+    stored.write_bytes(payload)
+    education = FactView(
+        id=3,
+        fact_type="education",
+        fact_key="Example State University",
+        fact_value={"institution": "Example State University", "degree": "B.S. Computer Science", "major": "Computer Science"},
+        identity_key="education|example",
+        status="active",
+        verification_status="verified",
+    )
+    profile = ProfileView(
+        candidate_id=7,
+        full_name="Ada Lovelace",
+        email="ada@example.com",
+        phone="+44 20 7946 0000",
+        location="Austin, TX",
+    )
+    materials = Materials(
+        preparation_id=9,
+        resume=ResumeFileView(
+            4,
+            "Backend SWE Resume",
+            "pdf",
+            True,
+            False,
+            str(stored),
+            original_filename="Ada_Lovelace_Resume.pdf",
+        ),
+        tailored=TailoredFileView(status="draft"),
+    )
+    previous = plan_autofill(URL, FORM, [education], profile, materials)
+    live = plan_autofill(URL, WIDER, [education], profile, materials)
+    renamed = decide_fill(
+        reviewed_fields(previous),
+        live,
+        included={"job_application[first_name]"},
+        overwrite=set(),
+        attach_resume=False,
+    )
+    assert "job_application[first_name]" in renamed.stale
+    reviewed = reviewed_fields(live)
+    marker = resume_marker(live)
+    if marker is not None:
+        reviewed[marker.field_id] = marker
+    decision = decide_fill(
+        reviewed,
+        live,
+        included={item.field_id for item in live.ready},
+        overwrite=set(),
+        attach_resume=True,
+    )
+    assert decision.resume_field_id == "job_application[resume]"
+    assert all(action.field_id != "start" for action in decision.actions)
+    assert all(action.field_id != "degree" for action in decision.actions)
+    assert live.resume.upload_name == "Ada_Lovelace_Resume.pdf"
+    assert "internal-storage" not in live.resume.upload_name
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.set_content(WIDER)
+        report = apply_actions(
+            page,
+            decision.actions,
+            resume_field_id=decision.resume_field_id,
+            resume_path=str(stored),
+            resume_name=live.resume.upload_name,
+        )
+        assert report.submitted is False
+        assert page.evaluate("() => window.__submitted") is False
+        assert page.locator("#phone").input_value() == "+44 20 7946 0000"
+        assert page.locator("#phone_country").input_value() == "United Kingdom +44"
+        assert page.locator("#city").input_value() == "Austin"
+        assert page.locator("#school").input_value() == "Example State University"
+        assert page.locator("#degree").input_value() == ""
+        assert page.locator("#start").input_value() == ""
+        uploaded = page.locator("#resume").evaluate(
+            """async (el) => {
+                const file = el.files[0];
+                const bytes = new Uint8Array(await file.arrayBuffer());
+                let hex = '';
+                for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
+                return {name: file.name, hex};
+            }"""
+        )
+        assert uploaded["name"] == "Ada_Lovelace_Resume.pdf"
+        assert uploaded["hex"] == payload.hex()
+        assert "internal-storage" not in report.resume_detail
+        assert stored.read_bytes() == payload
         browser.close()
 
 

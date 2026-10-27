@@ -6,6 +6,7 @@ call an AI provider, or attach a file to a page.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -39,6 +40,7 @@ class ResumeFileView:
     approved: bool
     archived: bool
     storage_path: str
+    original_filename: str = ""
 
 
 @dataclass(frozen=True)
@@ -88,6 +90,7 @@ class ResumePlan:
     review_required: bool
     reason: str
     field_id: str | None = None
+    upload_name: str = ""
 
 
 @dataclass
@@ -133,6 +136,7 @@ def empty_resume(reason: str) -> ResumePlan:
         eligible_for_attach=False,
         review_required=True,
         reason=reason,
+        upload_name="",
     )
 
 
@@ -343,6 +347,7 @@ def _from_original(materials: Materials, accept: str, has_upload: bool) -> Resum
         eligible_for_attach=eligible,
         review_required=not eligible,
         reason=reason,
+        upload_name=_upload_name(resume.original_filename or resume.display_name, resume.file_format) if approved else "",
     )
 
 
@@ -351,6 +356,7 @@ def _from_tailored(materials: Materials, accept: str, has_upload: bool) -> Resum
     assert tailored is not None
     for fmt, path in (("pdf", tailored.pdf_path), ("docx", tailored.docx_path)):
         if path and _readable(path) and _compatible(fmt, accept) and has_upload:
+            source_name = materials.resume.original_filename or materials.resume.display_name if materials.resume else ""
             return ResumePlan(
                 status="ready",
                 kind="tailored",
@@ -364,6 +370,7 @@ def _from_tailored(materials: Materials, accept: str, has_upload: bool) -> Resum
                 eligible_for_attach=True,
                 review_required=False,
                 reason="The tailored resume was explicitly approved for this preparation.",
+                upload_name=_upload_name(source_name, fmt, tailored=True),
             )
     readable = any(path and _readable(path) for path in (tailored.pdf_path, tailored.docx_path))
     return ResumePlan(
@@ -444,6 +451,20 @@ def _consentish(label: str) -> bool:
 
 def _same(left: str, right: str) -> bool:
     return left.strip().casefold() == right.strip().casefold()
+
+
+def _upload_name(original: str, file_format: str, tailored: bool = False) -> str:
+    """Browser-facing filename. The stored file path is never used as this name."""
+    ext = file_format.casefold().strip(".")
+    if ext not in {"pdf", "docx"}:
+        ext = "pdf"
+    cleaned = Path(original or "").name
+    cleaned = re.sub(r"[^A-Za-z0-9._() -]", "", cleaned).strip(" .")
+    stem = Path(cleaned).stem if cleaned else ""
+    stem = stem.strip(" .") or "Resume"
+    if tailored:
+        stem = f"{stem} tailored"
+    return f"{stem}.{ext}"[:180]
 
 
 def _safe_name(name: str) -> str:

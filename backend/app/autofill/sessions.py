@@ -303,11 +303,11 @@ def _resume_file(run: AutofillRun) -> tuple[str | None, str]:
             return None, ""
         if plan.resume.kind == "tailored":
             path = preparation.pdf_path if plan.resume.file_format == "pdf" else preparation.docx_path
-            return path, plan.resume.display_name
+            return path, plan.resume.upload_name or plan.resume.display_name
         resume = preparation_service_resume(db, preparation.source_resume_id)
         if resume is None:
             return None, ""
-        return resume.storage_path, plan.resume.display_name
+        return resume.storage_path, plan.resume.upload_name or plan.resume.display_name
 
 
 def preparation_service_resume(db, resume_id):

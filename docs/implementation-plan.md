@@ -767,8 +767,8 @@ constraint, or relevant technology used in a concrete way) over a generic
 architecture sentence. Verified GitHub and portfolio URLs are printed when
 the profile has them and are never invented.
 
-Status: **Phase 2.3 is on `main`.** Phases 2.4.1–2.4.4 are complete on
-`feature/greenhouse-autofill`. Increment 2.4.5 is not started.
+Status: **Phase 2.3 is on `main`.** Phases 2.4.1–2.4.5 are complete on
+`feature/greenhouse-autofill`. Automatic submission is not implemented.
 
 ## 11. Phase 2.4 proposal (superseded by §12)
 
@@ -825,9 +825,23 @@ Tradeoffs accepted:
 4. **2.4.4 Headed fill.** A local token opens one visible Chromium
    window. The user reviews the live plan, excludes fields, and fills.
    The browser does not submit.
-5. **2.4.5 Sessions and reliability.** Track preparation state, stop
-   immediately, and test recovery with local fixtures.
+5. **2.4.5 Completeness.** Attach the resume under its original
+   filename, fill phone, dialing country, city, and education only from
+   verified values that exactly match, and explain every skipped field.
+   The browser still does not submit.
 
-Status: **2.4.4 implemented.** Apply with CareerPilot opens a headed
-Chromium window, fills approved fields, and can attach the selected
-resume. It does not submit. Increment 2.4.5 is not started.
+Status: **2.4.5 implemented.** Greenhouse autofill fills verified
+contact and education fields and attaches the approved resume under
+its original filename. Custom dropdowns are filled only on an exact
+choice. Submission is not implemented.
+
+Remaining limits: a dropdown is filled only when one listed choice
+exactly matches a verified value. A dialing country is selected only
+from a verified `+` prefix, and only when one option uses that prefix.
+A degree level such as bachelors is not translated into a degree name.
+Two verified education records for the same field select neither.
+Custom widgets that do not expose a native input or options stay
+manual. Approved answers fill only on an exact question match.
+Sensitive, legal, demographic, and consent questions stay unanswered.
+The browser still pauses for a visible CAPTCHA or MFA challenge and
+never clicks Submit.

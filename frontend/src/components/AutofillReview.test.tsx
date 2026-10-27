@@ -102,9 +102,9 @@ describe('AutofillReview', () => {
     expect(screen.getByText(/Backend SWE Resume/)).toBeInTheDocument()
     expect(screen.getByText(/ada@example.com/)).toBeInTheDocument()
     expect(screen.getByText(/I enjoy building small tools/)).toBeInTheDocument()
-    expect(screen.getByText('Phone')).toBeInTheDocument()
-    expect(screen.getByText('Work authorization')).toBeInTheDocument()
-    expect(screen.getByText('School')).toBeInTheDocument()
+    expect(screen.getByText(/Phone: No verified value is available/)).toBeInTheDocument()
+    expect(screen.getByText(/Work authorization:/)).toBeInTheDocument()
+    expect(screen.getByText(/School:/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /submit/i })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('checkbox', { name: /Email/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Fill approved fields' }))
@@ -163,8 +163,8 @@ describe('AutofillReview', () => {
     render(<AutofillReview prep={prep} />)
     fireEvent.click(screen.getByRole('button', { name: 'Apply with CareerPilot' }))
     expect(await screen.findByText(/Filling is permitted/)).toBeInTheDocument()
-    expect(screen.getAllByText('Phone')).toHaveLength(1)
-    expect(screen.getAllByText('School')).toHaveLength(1)
+    expect(screen.getAllByText(/Phone:/)).toHaveLength(1)
+    expect(screen.getAllByText(/School:/)).toHaveLength(1)
   })
 
   it('stays hidden for a non-Greenhouse preparation', () => {

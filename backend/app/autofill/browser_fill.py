@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
 
 from app.autofill.actions import FillAction, SubmissionBlocked, refuse_submission
+from app.autofill.materials import _upload_name
 from app.autofill.urls import classify_apply_url, navigation_allowed
 
 _ABOUT = {"about:blank", ""}
@@ -116,19 +118,48 @@ def _fill_one(page: Page, action: FillAction) -> FieldOutcome:
 
 
 def _attach(page: Page, field_id: str, path: str | None, display_name: str) -> tuple[str, str]:
-    if not path:
+    file = Path(path) if path else None
+    if file is None or not file.is_file():
         return "failed", "The selected resume file is missing."
+    try:
+        data = file.read_bytes()
+    except OSError:
+        return "failed", "The selected resume file is missing."
+    present = _present_name(display_name, file.suffix)
     locator = page.locator(f'input[type="file"][name="{_escape(field_id)}"], input[type="file"][id="{_escape(field_id)}"]')
     if locator.count() == 0:
         return "failed", "The resume upload is no longer on the page."
     try:
-        locator.first.set_input_files(path)
-        kept = locator.first.evaluate("el => el.files ? el.files.length : 0")
+        locator.first.set_input_files({"name": present, "mimeType": _mime(present), "buffer": data})
+        info = locator.first.evaluate(
+            """async (el) => {
+                const file = el.files && el.files[0];
+                if (!file) return null;
+                const bytes = new Uint8Array(await file.arrayBuffer());
+                let hex = '';
+                for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
+                return {name: file.name, hex};
+            }"""
+        )
     except Exception:
         return "failed", "The browser did not accept the resume file."
-    if kept != 1:
-        return "failed", "The form did not keep the resume file."
-    return "attached", f"Attached {display_name}."
+    if not info or info.get("name") != present or info.get("hex") != data.hex():
+        return "failed", "The uploaded resume does not match the approved file."
+    return "attached", f"Attached {present}."
+
+
+def _present_name(name: str, suffix: str) -> str:
+    cleaned = (name or "").strip()
+    if cleaned.casefold().endswith((".pdf", ".docx")):
+        return _upload_name(cleaned, cleaned.rsplit(".", 1)[-1])
+    fmt = suffix.casefold().lstrip(".")
+    return _upload_name(cleaned, fmt or "pdf")
+
+
+def _mime(name: str) -> str:
+    if name.casefold().endswith(".docx"):
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return "application/pdf"
 
 
 def _locator(page: Page, action: FillAction):
