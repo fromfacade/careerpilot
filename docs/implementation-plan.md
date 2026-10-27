@@ -401,8 +401,52 @@ Disabling the DOCX-bullet fix or restoring the old heading rule makes those test
 Existing stored resumes are **not** re-parsed automatically. Use "Reprocess this file" to apply the new
 parser; only unverified records are replaced.
 
-Milestone 2.2 is still not started.
+## 7. Phase 2 milestone 2.2 — canonical profile, answer library, grounded drafts
 
-Status: **milestone 2.1 (backend + frontend) is implemented, tested, and live-smoke-tested.**
-Stopped here per the user's explicit instruction, pending their review and approval before
-proceeding to milestone 2.2.
+Scope: an authoritative candidate knowledge base independent of any one resume, a reusable
+answer library, and a disabled-by-default AI provider for grounded draft generation. **Not** in
+scope: form automation, CAPTCHA/MFA, autonomous submission, resume tailoring, or answering
+sensitive questions without explicit authorization.
+
+Working branch: `feature/candidate-knowledge-base` (from `main` at `1fd6cce`). Commits are per
+increment; nothing is pushed or merged to `main` without approval.
+
+Decisions locked for this milestone (stated before increment 1):
+
+- Extracted `candidate_facts` stay as the resume-scoped, traceable record. A new `canonical_facts`
+  table is the knowledge base. Resume deletion never cascades onto it.
+- Import of verified/edited extracted facts is **explicit** (not auto-promoted on verify). Exact
+  content matches are skipped; same-identity different content becomes a `conflict` row. The
+  active value is never overwritten.
+- Work authorization / sponsorship / graduation date stay on `candidates` (eligibility source of
+  truth). Sensitive answers will only read those fields when the candidate authorizes it.
+- One AI provider first (Gemini), behind a common interface, disabled unless configured. Tests
+  use a mock. Keys live only in environment variables (never the frontend, never git).
+
+Increments:
+
+1. Canonical fact models + migration + schema tests.
+2. Import / dedupe / conflict service.
+3. Canonical profile API + resume-delete isolation through the service.
+4. Answer library models + API.
+5. AI provider abstraction (Gemini + mock).
+6. Grounded generation + sensitive-question gates.
+7. Knowledge Base + Answer Library frontend.
+8. Remaining integration tests and docs wrap-up.
+
+### 7.1 Increment 1 — canonical fact models
+
+New tables `canonical_facts` and `canonical_fact_sources` (see `docs/data-model.md` §2b).
+New enums `canonical_fact_status_enum` (`active|conflict|archived`) and
+`canonical_fact_origin_enum` (`resume_import|manual_entry|profile`). Existing extracted-fact
+tables and resume-delete behavior are unchanged.
+
+Changed files: `app/models/enums.py`, `app/models/canonical.py` (new), `app/models/__init__.py`,
+`alembic/versions/a1b2c3d4e5f6_add_canonical_facts.py` (new),
+`tests/integration/test_canonical_facts_schema.py` (new), `docs/data-model.md`,
+`docs/architecture.md`, `docs/implementation-plan.md`.
+
+Tests: `pytest tests/integration/test_canonical_facts_schema.py` → **5 passed**. Full backend
+suite: **254 passed**.
+
+Status: **milestone 2.2 increment 1 complete.**

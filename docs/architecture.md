@@ -120,7 +120,7 @@ careerpilot/
 
 | # | Module | Phase 1 status |
 |---|--------|------------------|
-| 1 | Candidate Profile & Verified Fact Vault | **Partial.** Core profile fields (grad date, work authorization, sponsorship) implemented directly on the candidate profile. Resume-derived facts (education/skills/projects/experience/achievements, with a human `verification_status`) are implemented as of Phase 2.1 — see §6b. Manual-entry Q&A facts for the future Answer Library (module 9) are not yet implemented. |
+| 1 | Candidate Profile & Verified Fact Vault | **Partial (Phase 2.2 in progress).** Core profile fields stay on `candidates`. Resume-derived extracted facts are implemented (Phase 2.1, §6b). Canonical knowledge-base tables (`canonical_facts`, `canonical_fact_sources`) are added in 2.2 increment 1 — independent of any resume, with provenance that survives file deletion. Import, API, Answer Library, and AI provider follow in later 2.2 increments. |
 | 2 | Configurable Job Source Registry | **Implemented.** `job_sources` table + admin-editable config for which employer boards to poll per provider. |
 | 3 | Job Discovery & Normalization | **Implemented** for Greenhouse, Lever, Ashby. |
 | 4 | Job Deduplication | **Implemented.** Canonical URL normalization + content hash + per-source external ID uniqueness. |

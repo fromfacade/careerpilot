@@ -218,3 +218,30 @@ class FactVerificationStatus(str, enum.Enum):
     VERIFIED = "verified"
     EDITED = "edited"
     REJECTED = "rejected"
+
+
+class CanonicalFactStatus(str, enum.Enum):
+    """Lifecycle of an authoritative knowledge-base row.
+
+    `active` is the one version future application automation will read.
+    `conflict` is a same-identity alternative that was not silently applied.
+    `archived` is a previous version the candidate chose to retire. None of
+    these statuses is assigned automatically on resume parse.
+    """
+
+    ACTIVE = "active"
+    CONFLICT = "conflict"
+    ARCHIVED = "archived"
+
+
+class CanonicalFactOrigin(str, enum.Enum):
+    """How a canonical fact (or one of its provenance links) was supplied.
+
+    Distinct from `FactSource` on extracted `candidate_facts`: a resume can
+    only *propose* information; promoting it into the knowledge base is a
+    separate, explicit action (`resume_import`).
+    """
+
+    RESUME_IMPORT = "resume_import"
+    MANUAL_ENTRY = "manual_entry"
+    PROFILE = "profile"

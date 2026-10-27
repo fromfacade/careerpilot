@@ -5,6 +5,7 @@ which Alembic's `env.py` relies on for autogeneration.
 """
 
 from app.models.candidate import Candidate, CandidateLocationPreference, CandidatePreference, CandidateRolePreference
+from app.models.canonical import CanonicalFact, CanonicalFactSource
 from app.models.discovery import DiscoveryRun, DiscoveryRunSource
 from app.models.job import Job, JobAssessment, JobCandidateState, JobLocation
 from app.models.job_source import Employer, JobSource
@@ -25,4 +26,6 @@ __all__ = [
     "DiscoveryRunSource",
     "Resume",
     "CandidateFact",
+    "CanonicalFact",
+    "CanonicalFactSource",
 ]
