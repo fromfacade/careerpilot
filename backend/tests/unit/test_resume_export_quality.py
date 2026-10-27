@@ -46,8 +46,8 @@ def test_backend_and_fullstack_select_different_projects():
     backend_names = {row["title"] for row in visible_rows(backend, "projects")}
     fullstack_names = {row["title"] for row in visible_rows(fullstack, "projects")}
     ai_names = {row["title"] for row in visible_rows(ai, "projects")}
-    assert backend_names == {"TaskFlow", "GlucoRelay"}
-    assert fullstack_names == {"PC Build Visual Builder", "Spritz"}
+    assert {"TaskFlow", "GlucoRelay"} <= backend_names
+    assert {"PC Build Visual Builder", "Spritz"} <= fullstack_names
     assert "GlucoRelay" in ai_names and "Spritz" in ai_names
     assert 2 <= len(backend_names) <= 3
     assert all(row.get("selection_reason") for row in visible_rows(backend, "projects"))
@@ -76,7 +76,7 @@ def test_skills_stay_grouped_and_job_relevant_first():
 
 def test_manual_include_override_and_export_consistency(tmp_path: Path):
     tailored = tailor_resume(Candidate(), realistic_facts(), BACKEND_ANALYSIS)
-    hidden = next(row for row in tailored["projects"] if row["title"] == "Spritz")
+    hidden = next(row for row in tailored["projects"] if row.get("included") is False)
     assert hidden["included"] is False
     hidden["included"] = True
     hidden["selection_reason"] = "Manually included."
@@ -103,7 +103,6 @@ def test_realistic_backend_export_is_one_page_and_renders(tmp_path: Path):
     assert "alexrivera.dev" in text
     assert "TaskFlow" in text
     assert "GlucoRelay" in text
-    assert "PC Build Visual Builder" not in text
     assert "Programming Languages:" in text
     assert "SHPE" in text
     assert text.count("SHPE") == 1
@@ -124,7 +123,6 @@ def test_fullstack_export_is_one_page(tmp_path: Path):
     text = pages[0]
     assert "PC Build Visual Builder" in text
     assert "Spritz" in text
-    assert "TaskFlow" not in text
     images = _render_pages(pdf_path, tmp_path / "fullstack-pages")
     assert len(images) == 1
     assert _ink_ratio(images[0]) > 0.04
@@ -160,9 +158,35 @@ def test_three_projects_do_not_push_skills_off_page_one(tmp_path: Path):
     assert "Programming Languages:" in pages[0]
     assert "TaskFlow" in pages[0]
     included_projects = [row["title"] for row in visible_rows(tailored, "projects")]
-    assert len(included_projects) == 2
-    assert "Spritz" not in included_projects
+    assert 2 <= len(included_projects) <= 3
+    if len(included_projects) < 3:
+        assert tailored["presentation"].get("tradeoff")
     images = _render_pages(pdf_path, tmp_path / "overflow-pages")
+    assert len(images) == 1
+    assert _ink_ratio(images[0]) > 0.04
+    assert [fact.fact_value for fact in facts] == original
+
+
+def test_internship_resume_keeps_three_projects_with_two_bullets(tmp_path: Path):
+    facts = realistic_facts()
+    original = [dict(fact.fact_value) for fact in facts]
+    tailored = tailor_resume(Candidate(), facts, BACKEND_ANALYSIS)
+    pdf_path = export_pdf(tailored, tmp_path / "three.pdf")
+    pages = [page.extract_text() or "" for page in PdfReader(str(pdf_path)).pages]
+    included = visible_rows(tailored, "projects")
+    assert len(pages) == 1
+    assert len(included) == 3
+    assert "SKILLS" in pages[0]
+    assert "Programming Languages:" in pages[0]
+    assert tailored["presentation"]["body_pt"] >= 9
+    for row in included:
+        indexes = row["detail"].get("included_bullet_indexes") or []
+        assert 1 <= len(indexes) <= 2
+        assert row["title"] in pages[0]
+    for row in visible_rows(tailored, "work_experience"):
+        indexes = row["detail"].get("included_bullet_indexes") or []
+        assert 1 <= len(indexes) <= 2
+    images = _render_pages(pdf_path, tmp_path / "three-pages")
     assert len(images) == 1
     assert _ink_ratio(images[0]) > 0.04
     assert [fact.fact_value for fact in facts] == original

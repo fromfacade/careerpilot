@@ -42,6 +42,8 @@ _SECTION_LIMITS = {
 _MAX_PROJECTS = 3
 _MIN_PROJECTS = 2
 _MAX_BULLETS = 3
+_PROJECT_BULLETS = 2
+_IMPACT_RE = re.compile(r"\d")
 _SKILL_ITEM_LIMIT = 8
 _SKILL_CATEGORY_ORDER = (
     "Programming Languages",
@@ -243,13 +245,44 @@ def _selection_reason(fact: CanonicalFact, target: set[str]) -> str:
     return "Included as additional verified experience."
 
 
+def strongest_bullet_indexes(bullets: list[str], target: set[str], limit: int) -> list[int]:
+    """Keep the bullets with the most job overlap and measurable impact."""
+    ranked = sorted(
+        range(len(bullets)),
+        key=lambda index: (
+            -len(_tokens(bullets[index]) & target),
+            -int(bool(_IMPACT_RE.search(bullets[index]))),
+            index,
+        ),
+    )
+    return sorted(ranked[:limit])
+
+
+def limit_entry_bullets(row: dict, target: set[str], limit: int) -> None:
+    detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
+    bullets = _as_text_list(detail.get("bullets"))
+    if not bullets:
+        return
+    detail["included_bullet_indexes"] = strongest_bullet_indexes(bullets, target, limit)
+    row["detail"] = detail
+
+
+def set_coursework_visible(document: dict, visible: bool) -> None:
+    for row in document.get("education") or []:
+        if row.get("included") is False:
+            continue
+        detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
+        detail["include_coursework"] = visible
+        row["detail"] = detail
+
+
 def _copy_detail(fact: CanonicalFact, target: set[str]) -> dict:
     raw = _detail(fact)
     detail = dict(raw)
     bullets = _as_text_list(raw.get("bullets"))
     if bullets:
-        ranked = sorted(range(len(bullets)), key=lambda index: (-len(_tokens(bullets[index]) & target), index))
-        detail["included_bullet_indexes"] = sorted(ranked[:_MAX_BULLETS])
+        limit = _PROJECT_BULLETS if fact.fact_type is FactType.PROJECT else _MAX_BULLETS
+        detail["included_bullet_indexes"] = strongest_bullet_indexes(bullets, target, limit)
         detail["bullets"] = bullets
     return detail
 
@@ -392,8 +425,8 @@ def _visible_entry_rows(facts: list[CanonicalFact], fact_type: FactType, target:
 
 def _project_rows(clusters: list[tuple[CanonicalFact, list[int]]], target: set[str]) -> list[dict]:
     rows = [_row(fact, target, included=False, source_ids=source_ids) for fact, source_ids in clusters]
-    strong = [row for row in rows if (row["relevance"] or 0) >= 4]
-    chosen = strong[:_MAX_PROJECTS]
+    positive = [row for row in rows if (row["relevance"] or 0) > 0]
+    chosen = positive[:_MAX_PROJECTS]
     if len(chosen) < _MIN_PROJECTS:
         extras = [row for row in rows if row not in chosen]
         chosen.extend(extras[: _MIN_PROJECTS - len(chosen)])
@@ -584,7 +617,7 @@ def _meta_for(section: str, detail: dict) -> str:
             parts.append(f"GPA {gpa[0]}")
         line = " | ".join(parts)
         coursework = _as_text_list(detail.get("coursework"))
-        if coursework:
+        if coursework and detail.get("include_coursework", True) is not False:
             extra = ", ".join(coursework)
             return f"{line}\n{extra}" if line else extra
         return line
