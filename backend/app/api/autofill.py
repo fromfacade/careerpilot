@@ -1,6 +1,7 @@
 """Form detection, review plans, and a headed Greenhouse browser.
 
-There is no submit route. Opening the browser requires the local token.
+Opening the browser and submitting require the local token. Submission
+also requires an explicit confirmation for that session's preparation.
 """
 
 from __future__ import annotations
@@ -9,7 +10,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from app.autofill.greenhouse import detect_application
-from app.autofill.sessions import cancel_session, fill_session, get_session, start_session
+from app.autofill.sessions import cancel_session, fill_session, get_session, start_session, submit_session
 from app.core.db import get_db
 from app.core.exceptions import NotFoundError, ValidationError
 from app.core.local_auth import token_matches
@@ -21,6 +22,7 @@ from app.schemas.autofill import (
     AutofillPlanRequest,
     AutofillSessionCreate,
     AutofillSessionRead,
+    AutofillSubmitRequest,
     to_detect_result,
     to_plan_result,
     to_session_result,
@@ -79,6 +81,26 @@ def fill_autofill_session(
             included=set(payload.included_field_ids),
             overwrite=set(payload.overwrite_field_ids),
             attach_resume=payload.attach_resume,
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValidationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return to_session_result(run)
+
+
+@router.post("/sessions/{session_id}/submit", response_model=AutofillSessionRead)
+def submit_autofill_session(
+    session_id: str,
+    payload: AutofillSubmitRequest,
+    _: None = Depends(require_browser_token),
+) -> AutofillSessionRead:
+    try:
+        run = submit_session(
+            session_id,
+            confirm=payload.confirm,
+            preparation_id=payload.preparation_id,
+            apply_url=payload.apply_url,
         )
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -8,6 +8,7 @@ vi.mock('../api/client', () => ({
     openAutofillSession: vi.fn(),
     fillAutofillSession: vi.fn(),
     cancelAutofillSession: vi.fn(),
+    submitAutofillSession: vi.fn(),
   },
 }))
 
@@ -183,6 +184,43 @@ describe('AutofillReview', () => {
     expect(await screen.findByText(/Needs review before submission/)).toBeInTheDocument()
     expect(screen.getByText(/Phone has not been filled yet/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /submit/i })).not.toBeInTheDocument()
+  })
+
+  it('asks for confirmation before submitting this application only', async () => {
+    vi.mocked(api.openAutofillSession).mockResolvedValue({
+      ...session,
+      state: 'filled_for_review',
+      application_status: 'ready_to_submit',
+      readiness: {
+        status: 'ready_to_submit',
+        checks: [
+          { code: 'required_fields', status: 'passed', detail: 'Every required field was filled or already had a value.' },
+          { code: 'sensitive_questions', status: 'passed', detail: 'No required sensitive questions are unanswered.' },
+        ],
+      },
+    })
+    vi.mocked(api.submitAutofillSession).mockResolvedValue({
+      ...session,
+      state: 'submitted',
+      application_status: 'submitted',
+      message: 'The employer page confirmed the application was received.',
+    })
+    render(<AutofillReview prep={prep} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Apply with CareerPilot' }))
+    expect(await screen.findByText(/sends it to Northwind/)).toBeInTheDocument()
+    expect(screen.getAllByText(/Backend SWE Resume/).length).toBeGreaterThan(0)
+    const submit = screen.getByRole('button', { name: 'Submit this application' })
+    expect(submit).toBeDisabled()
+    fireEvent.click(submit)
+    expect(api.submitAutofillSession).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('checkbox', { name: /I confirm this submission for Backend Intern at Northwind only/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Submit this application' }))
+    expect(api.submitAutofillSession).toHaveBeenCalledWith('sess', {
+      confirm: true,
+      preparation_id: 9,
+      apply_url: 'https://boards.greenhouse.io/northwind/jobs/15',
+    })
+    expect(await screen.findByText(/Successfully submitted/)).toBeInTheDocument()
   })
 
   it('stays hidden for a non-Greenhouse preparation', () => {

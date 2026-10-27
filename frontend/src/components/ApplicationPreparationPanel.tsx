@@ -7,6 +7,30 @@ import { AutofillReview } from './AutofillReview'
 import { Badge } from './Badge'
 import { EmptyBlock, ErrorBlock, LoadingBlock } from './StatusViews'
 
+function applicationLabel(status: string): string {
+  const labels: Record<string, string> = {
+    preparing: 'Preparing',
+    needs_review: 'Needs review',
+    ready_to_submit: 'Ready for submission',
+    submitting: 'Submitting',
+    submitted: 'Successfully submitted',
+    submission_failed: 'Submission failed',
+    confirmation_unknown: 'Confirmation unknown',
+  }
+  return labels[status] || status.replaceAll('_', ' ')
+}
+
+function applicationNextStep(status: string): string | null {
+  if (status === 'submission_failed') {
+    return 'The employer did not confirm receipt. Review the message, fix the form, and confirm again only if you still want to send it.'
+  }
+  if (status === 'confirmation_unknown') {
+    return 'CareerPilot could not tell whether the employer received this application. Check the employer page. CareerPilot will not retry.'
+  }
+  if (status === 'submitted') return 'The employer confirmed this application was received.'
+  return null
+}
+
 function applicationTone(status: string): 'green' | 'red' | 'amber' | 'blue' {
   if (status === 'submitted') return 'blue'
   if (status === 'ready_to_submit') return 'green'
@@ -140,6 +164,7 @@ export function ApplicationPreparationPanel({
   const list = useFetch(() => api.listPreparations(), [selectedId])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [liveStatus, setLiveStatus] = useState<{ id: number; status: string } | null>(null)
   const selected =
     list.status === 'success' ? list.data.find((row) => row.id === selectedId) ?? list.data[0] ?? null : null
 
@@ -164,8 +189,8 @@ export function ApplicationPreparationPanel({
         Application preparation
       </h2>
       <p className="mt-1 text-sm text-slate-500">
-        Job-specific resumes and answers for review. CareerPilot does not submit applications from
-        this screen.
+        Job-specific resumes and answers for review. A Greenhouse application is sent only after you
+        confirm that specific job.
       </p>
       {creating && (
         <p className="mt-2 text-sm text-slate-700" role="status">
@@ -203,31 +228,46 @@ export function ApplicationPreparationPanel({
                     <Badge tone={row.state === 'ready' ? 'green' : row.state === 'failed' ? 'red' : 'amber'}>
                       {row.state.replaceAll('_', ' ')}
                     </Badge>
-                    {row.application_status && (
-                      <Badge tone={applicationTone(row.application_status)}>
-                        Application {row.application_status.replaceAll('_', ' ')}
-                      </Badge>
+                    {shownStatus(row, liveStatus) && (
+                      <Badge tone={applicationTone(shownStatus(row, liveStatus)!)}>{applicationLabel(shownStatus(row, liveStatus)!)}</Badge>
                     )}
                   </span>
                 </button>
               </li>
             ))}
           </ul>
-          {selected && <PreparationDetail prep={selected} busy={busy} run={run} />}
+          {selected && (
+            <PreparationDetail
+              prep={selected}
+              busy={busy}
+              run={run}
+              applicationStatus={shownStatus(selected, liveStatus)}
+              onApplicationStatus={(status) => setLiveStatus({ id: selected.id, status })}
+            />
+          )}
         </div>
       )}
     </section>
   )
 }
 
+function shownStatus(prep: ApplicationPreparation, live: { id: number; status: string } | null) {
+  if (live?.id === prep.id) return live.status
+  return prep.application_status
+}
+
 function PreparationDetail({
   prep,
   busy,
   run,
+  applicationStatus,
+  onApplicationStatus,
 }: {
   prep: ApplicationPreparation
   busy: boolean
   run: (action: () => Promise<unknown>, ok?: string) => Promise<unknown>
+  applicationStatus?: string | null
+  onApplicationStatus: (status: string) => void
 }) {
   const matched = items(prep.match_report.matched)
   const missing = items(prep.match_report.missing)
@@ -239,10 +279,11 @@ function PreparationDetail({
         <h3 className="text-base font-semibold text-slate-900">
           {prep.snapshot_job_title} · {prep.snapshot_employer}
         </h3>
-        {prep.application_status && (
-          <p className="mt-1 text-sm text-slate-700">
-            Application status: {prep.application_status.replaceAll('_', ' ')}. CareerPilot does not submit from this screen.
-          </p>
+        {applicationStatus && (
+          <div className="mt-1 text-sm text-slate-700">
+            <p>Application status: {applicationLabel(applicationStatus)}.</p>
+            {applicationNextStep(applicationStatus) && <p>{applicationNextStep(applicationStatus)}</p>}
+          </div>
         )}
         <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{prep.analysis.summary}</p>
         <div className="mt-3 rounded-md border border-slate-200 p-3">
@@ -271,7 +312,7 @@ function PreparationDetail({
           </div>
         </div>
         {prep.has_tailored_resume && prep.design_limitation && <p className="mt-2 text-xs text-amber-800">{prep.design_limitation}</p>}
-        <AutofillReview prep={prep} />
+        <AutofillReview prep={prep} onApplicationStatus={onApplicationStatus} />
         {prep.error_message && <p className="mt-1 text-xs text-red-700">{prep.error_message}</p>}
         <details className="mt-2">
           <summary className="cursor-pointer text-xs font-medium text-blue-700">Original job description</summary>

@@ -28,7 +28,8 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
   **Not** form automation or submission.
 - **Phase 2.4 (complete on `feature/greenhouse-autofill`)**: Greenhouse review and headed fill. The browser does not submit.
 - **Phase 2.5.1 (complete on `feature/application-readiness`)**: application readiness. Unknown eligibility is not treated as ready.
-- **Phase 2.5.2 (this increment)**: persistent application tracking. Browser submission is not started.
+- **Phase 2.5.2 (complete on `feature/application-readiness`)**: persistent application tracking.
+- **Phase 2.5.3 (this increment)**: explicit Greenhouse submission for one confirmed application.
 
 ## 2. Phase 1 increments (checklist)
 
@@ -880,6 +881,27 @@ check. Records do not store answers, credentials, or contact details.
 The preparation list shows the application status. Rows survive an API
 restart because they live in Postgres.
 
-Status: **2.5.2 implemented.** There is still no browser submit control.
-Increment 2.5.3 can add an explicit, per-application submit step on top
-of these records.
+Status: **2.5.2 implemented.**
+
+## 15. Phase 2.5.3 — Controlled submission
+
+The Greenhouse review can submit one open application after the user
+confirms that employer, job, and URL. That confirmation belongs to the
+open browser session, lasts ten minutes after the application becomes
+ready, and is not reused for another preparation. Immediately before the click,
+CareerPilot re-reads the page, recomputes readiness, and checks the job,
+the resume, required fields, CAPTCHA or MFA, and whether the page already
+shows a submission. A failed check returns the record to `needs_review`
+and does not click.
+
+When the checks pass, the record moves from `ready_to_submit` to
+`submitting` under a row lock. A second request cannot enter
+`submitting`. The browser clicks only a single control labeled Submit,
+Submit application, or Submit your application. `submitted` is stored
+only when the page shows a receipt. A stated employer error is
+`submission_failed`. Anything else, including a redirect or a timeout
+without that text, is `confirmation_unknown` and is not retried.
+
+Status: **2.5.3 implemented.** Confirmation detection is phrase-based.
+Increment 2.5.4 can record richer confirmation details and keep
+duplicate protection in place after the browser session closes.

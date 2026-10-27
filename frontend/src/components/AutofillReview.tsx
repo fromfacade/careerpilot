@@ -3,13 +3,20 @@ import { api } from '../api/client'
 import type { ApplicationPreparation, AutofillAnswerField, AutofillPlanField, AutofillSession } from '../api/types'
 import localToken from 'virtual:careerpilot-token'
 
-export function AutofillReview({ prep }: { prep: ApplicationPreparation }) {
+export function AutofillReview({
+  prep,
+  onApplicationStatus,
+}: {
+  prep: ApplicationPreparation
+  onApplicationStatus?: (status: string) => void
+}) {
   const [session, setSession] = useState<AutofillSession | null>(null)
   const [included, setIncluded] = useState<Record<string, boolean>>({})
   const [overwrite, setOverwrite] = useState<Record<string, boolean>>({})
   const [attachResume, setAttachResume] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmed, setConfirmed] = useState(false)
   const publicUrl = prep.snapshot_apply_url || ''
   const formUrl = prep.greenhouse_apply_url || (publicUrl.includes('greenhouse.io') ? publicUrl : '')
   const note = prep.greenhouse_autofill_note || ''
@@ -54,6 +61,26 @@ export function AutofillReview({ prep }: { prep: ApplicationPreparation }) {
     }
   }
 
+  async function submit() {
+    if (!session || !confirmed) return
+    setBusy(true)
+    setError(null)
+    try {
+      const next = await api.submitAutofillSession(session.id, {
+        confirm: true,
+        preparation_id: session.preparation_id,
+        apply_url: session.apply_url,
+      })
+      setSession(next)
+      if (next.application_status) onApplicationStatus?.(next.application_status)
+      setConfirmed(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The application was not submitted.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function stop() {
     if (!session) return
     setBusy(true)
@@ -90,7 +117,7 @@ export function AutofillReview({ prep }: { prep: ApplicationPreparation }) {
         )}
       </div>
       <p className="mt-1 text-xs text-slate-500">
-        Opens a visible browser, fills only the fields you approve, and leaves the Greenhouse page for you to submit.
+        Opens a visible browser and fills only the fields you approve. Sending an application requires a separate confirmation for that job.
       </p>
       {publicUrl && <p className="mt-1 break-all text-xs text-slate-500">Posting: {publicUrl}</p>}
       {formUrl && <p className="mt-1 break-all text-xs text-slate-500">Application form: {formUrl}</p>}
@@ -113,13 +140,15 @@ export function AutofillReview({ prep }: { prep: ApplicationPreparation }) {
           <p className="text-sm">
             {fillingPaused(plan, session.state)
               ? 'Filling is paused. An active verification challenge is on the page. Complete it in the browser, then choose Fill approved fields again. CareerPilot will not solve it.'
-              : 'Filling is permitted for the checked fields. CareerPilot will not submit the application.'}
+              : canSubmit(session)
+                ? 'Filling is permitted for the checked fields. Submission still requires the confirmation below.'
+                : 'Filling is permitted for the checked fields. CareerPilot will not submit until this application is ready and you confirm it.'}
           </p>
           {session.readiness && (
             <div className="rounded-md bg-slate-50 p-2 text-xs text-slate-700">
               <p className="font-medium text-slate-900">
                 {session.readiness.status === 'ready_to_submit'
-                  ? 'Ready for a later submission step. CareerPilot will not submit until you explicitly allow it.'
+                  ? 'Ready for submission. Nothing is sent until you confirm this application below.'
                   : 'Needs review before submission. CareerPilot will not submit.'}
               </p>
               <ul className="mt-1 list-disc pl-4">
@@ -181,6 +210,39 @@ export function AutofillReview({ prep }: { prep: ApplicationPreparation }) {
               Fill approved fields
             </button>
           )}
+          {canSubmit(session) && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+              <p className="font-medium">Ready for submission</p>
+              <p className="mt-1">Employer: {session.employer}</p>
+              <p>Job: {session.job_title}</p>
+              <p className="break-all">Application URL: {session.apply_url}</p>
+              <p>Selected resume: {plan?.resume.display_name || 'None'}</p>
+              <p>Required fields: {checkDetail(session, 'required_fields')}</p>
+              <p>Unresolved questions: {unresolvedText(session)}</p>
+              <p className="mt-2 font-medium">
+                Clicking Submit this application sends it to {session.employer}. CareerPilot cannot undo that.
+              </p>
+              <label className="mt-2 flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={confirmed}
+                  onChange={(event) => setConfirmed(event.target.checked)}
+                />
+                <span>I confirm this submission for {session.job_title} at {session.employer} only.</span>
+              </label>
+              <button
+                type="button"
+                disabled={busy || !confirmed}
+                onClick={submit}
+                className="mt-2 rounded-md bg-amber-800 px-2 py-1 font-medium text-white disabled:opacity-50"
+              >
+                Submit this application
+              </button>
+            </div>
+          )}
+          {session.application_status && ['submitted', 'submission_failed', 'confirmation_unknown', 'submitting'].includes(session.application_status) && (
+            <p className="text-sm font-medium text-slate-900">{submissionLabel(session.application_status)}. {session.message}</p>
+          )}
           {session.result && (
             <div>
               <p className="font-medium text-slate-900">After filling</p>
@@ -198,6 +260,34 @@ export function AutofillReview({ prep }: { prep: ApplicationPreparation }) {
       )}
     </div>
   )
+}
+
+function canSubmit(session: AutofillSession) {
+  const blocked = ['submitting', 'submitted', 'submission_failed', 'confirmation_unknown']
+  return (
+    session.readiness?.status === 'ready_to_submit' &&
+    !blocked.includes(session.application_status || '') &&
+    ['ready_to_fill', 'filled_for_review', 'needs_review'].includes(session.state)
+  )
+}
+
+function checkDetail(session: AutofillSession, code: string) {
+  return session.readiness?.checks.find((item) => item.code === code)?.detail || 'Not checked.'
+}
+
+function unresolvedText(session: AutofillSession) {
+  const open = session.readiness?.checks.filter((item) => item.status !== 'passed').map((item) => item.detail) || []
+  return open.length ? open.join(' ') : 'None.'
+}
+
+function submissionLabel(status: string) {
+  const labels: Record<string, string> = {
+    submitting: 'Submitting',
+    submitted: 'Successfully submitted',
+    submission_failed: 'Submission failed',
+    confirmation_unknown: 'Confirmation unknown',
+  }
+  return labels[status] || status
 }
 
 function asPlanField(field: AutofillAnswerField): AutofillPlanField {

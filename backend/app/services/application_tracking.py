@@ -119,6 +119,80 @@ def ensure_for_preparation(db: Session, preparation: ApplicationPreparation) -> 
     return row
 
 
+def claim_for_submission(db: Session, *, candidate_id: int, preparation_id: int) -> TrackedApplication:
+    """Move ready_to_submit to submitting. A second caller cannot enter submitting."""
+    preparation = db.get(ApplicationPreparation, preparation_id)
+    if preparation is None or preparation.candidate_id != candidate_id or preparation.job_id is None:
+        raise NotFoundError(f"No application preparation with id={preparation_id}.")
+    row = db.execute(
+        select(TrackedApplication)
+        .where(
+            TrackedApplication.candidate_id == candidate_id,
+            TrackedApplication.job_id == preparation.job_id,
+        )
+        .with_for_update()
+    ).scalar_one_or_none()
+    if row is None:
+        raise NotFoundError("This application is not being tracked.")
+    if row.preparation_id not in {None, preparation.id}:
+        raise ValidationError("The tracked application does not match this preparation.")
+    if row.status is ApplicationStatus.SUBMITTING:
+        raise ValidationError("Another submission is already in progress.")
+    if row.status is ApplicationStatus.SUBMITTED:
+        raise ValidationError("This application was already submitted.")
+    if row.status is ApplicationStatus.CONFIRMATION_UNKNOWN:
+        raise ValidationError("The last submission outcome is unknown. CareerPilot will not submit again.")
+    if row.status is not ApplicationStatus.READY_TO_SUBMIT:
+        raise ValidationError("The application is not ready to submit.")
+    transition(row, ApplicationStatus.SUBMITTING)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def record_submission_outcome(
+    db: Session,
+    *,
+    application_id: int,
+    status: ApplicationStatus,
+    note: str,
+) -> TrackedApplication:
+    if status not in {
+        ApplicationStatus.SUBMITTED,
+        ApplicationStatus.SUBMISSION_FAILED,
+        ApplicationStatus.CONFIRMATION_UNKNOWN,
+    }:
+        raise ValidationError("That is not a submission outcome.")
+    row = db.get(TrackedApplication, application_id)
+    if row is None:
+        raise NotFoundError(f"No tracked application with id={application_id}.")
+    if row.status is not ApplicationStatus.SUBMITTING:
+        raise ValidationError("This application is not in the middle of a submission.")
+    if status is ApplicationStatus.SUBMITTED:
+        transition(row, status, confirmation=note)
+    elif status is ApplicationStatus.CONFIRMATION_UNKNOWN:
+        transition(row, status, failure_reason=note, confirmation=note)
+    else:
+        transition(row, status, failure_reason=note)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def return_to_review(db: Session, *, candidate_id: int, preparation_id: int, detail: str) -> TrackedApplication | None:
+    """Move a still-unsent ready application back to needs_review."""
+    preparation = db.get(ApplicationPreparation, preparation_id)
+    if preparation is None or preparation.job_id is None:
+        return None
+    row = _find(db, candidate_id, preparation.job_id)
+    if row is None or row.status is not ApplicationStatus.READY_TO_SUBMIT:
+        return row
+    transition(row, ApplicationStatus.NEEDS_REVIEW, failure_reason=detail)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
 def apply_readiness(db: Session, *, candidate_id: int, preparation_id: int, readiness) -> TrackedApplication:
     """Copy a readiness verdict onto the tracked application. Never sets submitting or submitted."""
     try:

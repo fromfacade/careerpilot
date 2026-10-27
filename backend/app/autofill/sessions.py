@@ -1,7 +1,7 @@
 """One visible Greenhouse browser at a time. The window stays open for review.
 
-Playwright calls stay on the thread that launched Chromium. Nothing in this
-module clicks Submit or writes cookies to disk.
+Playwright calls stay on the thread that launched Chromium. Filling never
+clicks Submit. Submission is a separate confirmation for this session only.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from playwright.sync_api import sync_playwright
 from app.autofill.actions import decide_fill, resume_marker, reviewed_fields
 from app.autofill.browser_fill import FillReport, NavigationBlocked, apply_actions, open_application
 from app.autofill.mapping import AutofillPlan
+from app.autofill.submission import SubmissionGate
 from app.autofill.urls import classify_apply_url, same_greenhouse_application
 from app.core.db import session_scope
 from app.core.exceptions import NotFoundError, ValidationError
@@ -48,6 +49,9 @@ class AutofillRun:
     already_submitted: bool | None = None
     fill_attempted: bool = False
     included_field_ids: set[str] = field(default_factory=set)
+    application_status: str = ""
+    submit_expires_at: datetime | None = None
+    submit_gate: SubmissionGate = field(default_factory=SubmissionGate)
     cancel: threading.Event = field(default_factory=threading.Event)
     reviewed: dict = field(default_factory=dict)
     _worker: "BrowserWorker | None" = None
@@ -283,6 +287,142 @@ def fill_session(session_id: str, *, included: set[str], overwrite: set[str], at
     return run
 
 
+def submit_session(session_id: str, *, confirm: bool, preparation_id: int, apply_url: str) -> AutofillRun:
+    """Submit only when this request confirms the open preparation and the live page is ready."""
+    from datetime import datetime, timezone
+
+    from app.autofill.readiness import readiness_for_run
+    from app.autofill.submission import (
+        authorization_problem,
+        click_authorized_submit,
+        interpret_submission,
+        prepare_submission,
+    )
+    from app.models.enums import ApplicationStatus
+    from app.services.application_tracking import claim_for_submission, record_submission_outcome
+
+    run = _get(session_id)
+    now = datetime.now(timezone.utc)
+    problem = authorization_problem(
+        confirm=confirm,
+        preparation_id=preparation_id,
+        apply_url=apply_url,
+        session_preparation_id=run.preparation_id,
+        session_apply_url=run.apply_url,
+        expires_at=run.submit_expires_at,
+        now=now,
+    )
+    if problem:
+        raise ValidationError(problem)
+    if run._worker is None:
+        raise ValidationError("The browser window is not open.")
+    if run.state not in {"ready_to_fill", "filled_for_review", "needs_review"}:
+        raise ValidationError("This browser session cannot submit right now.")
+    if not run.submit_gate.acquire():
+        raise ValidationError("Another submission is already in progress.")
+    claimed_id: int | None = None
+    try:
+        def _submit(page):
+            nonlocal claimed_id
+            if not page.url or not classify_apply_url(page.url).supported:
+                return "needs_review", "The browser left the Greenhouse application page.", False
+            html = page.content()
+            live = _plan_for(run, html, page.url)
+            run.plan = live
+            if run.plan is not None:
+                run.plan.blockers = list(live.blockers)
+            readiness = readiness_for_run(run)
+            prepared = prepare_submission(
+                html,
+                page_url=page.url,
+                expected_url=run.apply_url,
+                readiness_status=readiness.status,
+                failing_details=[item.detail for item in readiness.checks if item.status != "passed"],
+                blockers=list(live.blockers),
+                already_submitted=run.already_submitted,
+            )
+            if not prepared.ok or prepared.control is None:
+                return "needs_review", prepared.detail, False
+            with session_scope() as db:
+                claimed = claim_for_submission(db, candidate_id=run.candidate_id, preparation_id=run.preparation_id)
+                claimed_id = claimed.id
+            clicked = click_authorized_submit(page, prepared.control, authorized=True)
+            if not clicked.clicked:
+                status, note = "submission_failed", clicked.error or "The submit control was not used. Nothing was sent."
+            else:
+                status, note = interpret_submission(clicked.html, clicked=True, timed_out=clicked.timed_out)
+            with session_scope() as db:
+                saved = record_submission_outcome(
+                    db,
+                    application_id=claimed_id,
+                    status=ApplicationStatus(status),
+                    note=note,
+                )
+            fresh = page.content()
+            _plan_for(run, fresh, page.url)
+            report = run.result or FillReport()
+            report.submitted = status == "submitted"
+            report.stopped = None if status == "submitted" else note
+            run.result = report
+            return status, note, True
+
+        try:
+            status, note, sent = run._worker.call(_submit, timeout=90)
+        except ValidationError:
+            raise
+        except (TimeoutError, queue.Empty):
+            if claimed_id is None:
+                _hold_review(run, "The browser did not answer in time, so nothing was submitted.")
+            else:
+                _record_unknown(run, claimed_id)
+            return run
+        except Exception:
+            if claimed_id is None:
+                _hold_review(run, "The submission could not start, so nothing was sent.")
+            else:
+                _record_unknown(run, claimed_id)
+            return run
+        if not sent:
+            _hold_review(run, note)
+            return run
+        run.application_status = status
+        run.state = status
+        run.message = note
+        return run
+    finally:
+        run.submit_gate.release()
+
+
+def _hold_review(run: AutofillRun, detail: str) -> None:
+    from app.services.application_tracking import return_to_review
+
+    with session_scope() as db:
+        row = return_to_review(db, candidate_id=run.candidate_id, preparation_id=run.preparation_id, detail=detail)
+    run.state = "needs_review"
+    run.message = detail
+    run.application_status = row.status.value if row is not None else "needs_review"
+
+
+def _record_unknown(run: AutofillRun, application_id: int) -> None:
+    from app.models.enums import ApplicationStatus
+    from app.services.application_tracking import record_submission_outcome
+
+    note = "The browser did not answer in time. Check the employer page. CareerPilot will not retry."
+    with session_scope() as db:
+        try:
+            record_submission_outcome(
+                db,
+                application_id=application_id,
+                status=ApplicationStatus.CONFIRMATION_UNKNOWN,
+                note=note,
+            )
+        except ValidationError:
+            return
+    run.state = "confirmation_unknown"
+    run.message = note
+    run.application_status = "confirmation_unknown"
+
+
 def cancel_session(session_id: str) -> AutofillRun:
     run = _get(session_id)
     run.cancel.set()
@@ -339,12 +479,21 @@ def _persist_readiness(run: AutofillRun) -> None:
     from app.services.application_tracking import apply_readiness
 
     with session_scope() as db:
-        apply_readiness(
+        row = apply_readiness(
             db,
             candidate_id=run.candidate_id,
             preparation_id=run.preparation_id,
             readiness=readiness_for_run(run),
         )
+    run.application_status = row.status.value
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.enums import ApplicationStatus
+
+    if row.status is ApplicationStatus.READY_TO_SUBMIT:
+        run.submit_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    else:
+        run.submit_expires_at = None
 
 
 def _remember_eligibility(run: AutofillRun, db, candidate: Candidate, preparation) -> None:

@@ -32,7 +32,7 @@ export function Dashboard() {
       <header>
         <h1 className="text-2xl font-bold text-slate-900">CareerPilot</h1>
         <p className="text-sm text-slate-500">
-          Local-first job search, verified facts, and a reusable answer library. No applications are submitted from this dashboard.
+          Local-first job search, verified facts, and a reusable answer library. A Greenhouse application is sent only after you confirm that specific job.
         </p>
       </header>
 

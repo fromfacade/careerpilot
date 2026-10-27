@@ -482,12 +482,15 @@ Migration: `alembic/versions/i9d0e1f2a3b4_add_tracked_applications.py`.
 | `failure_reason` | `TEXT` NULL | readiness or failure summary, redacted |
 
 Allowed moves: `preparing` ↔ `needs_review` ↔ `ready_to_submit`;
-`ready_to_submit` → `submitting`; `submitting` → `submitted`,
-`submission_failed`, or `confirmation_unknown`. `submitted` is terminal.
-`confirmation_unknown` can be corrected to `submitted` or
-`submission_failed`, and cannot return to `submitting`. Readiness
-writes only `needs_review` or `ready_to_submit`, and it does not change
-a row that is `submitting`, `submitted`, or `confirmation_unknown`.
+`ready_to_submit` → `submitting` only from an authorized submission;
+`submitting` → `submitted`, `submission_failed`, or `confirmation_unknown`.
+`submitted` is terminal. `confirmation_unknown` can be corrected to
+`submitted` or `submission_failed`, and cannot return to `submitting`.
+Readiness writes only `needs_review` or `ready_to_submit`, and it does
+not change a row that is `submitting`, `submitted`, or `confirmation_unknown`.
+A failed pre-submit check moves `ready_to_submit` back to `needs_review`
+without a click. `submitted` is stored only when the employer page shows
+a receipt, not because a button click returned.
 
 ## 3. Enum reference
 

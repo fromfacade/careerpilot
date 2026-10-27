@@ -651,6 +651,7 @@ export interface AutofillSession {
     status: string;
     checks: ReadinessCheck[];
   } | null;
+  application_status?: string | null;
 }
 
 export interface AIStatus {

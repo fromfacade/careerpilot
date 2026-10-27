@@ -15,9 +15,11 @@ from app.models.job_source import Employer, JobSource
 from app.models.preparation import ApplicationPreparation
 from app.services.application_tracking import (
     apply_readiness,
+    claim_for_submission,
     count_for_job,
     ensure_for_preparation,
     get_application_or_404,
+    record_submission_outcome,
     transition,
 )
 from app.ai.mock import MockAnswerProvider
@@ -193,6 +195,29 @@ def test_confirmation_unknown_is_not_retried_as_submitting(client, db_session):
             preparation_id=prep["id"],
             readiness=_Readiness("submitted", []),
         )
+
+
+def test_claim_rejects_a_second_submission_and_records_only_real_outcomes(client, db_session):
+    _candidate_body, _job, prep = _prepare(client, db_session)
+    apply_readiness(
+        db_session,
+        candidate_id=prep["candidate_id"],
+        preparation_id=prep["id"],
+        readiness=_Readiness("ready_to_submit", []),
+    )
+    claimed = claim_for_submission(db_session, candidate_id=prep["candidate_id"], preparation_id=prep["id"])
+    assert claimed.status == ApplicationStatus.SUBMITTING
+    with pytest.raises(ValidationError, match="in progress"):
+        claim_for_submission(db_session, candidate_id=prep["candidate_id"], preparation_id=prep["id"])
+    saved = record_submission_outcome(
+        db_session,
+        application_id=claimed.id,
+        status=ApplicationStatus.CONFIRMATION_UNKNOWN,
+        note="The page did not show whether it was received.",
+    )
+    assert saved.status == ApplicationStatus.CONFIRMATION_UNKNOWN
+    with pytest.raises(ValidationError, match="unknown"):
+        claim_for_submission(db_session, candidate_id=prep["candidate_id"], preparation_id=prep["id"])
 
 
 def test_missing_job_and_preparation(client, db_session):
