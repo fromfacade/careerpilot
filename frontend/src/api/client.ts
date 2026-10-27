@@ -1,7 +1,11 @@
 import type {
   Candidate,
   CandidateFact,
+  CandidateFactBulkUpdateInput,
   CandidateFactUpdateInput,
+  ResumeDeleteInput,
+  ResumeDeleteResult,
+  ResumeReprocessResult,
   CandidateInput,
   DiscoveryRun,
   Job,
@@ -166,4 +170,18 @@ export const api = {
   },
   updateCandidateFact: (factId: number, data: CandidateFactUpdateInput) =>
     request<CandidateFact>(`/api/candidate/facts/${factId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  bulkUpdateCandidateFacts: (data: CandidateFactBulkUpdateInput) =>
+    request<CandidateFact[]>('/api/candidate/facts/bulk', { method: 'POST', body: JSON.stringify(data) }),
+  reprocessResume: (resumeId: number) =>
+    request<ResumeReprocessResult>(`/api/resumes/${resumeId}/reprocess`, { method: 'POST' }),
+  setPrimaryResume: (resumeId: number) =>
+    request<Resume>(`/api/resumes/${resumeId}/primary`, { method: 'POST' }),
+  deleteResume: (resumeId: number, data: ResumeDeleteInput = {}) =>
+    request<ResumeDeleteResult>(`/api/resumes/${resumeId}`, {
+      method: 'DELETE',
+      body: JSON.stringify({
+        delete_verified_facts: data.delete_verified_facts ?? false,
+        replacement_resume_id: data.replacement_resume_id ?? null,
+      }),
+    }),
 };

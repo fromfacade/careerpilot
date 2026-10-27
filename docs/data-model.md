@@ -247,11 +247,12 @@ prerequisites). Migration: `alembic/versions/6503438e5cd3_add_resumes_and_candid
 
 ### 2a.1 `resumes`
 
-One row per uploaded resume file. **Immutable by construction**: no update/delete endpoint
-exists for this table or the files it references — the only writes are the initial `INSERT` at
-upload time and the one-time `parse_status`/`parse_error` set during that same request. This is
-how "maintain an immutable copy of the original resume" is enforced: not by convention, but by
-the absence of any code path that could mutate a row after creation.
+One row per uploaded resume file. **File bytes are write-once**: no PATCH/PUT exists for
+`original_filename` / `storage_path` / checksum / size / format. The only in-place writes after
+upload are `parse_status` / `parse_error` (upload + reprocess) and `is_primary` (first upload,
+explicit "set primary", or replacement when the primary file is deleted). An explicit
+`DELETE /api/resumes/{id}` removes that row and its resume-specific extracted records; it does
+not touch jobs, preferences, or saved jobs.
 
 | Column | Type | Constraints | Notes |
 |---|---|---|---|
@@ -261,9 +262,10 @@ the absence of any code path that could mutate a row after creation.
 | `file_format` | `resume_file_format_enum` | NOT NULL | `pdf, docx` |
 | `storage_path` | `TEXT` | NOT NULL | path under `resume_storage_dir` (gitignored, see `.gitignore` `backend/storage/`); filename is the SHA-256 checksum + extension, never the client-supplied name, to eliminate path-traversal risk |
 | `file_size_bytes` | `BIGINT` | NOT NULL | |
-| `sha256_checksum` | `TEXT` | NOT NULL | content hash; re-uploading identical bytes reuses the same stored file |
+| `sha256_checksum` | `TEXT` | NOT NULL | content hash; re-uploading identical bytes for the same candidate returns the existing resume (no second row, no re-parse) |
 | `parse_status` | `resume_parse_status_enum` | NOT NULL, default `pending` | `pending, success, partial, failed` — `partial` means at least one extracted fact fell back to `FactType.OTHER` (headers not fully recognized), `failed` means text extraction itself raised |
 | `parse_error` | `TEXT` | NULL | human-readable extraction failure detail, set only when `parse_status = failed` |
+| `is_primary` | `BOOLEAN` | NOT NULL, default `false` | exactly one primary resume per candidate (partial unique index). The first upload is primary; later files are not until the user sets one. |
 | `created_at` / `updated_at` | `TIMESTAMPTZ` | NOT NULL | |
 
 ### 2a.2 `candidate_facts`
@@ -276,10 +278,10 @@ implementation of the "generalized fact vault" sketched in the old §5 below, sc
 |---|---|---|---|
 | `id` | `BIGSERIAL` | PK | |
 | `candidate_id` | `BIGINT` | NOT NULL, FK → `candidates.id` ON DELETE CASCADE | |
-| `resume_id` | `BIGINT` | NULL, FK → `resumes.id` ON DELETE CASCADE | null reserved for future non-resume-sourced facts (e.g. manual entry) |
+| `resume_id` | `BIGINT` | NULL, FK → `resumes.id` ON DELETE SET NULL | null for independently kept facts (verified/edited rows detached when their source resume is deleted, or future manual entry) |
 | `fact_type` | `fact_type_enum` | NOT NULL | `education, skill, project, work_experience, achievement, other` — `other` is the explicit, non-fabricating fallback bucket used when section headers aren't recognized |
 | `fact_key` | `TEXT` | NOT NULL | short label, e.g. institution name, employer name, skill category |
-| `fact_value` | `JSONB` | NOT NULL | structured payload, shape varies by `fact_type` (e.g. `{bullets: [...], dates_text: "..."}` for work experience; `{items: [...]}` for skills) |
+| `fact_value` | `JSONB` | NOT NULL | structured payload, shape varies by `fact_type`. Education: `{institution, location, degree, major, gpa, dates_text, coursework, bullets, raw_block}`. Work: `{employer, position, location, dates_text, bullets, unclassified_text, raw_block}`. Project: `{name, tagline, technologies, dates_text, bullets, raw_block}`. Skill: `{items: [...]}` (one fact per category, key = category name). Achievement: `{organization?, text, bullets}`; other: `{text}`. Fields the source text does not contain are `null` — never fabricated. Any type may also carry parser review flags: `needs_review` (bool), `review_reasons` (string[]), `ambiguous_fields` (string[]), and `possible_duplicate_of` (fact id) when an updated upload conflicts with an already-reviewed record. Flagged facts cannot be bulk-verified. |
 | `raw_text` | `TEXT` | NULL | the verbatim source block this fact was parsed from, kept for human review/audit — never discarded even after the structured fields are extracted |
 | `source` | `fact_source_enum` | NOT NULL, default `resume_extraction` | `resume_extraction, manual_entry` |
 | `verification_status` | `fact_verification_status_enum` | NOT NULL, default `unverified` | `unverified, verified, edited, rejected` — see note below on why this replaces a numeric confidence score |

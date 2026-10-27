@@ -85,7 +85,7 @@ careerpilot/
 │   │   ├── api/                    # FastAPI routers (thin HTTP layer only)
 │   │   ├── services/               # business logic, orchestration, pure-ish functions
 │   │   ├── sources/                # job source adapters (greenhouse/lever/ashby) + registry
-│   │   ├── resume_parsing/         # PDF/DOCX text extraction + deterministic section parsing (Phase 2.1); no network calls
+│   │   ├── resume_parsing/         # PDF/DOCX text extraction, whitespace repair, deterministic section parsing (Phase 2.1); no network calls
 │   │   ├── scheduling/             # APScheduler setup and discovery job wiring
 │   │   └── tests -> (see backend/tests)
 │   ├── tests/
@@ -198,17 +198,32 @@ preference was 51. Two separate problems, both now fixed:
   not a configuration flag, satisfying the requirement "do not send resume content to a cloud AI
   provider without explicit configuration and authorization" by construction for this milestone.
   - `extractors.py` — `extract_text(file_bytes, file_format)` dispatches to `pypdf` (PDF) or
-    `python-docx` (DOCX, walking both paragraphs and table cells). Encrypted PDFs, zero-text
+    `python-docx` (DOCX, walking paragraphs and joining table *rows* so each cell does not
+    become its own fact). PDF extraction prefers pypdf `extraction_mode="layout"` over the
+    default `"plain"` mode: Google Docs / Word PDFs store each word as a separately positioned
+    run, and plain mode emits one token per line. `text_normalize.py` then collapses column
+    padding and, when a page is still ≥60% one-token lines, rejoins those tokens into readable
+    lines while keeping section headers and bullets on their own line. Encrypted PDFs, zero-text
     PDFs, corrupt files of either format, and any other failure raise `ResumeExtractionError` —
     never silently return empty/partial text as if it were a success.
-  - `section_parser.py` — deterministic (non-AI) section detection by header keyword, blank-line
-    block segmentation with a bullet-transition fallback for resumes without blank lines between
-    entries, and comma/bullet/pipe-aware skills parsing. **Always returns at least one fact for
-    non-empty input**: when no headers are recognized, or a detected section is otherwise empty,
-    the full raw text becomes a single `FactType.OTHER` fact rather than being dropped — content
-    is never silently lost, and structure the source text doesn't actually have is never invented.
-    Dates are extracted as a verbatim matched substring (`dates_text`), never parsed into a `date`
-    object, so no false day-level precision is asserted.
+  - `section_parser.py` — deterministic (non-AI) section detection (a heading must stand alone
+    on its line; the field label `Technologies:` is never a heading), then
+    **one record per school / job / project / skill category**, not one record per line.
+    Records stay in their parent section until the next heading. `entry_parser.py` segments work and
+    project sections with an explicit state machine (location/date-only lines are metadata, never a
+    record; wrapped bullets rejoin; a second position at one employer is a separate, flagged
+    record). `skill_items.py` accepts skills only from skills sections and keeps names such as
+    `Linux/Unix` whole. Education groups institution, location, degree, major, GPA, and dates when
+    those substrings are present; work groups employer, position, location, dates, and bullets;
+    projects group name, subtitle, technologies, and bullets. Fields the source text does not
+    contain stay `null` — they are never guessed; when employer vs position cannot be told apart,
+    both stay `null`, the text is preserved, and the record is flagged `needs_review`. `dedupe.py`
+    skips extracted records identical to already-reviewed ones and flags same-name conflicts.
+    Skills split only on comma/semicolon/pipe, never on spaces. Ordinary prose
+    and leftover words such as "of" / "and" are never emitted as their own facts. **Always
+    returns at least one fact for non-empty input**: when no headers are recognized, or a
+    detected section is otherwise empty, the full raw text becomes a single `FactType.OTHER`
+    fact rather than being dropped. Dates stay a verbatim substring (`dates_text`).
 - `app/services/resume_service.py` — orchestrates upload: validates file size/extension against
   explicit parameters (`storage_dir`, `max_upload_mb` — not read from global settings internally,
   mirroring the existing `app/sources/http.py` convention, so the service is testable with a
@@ -222,8 +237,12 @@ preference was 51. Two separate problems, both now fixed:
   reverting a fact back to `unverified`.
 - `app/api/resumes.py` — `POST /api/resumes` (multipart upload), `GET /api/resumes`,
   `GET /api/resumes/{id}`, `GET /api/resumes/{id}/facts`,
+  `POST /api/resumes/{id}/reprocess` (re-reads the stored file; replaces only UNVERIFIED facts;
+  verified / edited / rejected facts and the file itself are untouched),
   `GET /api/candidate/facts?fact_type=&verification_status=`,
-  `PATCH /api/candidate/facts/{id}`. **No PATCH/PUT/DELETE exists for a `Resume` row** — this is
+  `PATCH /api/candidate/facts/{id}`,
+  `POST /api/candidate/facts/bulk` (explicit verify/reject of selected IDs; cannot set
+  `unverified`; refuses with 422 to verify any fact flagged `needs_review`, all-or-nothing). **No PATCH/PUT/DELETE exists for a `Resume` row's file fields** — this is
   the concrete mechanism behind "maintain an immutable copy of the original resume."
 - Storage: `backend/storage/resumes/` (configurable via `resume_storage_dir`), excluded from git
   via the pre-existing `backend/storage/` line in `.gitignore` — uploaded resumes and the PII
