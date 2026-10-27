@@ -450,3 +450,15 @@ Tests: `pytest tests/integration/test_canonical_facts_schema.py` → **5 passed*
 suite: **254 passed**.
 
 Status: **milestone 2.2 increment 1 complete.**
+
+### 7.2 Increment 2 — import, dedupe, conflicts
+
+`app/services/canonical_service.py` promotes verified/edited extracted facts into
+`canonical_facts`. Exact content matches add a provenance link and skip a new row.
+Same-identity different content becomes `status=conflict` (`needs_review`); the active
+value is never overwritten. Manual create starts unverified. Archive/delete affect only
+the canonical row. Conflict resolution is an explicit `keep=existing|incoming` action.
+
+Tests: `tests/unit/test_canonical_import.py`, `tests/integration/test_canonical_service.py`.
+
+Status: **milestone 2.2 increment 2 complete.**
