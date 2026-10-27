@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
+
+from app.ai.mock import MockAnswerProvider
+from app.core.config import Settings
 from app.models.enums import JobProvider
 from app.models.job import Job
 from app.models.job_source import Employer, JobSource
@@ -21,6 +25,18 @@ Preferred:
 Responsibilities:
 - Build and operate backend services
 """
+
+
+@pytest.fixture(autouse=True)
+def mock_preparation_ai(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.preparation_service.get_provider",
+        lambda settings=None: MockAnswerProvider("I want to build backend systems."),
+    )
+    monkeypatch.setattr(
+        "app.services.preparation_service.get_settings",
+        lambda: Settings(ai_enabled=True, ai_provider="mock", ai_model="mock"),
+    )
 
 
 def _candidate(client):
@@ -93,6 +109,54 @@ def test_cancel_allows_a_new_preparation(client, db_session):
     assert created.json()["id"] != first.json()["id"]
     listing = client.get("/api/preparations")
     assert {row["state"] for row in listing.json()} == {"cancelled", "needs_review"}
+
+
+def test_prepare_reuses_approved_answers_and_skips_sensitive(client, db_session):
+    _candidate(client)
+    job = _job(db_session)
+    approved = client.post(
+        "/api/candidate/answers",
+        json={
+            "question": "Tell us about a project you are proud of.",
+            "answer_text": "I built Alpha Queue in FastAPI.",
+            "category": "experience",
+            "status": "approved",
+        },
+    )
+    assert approved.status_code == 201
+    created = client.post("/api/preparations", json={"job_id": job.id})
+    assert created.status_code == 201, created.text
+    answers = created.json()["answers"]
+    reused = next(item for item in answers if "project" in item["question"].lower())
+    assert reused["origin"] == "reused"
+    assert reused["answer_text"] == "I built Alpha Queue in FastAPI."
+    assert reused["source_answer_id"] == approved.json()["id"]
+    generated = next(item for item in answers if "interested" in item["question"].lower())
+    assert generated["origin"] == "generated"
+    sensitive = next(item for item in answers if item["is_sensitive"])
+    assert sensitive["answer_text"] == ""
+    assert sensitive["status"] == "needs_review"
+    kept = client.get(f"/api/candidate/answers/{approved.json()['id']}").json()
+    assert kept["answer_text"] == "I built Alpha Queue in FastAPI."
+    assert kept["status"] == "approved"
+
+
+def test_prepare_survives_ai_failure(client, db_session, monkeypatch):
+    from app.core.exceptions import AIProviderError
+
+    _candidate(client)
+    job = _job(db_session)
+
+    def boom(settings=None):
+        raise AIProviderError("upstream", "Gemini returned HTTP 500.")
+
+    monkeypatch.setattr("app.services.preparation_service.get_provider", boom)
+    created = client.post("/api/preparations", json={"job_id": job.id})
+    assert created.status_code == 201
+    assert created.json()["analysis"]["summary"]
+    assert created.json()["tailored_resume"]["header"]
+    assert created.json()["answers"]
+    assert all("500" in " ".join(item["missing_information"]) or item["origin"] == "reused" or item["is_sensitive"] for item in created.json()["answers"])
 
 
 def test_missing_job_or_empty_description_is_rejected(client, db_session):

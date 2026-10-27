@@ -14,6 +14,7 @@ from app.models.candidate import Candidate
 from app.models.resume import Resume
 from app.schemas.preparation import (
     ApplicationPreparationRead,
+    PreparationAnswerUpdate,
     PreparationCreate,
     TailoredResumeUpdate,
     to_read,
@@ -55,6 +56,37 @@ def read_preparation(preparation_id: int, db: Session = Depends(get_db)):
     candidate = _require_candidate(db)
     try:
         return to_read(preparation_service.get_preparation_or_404(db, candidate, preparation_id))
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.patch("/{preparation_id}/answers/{answer_id}", response_model=ApplicationPreparationRead)
+def update_preparation_answer(
+    preparation_id: int, answer_id: int, payload: PreparationAnswerUpdate, db: Session = Depends(get_db)
+):
+    candidate = _require_candidate(db)
+    try:
+        return to_read(
+            preparation_service.update_preparation_answer(
+                db,
+                candidate,
+                preparation_id,
+                answer_id,
+                answer_text=payload.answer_text,
+                status=payload.status,
+            )
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/{preparation_id}/regenerate", response_model=ApplicationPreparationRead)
+def regenerate_preparation(preparation_id: int, db: Session = Depends(get_db)):
+    candidate = _require_candidate(db)
+    try:
+        return to_read(preparation_service.analyze_preparation(db, candidate, preparation_id))
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

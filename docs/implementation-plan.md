@@ -667,3 +667,10 @@ ATS-friendly CareerPilot layout. The original visual design is explicitly
 not reproduced.
 
 Status: **milestone 2.3 increments 3–4 complete.**
+
+### 9.5 Increment 5 — job-specific answers
+
+Reuse approved library answers, generate other drafts without writing to
+the library, and leave sensitive questions empty for review.
+
+Status: **milestone 2.3 increment 5 complete.**

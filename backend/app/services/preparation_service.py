@@ -6,28 +6,43 @@ an application or opens an employer form.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from pathlib import Path
-
+from app.ai.registry import get_provider
+from app.ai.types import GenerationRequest
 from app.core.config import get_settings
-from app.core.exceptions import NotFoundError, ValidationError
+from app.core.exceptions import AIProviderError, NotFoundError, ValidationError
 from app.models.candidate import Candidate
 from app.models.enums import (
+    AnswerCategory,
+    AnswerStatus,
     CanonicalFactStatus,
     FactVerificationStatus,
     OPEN_PREPARATION_STATES,
+    PreparationAnswerOrigin,
+    PreparationItemStatus,
     PreparationState,
 )
 from app.models.job import Job
 from app.models.job_source import JobSource
-from app.models.preparation import ApplicationPreparation
+from app.models.preparation import ApplicationPreparation, ApplicationPreparationAnswer
 from app.models.resume import Resume
-from app.services import canonical_service, resume_service
+from app.services import answer_service, canonical_service, resume_service
+from app.services.answer_service import is_sensitive_category, question_fingerprint
+from app.services.generation_service import (
+    _SYSTEM,
+    _format_fact,
+    find_unsupported_claims,
+    plan_draft,
+    wrap_untrusted_sample,
+)
 from app.services.job_analysis import analyze_job_description, match_qualifications
 from app.services.resume_export import export_docx, export_pdf
 from app.services.resume_tailor import tailor_resume
+from app.services.writing_style_service import format_profile_guidance
 
 
 DESIGN_LIMITATION = (
@@ -145,11 +160,13 @@ def analyze_preparation(db: Session, candidate: Candidate, preparation_id: int) 
         return mark_failed(db, row, "This job has no description to analyze.")
     row.tailored_resume = tailor_resume(candidate, facts, row.analysis)
     _export_tailored_files(row)
+    fill_preparation_answers(db, candidate, row)
     row.state = PreparationState.NEEDS_REVIEW
-    row.error_message = ""
+    if not row.error_message.startswith("Tailored resume files"):
+        row.error_message = ""
     db.commit()
     db.refresh(row)
-    return row
+    return get_preparation_or_404(db, candidate, row.id)
 
 
 def _export_tailored_files(row: ApplicationPreparation) -> None:
@@ -173,6 +190,128 @@ def update_tailored_resume(db: Session, candidate: Candidate, preparation_id: in
         _export_tailored_files(row)
     if payload.status is not None:
         row.tailored_resume_status = payload.status
+    mark_ready_if_approved(db, row)
+    return get_preparation_or_404(db, candidate, row.id)
+
+
+def _question_set(row: ApplicationPreparation) -> list[tuple[str, AnswerCategory]]:
+    questions = [
+        (f"Why are you interested in the {row.snapshot_job_title} role?", AnswerCategory.INTEREST),
+        (f"Why do you want to work for {row.snapshot_employer}?", AnswerCategory.INTEREST),
+        ("Tell us about a project you are proud of.", AnswerCategory.EXPERIENCE),
+    ]
+    techs = [item.get("text") for item in (row.analysis or {}).get("technologies") or [] if item.get("text")]
+    if techs:
+        questions.append((f"Describe your experience with {techs[0]}.", AnswerCategory.SKILLS))
+    if (row.analysis or {}).get("work_authorization"):
+        questions.append(("Are you authorized to work in the United States?", AnswerCategory.WORK_AUTHORIZATION))
+    return questions
+
+
+def fill_preparation_answers(db: Session, candidate: Candidate, row: ApplicationPreparation, provider=None) -> None:
+    """Write preparation answers only. Never updates the answer library."""
+    for item in list(row.answers):
+        if item.status is not PreparationItemStatus.APPROVED:
+            db.delete(item)
+    db.flush()
+    approved = answer_service.list_answers(db, candidate, status=AnswerStatus.APPROVED)
+    by_fp = {item.question_fingerprint: item for item in approved if item.is_reusable}
+    settings = get_settings()
+    for question, category in _question_set(row):
+        existing = next((item for item in row.answers if item.question == question), None)
+        if existing is not None:
+            continue
+        if is_sensitive_category(category):
+            row.answers.append(
+                ApplicationPreparationAnswer(
+                    question=question,
+                    category=category,
+                    origin=PreparationAnswerOrigin.REUSED,
+                    status=PreparationItemStatus.NEEDS_REVIEW,
+                    is_sensitive=True,
+                    missing_information=["Sensitive questions are not drafted. Enter an authorized answer."],
+                )
+            )
+            continue
+        reused = by_fp.get(question_fingerprint(question))
+        if reused is not None:
+            row.answers.append(
+                ApplicationPreparationAnswer(
+                    question=question,
+                    answer_text=reused.answer_text,
+                    category=category,
+                    origin=PreparationAnswerOrigin.REUSED,
+                    status=PreparationItemStatus.DRAFT,
+                    source_answer_id=reused.id,
+                    canonical_fact_ids=[link.canonical_fact_id for link in reused.fact_links if link.canonical_fact_id],
+                )
+            )
+            continue
+        try:
+            plan = plan_draft(db, candidate, question=question, category=category, job_id=row.job_id)
+            facts_block = "\n".join(_format_fact(f) for f in plan.facts) or "(none)"
+            if plan.job_block:
+                facts_block = f"{facts_block}\n\nEmployer information (not a personal fact): {row.snapshot_employer}. {row.snapshot_description[:800]}"
+            resolved = provider or get_provider(settings)
+            result = resolved.generate(
+                GenerationRequest(
+                    question=question,
+                    system_instruction=_SYSTEM,
+                    facts_block=facts_block,
+                    style_block="\n\n".join(f"Q: {a.question}\nA: {a.answer_text}" for a in plan.style_answers) or "(none)",
+                    style_guidance=format_profile_guidance(plan.style_profile),
+                    writing_samples_block="\n\n".join(wrap_untrusted_sample(s) for s in plan.writing_samples) or "(none)",
+                    temperature=settings.ai_temperature,
+                    max_output_tokens=settings.ai_max_output_tokens,
+                    model=settings.ai_model,
+                )
+            )
+            claims = find_unsupported_claims(result.text, facts_block=facts_block, original_text="")
+            row.answers.append(
+                ApplicationPreparationAnswer(
+                    question=question,
+                    answer_text=result.text,
+                    category=category,
+                    origin=PreparationAnswerOrigin.GENERATED,
+                    status=PreparationItemStatus.DRAFT,
+                    canonical_fact_ids=[f.id for f in plan.facts],
+                    unsupported_claims=claims,
+                    missing_information=plan.missing_information,
+                )
+            )
+        except (AIProviderError, ValidationError) as exc:
+            row.answers.append(
+                ApplicationPreparationAnswer(
+                    question=question,
+                    category=category,
+                    origin=PreparationAnswerOrigin.GENERATED,
+                    status=PreparationItemStatus.NEEDS_REVIEW,
+                    missing_information=[str(exc)],
+                )
+            )
+
+
+def update_preparation_answer(
+    db: Session,
+    candidate: Candidate,
+    preparation_id: int,
+    answer_id: int,
+    *,
+    answer_text: str | None = None,
+    status: PreparationItemStatus | None = None,
+) -> ApplicationPreparation:
+    row = get_preparation_or_404(db, candidate, preparation_id)
+    item = next((ans for ans in row.answers if ans.id == answer_id), None)
+    if item is None:
+        raise NotFoundError(f"No preparation answer with id={answer_id}.")
+    if status is PreparationItemStatus.APPROVED and item.is_sensitive and item.status is not PreparationItemStatus.NEEDS_REVIEW:
+        raise ValidationError("Sensitive preparation answers must stay in needs_review until you edit and confirm them.")
+    if item.is_sensitive and status is PreparationItemStatus.APPROVED and not (answer_text or item.answer_text).strip():
+        raise ValidationError("A sensitive answer cannot be approved empty.")
+    if answer_text is not None:
+        item.answer_text = answer_text
+    if status is not None:
+        item.status = status
     mark_ready_if_approved(db, row)
     return get_preparation_or_404(db, candidate, row.id)
 
