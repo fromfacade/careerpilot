@@ -482,3 +482,13 @@ the same question are allowed; only one may be preferred. Sensitive categories m
 `draft → reviewed → approved`. Answers may link only to active verified/edited canonical facts.
 
 Status: **milestone 2.2 increment 4 complete.**
+
+### 7.5 Increment 5 — AI provider abstraction
+
+`app/ai/` with a common `AnswerProvider` interface. Gemini is the first real adapter
+(httpx, no extra SDK). A mock provider is used in tests. `AI_ENABLED` defaults to false;
+the rest of CareerPilot works without a key. `GET /api/ai/status` reports availability
+and never includes the API key. Failures (timeout, 429, missing key) raise `AIProviderError`
+with a redacted message.
+
+Status: **milestone 2.2 increment 5 complete.**

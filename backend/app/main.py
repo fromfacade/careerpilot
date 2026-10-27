@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.candidate import router as candidate_router
+from app.api.ai import router as ai_router
 from app.api.answers import router as answers_router
 from app.api.canonical import router as canonical_router
 from app.api.discovery import router as discovery_router
@@ -52,6 +53,7 @@ def create_app() -> FastAPI:
     app.include_router(facts_router)
     app.include_router(canonical_router)
     app.include_router(answers_router)
+    app.include_router(ai_router)
 
     return app
 

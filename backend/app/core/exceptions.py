@@ -42,6 +42,16 @@ class ResumeExtractionError(CareerPilotError):
     lose the file (immutability requirement) or crash the request."""
 
 
+class AIProviderError(CareerPilotError):
+    """Raised by the AI provider adapter. `kind` is a stable token the API
+    can map to a status code. The message must never contain an API key.
+    """
+
+    def __init__(self, kind: str, message: str):
+        self.kind = kind
+        super().__init__(message)
+
+
 class JobSourceFetchError(CareerPilotError):
     """Raised by job source adapters when a fetch ultimately fails after retries.
 
