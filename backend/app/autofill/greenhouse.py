@@ -61,6 +61,16 @@ _LABELS = {
     "portfolio url": "portfolio",
     "website": "portfolio",
     "personal website": "portfolio",
+    "city": "location",
+    "location city": "location",
+    "school": "school",
+    "school name": "school",
+    "university": "school",
+    "degree": "degree",
+    "highest degree": "degree",
+    "discipline": "discipline",
+    "major": "discipline",
+    "field of study": "discipline",
     "cover letter": "cover_letter",
 }
 _NAME_TOKENS = {
@@ -77,6 +87,11 @@ _NAME_TOKENS = {
     "portfolio": "portfolio",
     "website": "portfolio",
     "location": "location",
+    "city": "location",
+    "school": "school",
+    "degree": "degree",
+    "discipline": "discipline",
+    "major": "discipline",
     "cover": "cover_letter",
 }
 _SENSITIVE = (
@@ -94,8 +109,10 @@ _SENSITIVE = (
     "criminal",
     "felony",
 )
-_CAPTCHA = ("g-recaptcha", "h-captcha", "cf-turnstile", "recaptcha", "hcaptcha")
+_CAPTCHA_WIDGETS = ("g-recaptcha", "h-captcha", "cf-turnstile", "hcaptcha")
+_CAPTCHA_CHALLENGE = ("bframe", "hcaptcha.com", "challenges.cloudflare.com")
 _MFA = ("one-time code", "verification code", "multi-factor", "two-factor")
+_HIDDEN_STYLE = re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden", re.I)
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 
@@ -167,13 +184,72 @@ def _detect_greenhouse(decision: ApplyUrl, html: str) -> FormDetection:
 
 
 def _blockers(html: str) -> list[str]:
-    lowered = html.casefold()
+    root = parse_html(html)
     found = []
-    if any(marker in lowered for marker in _CAPTCHA):
+    if _active_captcha(root):
         found.append("captcha")
-    if any(marker in lowered for marker in _MFA):
+    visible = text_of(root).casefold()
+    if any(phrase in visible for phrase in _MFA):
         found.append("mfa")
     return found
+
+
+def _active_captcha(root: Node) -> bool:
+    """True only for a visible, unsolved challenge. A loaded script is not one."""
+    solved = False
+    visible_challenge = False
+    for node in walk(root):
+        if node.tag in {"script", "style", "noscript"}:
+            continue
+        if _captcha_solved(node):
+            solved = True
+            continue
+        if not _captcha_widget(node):
+            continue
+        if _captcha_inactive(node) or _element_concealed(node) or _ancestor_concealed(node):
+            continue
+        visible_challenge = True
+    return visible_challenge and not solved
+
+
+def _captcha_widget(node: Node) -> bool:
+    identity = " ".join((node.get("class"), node.get("id"), node.get("title"))).casefold()
+    src = node.get("src").casefold()
+    if any(marker in identity for marker in _CAPTCHA_WIDGETS):
+        return True
+    if node.tag == "iframe" and any(marker in src for marker in _CAPTCHA_CHALLENGE):
+        return True
+    title = node.get("title").casefold()
+    return "challenge" in title and "captcha" in f"{title} {src}"
+
+
+def _captcha_inactive(node: Node) -> bool:
+    if node.get("data-size").casefold() == "invisible":
+        return True
+    identity = f"{node.get('class')} {node.get('id')}".casefold()
+    return "grecaptcha-badge" in identity or "rc-anchor" in identity
+
+
+def _captcha_solved(node: Node) -> bool:
+    identity = f"{node.get('name')} {node.get('id')}".casefold()
+    if "g-recaptcha-response" not in identity and "h-captcha-response" not in identity:
+        return False
+    return bool(node.get("value").strip() or text_of(node).strip())
+
+
+def _element_concealed(node: Node) -> bool:
+    if node.has("hidden") or node.get("aria-hidden").casefold() == "true":
+        return True
+    return bool(_HIDDEN_STYLE.search(node.get("style")))
+
+
+def _ancestor_concealed(node: Node) -> bool:
+    parent = node.parent
+    while parent is not None and parent.tag != "document":
+        if _element_concealed(parent):
+            return True
+        parent = parent.parent
+    return False
 
 
 def _choose_scope(root: Node, forms: list[Node]) -> tuple[Node, bool, list[str]]:
@@ -196,12 +272,28 @@ def _standard_score(scope: Node) -> int:
 def _controls(scope: Node) -> list[Node]:
     found = []
     for node in walk(scope):
-        if node.tag not in _CONTROL_TAGS:
+        if node.tag in {"script", "style", "noscript"} or _ancestor_concealed(node):
+            continue
+        custom_dropdown = node.get("role").casefold() == "combobox" and node.tag not in _CONTROL_TAGS
+        if node.tag not in _CONTROL_TAGS and not custom_dropdown:
             continue
         if node.tag == "input" and node.get("type").casefold() in _SKIP_INPUT_TYPES:
             continue
+        if _element_concealed(node) and _input_type(node) != "file":
+            continue
+        if _decorative(node):
+            continue
         found.append(node)
     return found
+
+
+def _decorative(node: Node) -> bool:
+    role = node.get("role").casefold()
+    if role in {"searchbox", "presentation", "none"}:
+        return True
+    if node.get("type").casefold() == "search" and not node.get("name"):
+        return True
+    return node.get("tabindex") == "-1" and not node.get("name") and role != "combobox"
 
 
 def _to_fields(controls: list[Node], ids: dict[str, Node], root: Node) -> list[DetectedField]:
@@ -223,6 +315,8 @@ def _to_fields(controls: list[Node], ids: dict[str, Node], root: Node) -> list[D
     for members in groups:
         primary = members[0]
         label, label_source = _question_label(members, ids, root)
+        if _phone_country(primary, label):
+            continue
         semantic, confidence = _classify(primary, label, label_source)
         if semantic in _STANDARD and semantic in seen_standard:
             semantic = "unknown"
@@ -249,13 +343,62 @@ def _to_fields(controls: list[Node], ids: dict[str, Node], root: Node) -> list[D
                 accept=primary.get("accept").strip() if _input_type(primary) == "file" else "",
             )
         )
-    return fields
+    return _dedupe(fields)
+
+
+def _phone_country(node: Node, label: str) -> bool:
+    text = _normalize_label(f"{label} {node.get('name')} {node.get('id')} {node.get('aria-label')}")
+    if not any(token in text.split() for token in ("country", "dial", "calling")):
+        return False
+    parent = node.parent
+    for _ in range(4):
+        if parent is None:
+            return False
+        for child in walk(parent):
+            if child is node:
+                continue
+            identity = f"{child.get('name')} {child.get('id')} {child.get('type')}".casefold()
+            if "phone" in identity or child.get("type").casefold() == "tel":
+                return True
+        parent = parent.parent
+    return False
+
+
+def _dedupe(fields: list[DetectedField]) -> list[DetectedField]:
+    unique: list[DetectedField] = []
+    seen_names: set[str] = set()
+    seen_ids: set[str] = set()
+    for item in fields:
+        name = item.name.strip()
+        element_id = item.element_id.strip()
+        if name and name in seen_names:
+            continue
+        if element_id and element_id in seen_ids:
+            continue
+        if not item.label.strip() and not name and item.semantic == "unknown":
+            continue
+        if name:
+            seen_names.add(name)
+        if element_id:
+            seen_ids.add(element_id)
+        unique.append(item)
+    named_labels = {_normalize_label(item.label) for item in unique if item.name.strip() and _normalize_label(item.label)}
+    kept: list[DetectedField] = []
+    seen_unnamed: set[str] = set()
+    for item in unique:
+        label = _normalize_label(item.label)
+        if not item.name.strip() and label and (label in named_labels or label in seen_unnamed):
+            continue
+        if not item.name.strip() and label:
+            seen_unnamed.add(label)
+        kept.append(item)
+    return kept
 
 
 def _input_type(node: Node) -> str:
     if node.tag == "textarea":
         return "textarea"
-    if node.tag == "select":
+    if node.tag == "select" or node.get("role").casefold() == "combobox":
         return "select"
     raw = node.get("type").casefold() or "text"
     if raw in {"email", "tel", "url", "file", "checkbox", "radio", "text", "number"}:

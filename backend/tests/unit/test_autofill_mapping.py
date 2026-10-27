@@ -200,7 +200,8 @@ def test_required_unknown_and_file_fields_are_not_filled():
     plan = plan_autofill(URL, FORM, [], PROFILE)
     unsupported = _by_id(plan.unsupported)
     assert unsupported["job_application[resume]"].input_type == "file"
-    assert unsupported["school"].semantic == "unknown"
+    assert unsupported["school"].semantic == "school"
+    assert unsupported["school"].eligible_for_fill is False
     assert unsupported["notes"].semantic == "custom_question"
     assert all(item.proposed_value is None for item in plan.unsupported)
 

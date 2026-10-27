@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.autofill.mapping import AutofillPlan, FactView, ProfileView, plan_autofill
 from app.autofill.materials import AnswerView, Materials, ResumeFileView, TailoredFileView
-from app.autofill.urls import classify_apply_url
+from app.autofill.urls import same_greenhouse_application
 from app.models.candidate import Candidate
 from app.models.enums import OPEN_PREPARATION_STATES
 from app.models.resume import Resume
@@ -120,14 +120,16 @@ def _materials(db: Session, candidate: Candidate, url: str, preparation_id: int 
 def _preparation(db: Session, candidate: Candidate, url: str, preparation_id: int | None):
     if preparation_id is not None:
         row = preparation_service.get_preparation_or_404(db, candidate, preparation_id)
-        if not _same_job(url, row.snapshot_apply_url):
-            return None, "That preparation belongs to a different application."
-        return row, None
-    matches = [
-        row
-        for row in preparation_service.list_preparations(db, candidate)
-        if row.state in OPEN_PREPARATION_STATES and _same_job(url, row.snapshot_apply_url)
-    ]
+        return _linked(db, row, url)
+    matches = []
+    for row in preparation_service.list_preparations(db, candidate):
+        if row.state not in OPEN_PREPARATION_STATES:
+            continue
+        linked, problem = _linked(db, row, url)
+        if linked is not None:
+            matches.append(linked)
+        elif problem and "not the same application" in problem:
+            continue
     if len(matches) == 1:
         return matches[0], None
     if len(matches) > 1:
@@ -135,7 +137,12 @@ def _preparation(db: Session, candidate: Candidate, url: str, preparation_id: in
     return None, None
 
 
-def _same_job(left: str, right: str) -> bool:
-    a = classify_apply_url(left)
-    b = classify_apply_url(right)
-    return bool(a.supported and b.supported and a.board_token == b.board_token and a.job_id == b.job_id)
+def _linked(db: Session, row, url: str):
+    target, note = preparation_service.greenhouse_target(db, row)
+    expected = target or row.snapshot_apply_url
+    ok, problem = same_greenhouse_application(url, expected)
+    if ok:
+        return row, None
+    if note and not target:
+        problem = f"{note} {problem}"
+    return None, problem

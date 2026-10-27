@@ -1,6 +1,7 @@
 from app.api.autofill import detect_application_form, router
 from app.autofill.greenhouse import detect_application
-from app.autofill.urls import classify_apply_url, greenhouse_application_url
+from app.autofill.materials import Materials, select_resume
+from app.autofill.urls import classify_apply_url, greenhouse_application_url, same_greenhouse_application
 from app.schemas.autofill import AutofillDetectRequest
 
 STANDARD = """
@@ -154,7 +155,7 @@ def test_standard_greenhouse_form_maps_labels_and_leaves_questions_unknown():
     assert fields["portfolio"].label == "Website"
     assert fields["custom_question"].label.startswith("How did you hear")
     school = next(field for field in detection.fields if field.element_id == "school")
-    assert school.semantic == "unknown"
+    assert school.semantic == "school"
     assert school.input_type == "select"
     assert "Example State University" in school.options
     follow_up = next(field for field in detection.fields if field.element_id == "ack")
@@ -192,6 +193,107 @@ def test_sensitive_questions_and_captcha_are_flagged_without_being_filled():
     assert "Female" in gender.options
     assert detection.blockers == ["captcha"]
     assert detection.supported is True
+
+
+GREENHOUSE_LIKE = """
+<html><body>
+  <script>
+    var config = {"GOOGLE_RECAPTCHA_INVISIBLE_KEY":"test-key","GOOGLE_RECAPTCHA_ENDPOINT":"https://www.recaptcha.net/recaptcha/enterprise.js"};
+  </script>
+  <form id="application">
+    <label for="first_name">First Name *</label>
+    <input id="first_name" name="job_application[first_name]" type="text" required>
+    <label for="phone">Phone</label>
+    <div>
+      <label for="phone_country">Country</label>
+      <select id="phone_country" name="job_application[phone_country]"><option>United States</option></select>
+      <input id="phone" name="job_application[phone]" type="tel">
+    </div>
+    <label for="city">City</label>
+    <input id="city" name="job_application[city]" type="text">
+    <label for="resume">Resume/CV *</label>
+    <input id="resume" name="job_application[resume]" type="file" accept=".pdf" style="display:none">
+    <div style="display:none">
+      <label for="resume_template">Resume/CV *</label>
+      <input id="resume_template" name="job_application[resume_template]" type="file">
+    </div>
+    <label for="school">School</label>
+    <select id="school" name="job_application[educations][][school_name_id]"><option>Example University</option></select>
+    <div role="combobox" aria-label="School"></div>
+    <input class="select2-search__field" type="search" role="searchbox" tabindex="-1">
+    <label for="degree">Degree</label>
+    <select id="degree" name="job_application[educations][][degree_id]"><option>Bachelor's</option></select>
+    <label for="discipline">Discipline</label>
+    <select id="discipline" name="job_application[educations][][discipline_id]"><option>Computer Science</option></select>
+    <label for="school_2">School</label>
+    <select id="school_2" name="job_application[educations][][school_name_id_2]"><option>Other University</option></select>
+  </form>
+</body></html>
+"""
+
+
+def test_invisible_recaptcha_configuration_is_not_an_active_challenge():
+    detection = detect_application(URL, GREENHOUSE_LIKE)
+    assert detection.blockers == []
+    hidden = detect_application(URL, '<form id="application"><div class="g-recaptcha" data-size="invisible"></div></form>')
+    assert hidden.blockers == []
+    script_only = detect_application(URL, '<form id="application"><script src="https://www.recaptcha.net/recaptcha/enterprise.js"></script></form>')
+    assert script_only.blockers == []
+    solved = detect_application(
+        URL,
+        '<form id="application"><div class="g-recaptcha"></div><textarea name="g-recaptcha-response">completed-token</textarea></form>',
+    )
+    assert solved.blockers == []
+    active = detect_application(URL, '<form id="application"><iframe title="recaptcha challenge" src="https://www.recaptcha.net/recaptcha/enterprise/bframe"></iframe></form>')
+    assert active.blockers == ["captcha"]
+
+
+def test_greenhouse_custom_controls_are_recognized_once():
+    detection = detect_application(URL, GREENHOUSE_LIKE)
+    fields = _by_semantic(detection)
+    assert fields["phone"].input_type == "tel"
+    assert fields["location"].element_id == "city"
+    assert fields["resume"].input_type == "file"
+    assert fields["resume"].required is True
+    assert fields["school"].label == "School"
+    assert fields["degree"].label == "Degree"
+    assert fields["discipline"].label == "Discipline"
+    assert [field.element_id for field in detection.fields if field.semantic == "school"] == ["school", "school_2"]
+    assert all(field.semantic != "unknown" or field.label != "Country" for field in detection.fields)
+    assert not any(field.element_id == "resume_template" for field in detection.fields)
+    assert sum(1 for field in detection.fields if _normalize(field.label) == "school" and not field.name) == 0
+
+
+def _normalize(value: str) -> str:
+    return " ".join(value.casefold().replace("/", " ").split())
+
+
+def test_two_stripe_preparations_do_not_share_a_resume():
+    first, first_note = greenhouse_application_url(
+        "https://stripe.com/jobs/search?gh_jid=8128744",
+        provider="greenhouse",
+        board_token="stripe",
+        external_id="8128744",
+    )
+    second, second_note = greenhouse_application_url(
+        "https://stripe.com/jobs/search?gh_jid=8128745",
+        provider="greenhouse",
+        board_token="stripe",
+        external_id="8128745",
+    )
+    assert first_note == "" and second_note == ""
+    assert first is not None and second is not None
+    same, same_problem = same_greenhouse_application(first, first)
+    other, other_problem = same_greenhouse_application(first, second)
+    assert same is True and same_problem == ""
+    assert other is False
+    assert "stripe/8128744" in other_problem
+    assert "stripe/8128745" in other_problem
+    assert "not the same application" in other_problem
+    refused = select_resume(Materials(preparation_id=2, link_problem=other_problem), ".pdf", True, "resume")
+    assert refused.eligible_for_attach is False
+    assert refused.display_name == ""
+    assert refused.preparation_id == 2
 
 
 def test_empty_malformed_and_verification_pages_stop_safely():

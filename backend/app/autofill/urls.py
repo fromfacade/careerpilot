@@ -57,6 +57,25 @@ def greenhouse_application_url(
     return built, ""
 
 
+def same_greenhouse_application(live_url: str, expected_url: str) -> tuple[bool, str]:
+    """True when both URLs are the same allow-listed Greenhouse job.
+
+    A company career page is not compared directly. The caller passes the
+    Greenhouse form URL resolved for the selected preparation.
+    """
+    live = classify_apply_url(live_url)
+    expected = classify_apply_url(expected_url)
+    if live.supported and expected.supported and live.board_token == expected.board_token and live.job_id == expected.job_id:
+        return True, ""
+    live_label = f"{live.board_token}/{live.job_id}" if live.supported else "an unrecognized page"
+    expected_label = f"{expected.board_token}/{expected.job_id}" if expected.supported else "a preparation without a Greenhouse job id"
+    return False, (
+        f"The open form is {live_label}, but the selected preparation is {expected_label}. "
+        "The resume was not attached because those are not the same application. "
+        "Select the preparation for this Greenhouse job and choose Apply with CareerPilot again."
+    )
+
+
 def navigation_allowed(url: str) -> bool:
     """True for a Greenhouse document navigation, including redirects on those hosts."""
     parts = urlsplit((url or "").strip())
