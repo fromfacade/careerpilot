@@ -129,7 +129,7 @@ careerpilot/
 | 6 | Explainable Match Scoring | **Implemented**, rule-based with a reasons breakdown returned to the UI; a `Relevance.NOT_RELEVANT` verdict caps the score (see §6a) so an out-of-scope role can never show a coincidentally high number. |
 | 7 | Resume Tailoring & Versioning | **Partial (Phase 2.1).** Upload, deterministic PDF/DOCX text extraction, and section parsing into verified `candidate_facts` are implemented — see §6b. Job-specific tailoring, diffing, versioning, and ATS export are later milestones (2.3/2.4), not built. |
 | 8 | AI Provider Management | **Partial (Phase 2.2).** Common `AnswerProvider` interface, Gemini adapter (httpx), mock for tests. Disabled unless `AI_ENABLED` and a key are set. Status endpoint never returns the key. Resume parsing still has zero AI calls. |
-| 9 | Application Answer Library | **Implemented (Phase 2.2).** Manual and AI-draft answers, categories, preferred variants, sensitive-question review gate, links to verified canonical facts. No form filling or submission. |
+| 9 | Application Answer Library | **Implemented (Phase 2.2 / 2.2.1).** Manual and AI-draft answers, writing-style profile, approved writing samples as untrusted style references, grounded generation, and rewrite-without-overwrite. No form filling or submission. |
 | 10 | Form Automation Adapters | Not built. |
 | 11 | Submission Authorization Policy Engine | Not built. Autonomous submission stays disabled by construction — there is no submission code path in Phase 1. |
 | 12 | Application Queue & State Machine | Not built. |

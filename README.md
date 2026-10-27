@@ -1,8 +1,9 @@
 # CareerPilot
 
 A local-first, autonomous-leaning job-search and application assistant. This repo currently
-implements **Phase 1** (profile, job discovery, eligibility) plus **Phase 2.1/2.2** (resume
-parsing, a canonical knowledge base, and a reusable answer library with optional Gemini drafts).
+implements **Phase 1** (profile, job discovery, eligibility) plus **Phase 2.1/2.2/2.2.1**
+(resume parsing, a canonical knowledge base, a reusable answer library, and a writing-style
+profile for grounded Gemini drafts).
 
 **No autonomous submission code exists in this repo.** Form automation and application
 submission are later phases — see `docs/architecture.md` and `docs/implementation-plan.md`.

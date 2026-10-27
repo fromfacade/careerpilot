@@ -580,3 +580,23 @@ original. Approved answers are never overwritten. New proper nouns and years
 are flagged as unsupported claims.
 
 Status: **milestone 2.2.1 increment 4 complete.**
+
+### 8.5 Increment 5 — writing style dashboard
+
+Dashboard Writing Style section for preferences and samples. Answer library
+can generate a personalized draft, rewrite using the profile, compare
+original vs rewrite, edit the rewrite, and adopt an answer as a writing
+sample.
+
+Status: **milestone 2.2.1 increment 5 complete.**
+
+### 8.6 Increment 6 — docs wrap-up
+
+Architecture and this plan record 2.2.1. A synthetic comparison
+(`python -m scripts.evaluate_writing_style`) showed a generic draft of 1277
+characters that used an avoided phrase versus a personalized draft of 444
+characters that stayed on the verified FastAPI/Redis facts. This does not
+claim the system can detect or eliminate AI-sounding writing.
+
+Status: **milestone 2.2.1 complete on `feature/personalized-writing-style`.**
+Not merged to `main`.
