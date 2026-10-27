@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { DiscoveryPanel } from '../components/DiscoveryPanel'
 import { JobSourcesPanel } from '../components/JobSourcesPanel'
+import { ApplicationPreparationPanel } from '../components/ApplicationPreparationPanel'
 import { JobsSection } from '../components/JobsSection'
 import { PreferencesPanel } from '../components/PreferencesPanel'
 import { ProfilePanel } from '../components/ProfilePanel'
@@ -14,6 +15,8 @@ import { ErrorBlock } from '../components/StatusViews'
 export function Dashboard() {
   const [refreshSignal, setRefreshSignal] = useState(0)
   const [backendDown, setBackendDown] = useState<string | null>(null)
+  const [preparationId, setPreparationId] = useState<number | null>(null)
+  const [creatingPreparation, setCreatingPreparation] = useState(false)
 
   const bump = useCallback(() => setRefreshSignal((n) => n + 1), [])
 
@@ -45,7 +48,25 @@ export function Dashboard() {
       <AnswerLibraryPanel />
       <JobSourcesPanel />
       <DiscoveryPanel onRunCompleted={bump} />
-      <JobsSection refreshSignal={refreshSignal} />
+      <JobsSection
+        refreshSignal={refreshSignal}
+        onPrepare={async (jobId) => {
+          setCreatingPreparation(true)
+          try {
+            const prep = await api.createPreparation(jobId)
+            setPreparationId(prep.id)
+          } catch (err) {
+            window.alert(err instanceof Error ? err.message : 'Could not prepare that application.')
+          } finally {
+            setCreatingPreparation(false)
+          }
+        }}
+      />
+      <ApplicationPreparationPanel
+        selectedId={preparationId}
+        onSelected={setPreparationId}
+        creating={creatingPreparation}
+      />
     </main>
   )
 }

@@ -6,7 +6,14 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.models.enums import FactSource, FactType, FactVerificationStatus, ResumeFileFormat, ResumeParseStatus
+from app.models.enums import (
+    FactSource,
+    FactType,
+    FactVerificationStatus,
+    ResumeCategory,
+    ResumeFileFormat,
+    ResumeParseStatus,
+)
 
 
 class ResumeRead(BaseModel):
@@ -21,7 +28,24 @@ class ResumeRead(BaseModel):
     parse_status: ResumeParseStatus
     parse_error: str | None
     is_primary: bool
+    profile_name: str
+    profile_description: str
+    category: ResumeCategory
+    is_approved: bool
+    is_archived: bool
+    focus_areas: list
     created_at: datetime
+    updated_at: datetime
+
+
+class ResumeProfileUpdate(BaseModel):
+    profile_name: str | None = Field(default=None, min_length=1, max_length=200)
+    profile_description: str | None = Field(default=None, max_length=2000)
+    category: ResumeCategory | None = None
+    is_approved: bool | None = None
+    is_archived: bool | None = None
+    focus_areas: list[str] | None = None
+    is_primary: bool | None = None
 
 
 class ResumeUploadResult(BaseModel):

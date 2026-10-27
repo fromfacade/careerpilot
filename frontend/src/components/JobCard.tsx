@@ -60,12 +60,14 @@ export function JobCard({
   onSave,
   onDismiss,
   onUnsave,
+  onPrepare,
   busy,
 }: {
   job: Job
   onSave: () => void
   onDismiss: () => void
   onUnsave: () => void
+  onPrepare: () => void
   busy: boolean
 }) {
   const [showReasons, setShowReasons] = useState(false)
@@ -165,11 +167,11 @@ export function JobCard({
         </a>
         <button
           type="button"
-          disabled
-          title="AI-assisted application drafting is planned but not yet implemented."
-          className="cursor-not-allowed rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-medium text-slate-400"
+          disabled={busy}
+          onClick={onPrepare}
+          className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
         >
-          Apply with AI — Coming soon
+          Prepare application
         </button>
         {job.state !== 'saved' && (
           <button

@@ -23,7 +23,10 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
   real data, manual trigger + basic scheduling, tests, and Windows setup docs.
 - **Phase 2.1 / 2.2 (implemented)**: deterministic resume parsing, canonical knowledge base,
   answer library, optional Gemini drafts. See §6–§7.
-- **Phase 2.3+ (not started)**: resume tailoring, form automation, submission authorization,
+- **Phase 2.3 (this effort)**: job-specific application preparation — JD analysis,
+  qualification matching, resume tailoring/export, and job-specific answer drafts.
+  **Not** form automation or submission.
+- **Phase 2.4+ (not started)**: form automation, submission authorization,
   application queue/state machine, tracker, analytics/notifications, full audit logging.
   Autonomous submission remains impossible because no submission code path exists.
 
@@ -600,3 +603,185 @@ claim the system can detect or eliminate AI-sounding writing.
 
 Status: **milestone 2.2.1 complete on `feature/personalized-writing-style`.**
 Not merged to `main`.
+
+## 9. Phase 2 milestone 2.3 — application preparation
+
+Reconciles the existing plan's "2.3 tailoring/diffing" with this milestone:
+preparation includes JD analysis, qualification matching, tailored resume
+export, and job-specific answers. Form automation stays 2.4+.
+
+Working branch: `feature/application-preparation` from
+`feature/personalized-writing-style` (`e4f900a`).
+
+Decisions:
+
+- One open preparation per `(candidate, job)`. Repeat Prepare returns it.
+  Cancelled rows stay for history; a new prepare may follow a cancel.
+  Failed rows are kept and returned, not replaced.
+- Job title, employer, description, apply URL, and content hash are snapshotted
+  so later listing edits do not change this preparation.
+- JD analysis is deterministic first (section/keyword). Items are `stated` or
+  `inferred`. Matching uses only verified/edited canonical facts and explicit
+  profile fields. No match without evidence.
+- Tailoring reorders and optionally rewords existing facts. Original resume
+  bytes are never modified. Visual design is not reproduced; an ATS-friendly
+  CareerPilot layout is used and that limitation is recorded.
+- Preparation answers are separate from the answer library. Approved library
+  answers are copied/adapted, never overwritten. Sensitive questions are not
+  auto-drafted.
+- States are preparation-only: `preparing`, `needs_review`, `ready`, `failed`,
+  `cancelled`. There is no submit action.
+
+Increments:
+
+1. Preparation models, snapshot, idempotent API.
+2. Job-description analysis and qualification matching.
+3. Deterministic resume tailoring.
+4. PDF/DOCX export and original-resume preservation.
+5. Job-specific answers (reuse + grounded drafts).
+6. Dashboard Prepare Application UI.
+7. Docs wrap-up and full suites.
+
+### 9.1 Increment 1 — preparation records
+
+`application_preparations` plus create/list/get/cancel. Repeat create for the
+same job returns the open row. The job description is snapshotted.
+
+Status: **milestone 2.3 increment 1 complete.**
+
+### 9.2 Increment 2 — job analysis and matching
+
+Deterministic extraction of stated vs inferred requirements, then matching
+against verified facts and explicit profile fields only.
+
+Status: **milestone 2.3 increment 2 complete.**
+
+### 9.3 Increment 3 — resume tailoring
+
+Reorder verified education, work, projects, and skills by job relevance.
+Original resume bytes are never written.
+
+### 9.4 Increment 4 — PDF/DOCX export
+
+ATS-friendly CareerPilot layout. The original visual design is explicitly
+not reproduced.
+
+Status: **milestone 2.3 increments 3–4 complete.**
+
+### 9.5 Increment 5 — job-specific answers
+
+Reuse approved library answers, generate other drafts without writing to
+the library, and leave sensitive questions empty for review.
+
+Status: **milestone 2.3 increment 5 complete.**
+
+### 9.6 Increment 6 — preparation dashboard
+
+Prepare application on each job card. A dashboard panel shows analysis,
+matches, tailored resume, answers, downloads, and approval. No submit
+control exists.
+
+Status: **milestone 2.3 increment 6 complete.**
+
+### 9.7 Increment 7 — docs wrap-up
+
+Architecture, data model, and this plan record 2.3. Form automation and
+submission remain out of scope.
+
+Status: **milestone 2.3 complete on `feature/application-preparation`.**
+Not merged to `main`.
+
+### 9.8 Quality fixes
+
+JD analysis now splits company / responsibilities / requirements / preferred /
+benefits, including flattened Greenhouse listings such as Stripe. Matching
+treats unsupported requirements as unknown unless a verified contradiction
+exists. Tailored resume preview and exports render structured fields and
+bullets instead of serialized JSON. Interest drafts receive employer context
+and verified experience; unknown skills are not claimed and cannot be
+approved empty.
+
+## 10. Phase 2.3.1 — resume profiles and export reliability
+
+Working branch: `feature/application-preparation`.
+
+Decisions:
+
+- Profile metadata lives on `resumes`. File bytes stay write-once.
+  Existing primary rows are approved as the default profile so current
+  uploads stay usable. New uploads stay unapproved until review.
+- Prepare Application analyzes the JD, selects an approved profile,
+  and drafts answers. It does not tailor a resume unless requested.
+- Selection is deterministic: category + token overlap with the
+  posting and that resume's extracted facts / focus areas. Ties use
+  the approved default, then newest. No approved profile → review.
+- Regenerating answers does not change the selected resume.
+- Optional tailoring writes separate files and cannot silently replace
+  the selected original.
+- PDF empty-page bug: fpdf2 `multi_cell` left the cursor at the right
+  edge, so later lines overflowed off-page. Exports are validated by
+  extracted text before download.
+
+Increments:
+
+1. Profile metadata on `resumes` plus approve/archive/download.
+2. Deterministic resume ranking.
+3. Prepare without auto-tailoring; optional tailor/revert/override.
+4. PDF cursor fix and extractable-text validation.
+5. Dashboard profile and selected-resume controls.
+6. Docs wrap-up and Phase 2.4 proposal (not implemented).
+
+Status: **milestone 2.3.1 complete on `feature/application-preparation`.**
+Not merged to `main`.
+
+## 10.1 Phase 2.3 resume export refinements
+
+Working branch: `feature/application-preparation`.
+
+The first tailored-PDF pass still overflowed onto a sparse second page,
+listed too many projects, flattened skills alphabetically, and repeated
+achievement text as a heading. These refinements stay on the presentation
+layer: canonical facts, approved profiles, and answers are unchanged.
+
+Decisions:
+
+- Internship exports target one readable page (10pt body, normal
+  margins). Extra projects or bullets are hidden, not deleted.
+- Project selection is deterministic token overlap with the job's
+  technologies and responsibilities. Two or three projects are included,
+  with a short reason. Users can include hidden rows and individual
+  bullets before approval.
+- Verified skills keep their categories (Programming Languages, Backend /
+  APIs, Frontend, Databases / Infrastructure, Tools / Platforms).
+- Achievement headings use the organization name; the description
+  appears once.
+- PDF entries keep heading + first bullet together. A mostly empty
+  second page fails validation.
+- Quality checks still block ready if labels, duplicates, empty pages,
+  or unreadable extraction appear. Two pages are allowed when the last
+  page has real content.
+
+Bullet choice prefers a specific mechanism (measurable result, engineering
+constraint, or relevant technology used in a concrete way) over a generic
+architecture sentence. Verified GitHub and portfolio URLs are printed when
+the profile has them and are never invented.
+
+Status: **Phase 2.3 finished on `feature/application-preparation`.**
+Phase 2.4 is not started.
+
+## 11. Proposed Phase 2.4 — browser form automation (not implemented)
+
+Do not start this work until the plan is approved.
+
+Scope (later):
+
+- Open allow-listed apply URLs (Greenhouse / Lever / Ashby first).
+- Detect a supported application form. Stop on unknown layouts.
+- Map profile fields and the selected approved resume onto labeled inputs.
+- Fill only previously approved answers. Pause on unknown or sensitive fields.
+- Never solve CAPTCHA, MFA, or anti-bot challenges.
+- Never submit unless a later authorization milestone is built.
+- Record blockers instead of inventing workarounds.
+
+Out of scope until explicit approval: autonomous scheduling, submission
+authorization, CAPTCHA/MFA handling, and application tracking.

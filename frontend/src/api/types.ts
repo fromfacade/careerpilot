@@ -252,8 +252,18 @@ export interface Resume {
   parse_status: ResumeParseStatus;
   parse_error: string | null;
   is_primary: boolean;
+  profile_name: string;
+  profile_description: string;
+  category: ResumeCategory;
+  is_approved: boolean;
+  is_archived: boolean;
+  focus_areas: string[];
   created_at: string;
+  updated_at: string;
 }
+
+export type ResumeCategory = 'general_swe' | 'backend' | 'fullstack' | 'ai_ml' | 'custom';
+export type ResumeSelectionSource = 'automatic' | 'manual' | 'fallback_default' | 'none';
 
 export interface ResumeUploadResult {
   resume: Resume;
@@ -441,6 +451,93 @@ export interface WritingSample {
   origin: WritingSampleOrigin;
   is_approved_style_reference: boolean;
   source_answer_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type PreparationState = 'preparing' | 'needs_review' | 'ready' | 'failed' | 'cancelled';
+export type PreparationAnswerOrigin = 'reused' | 'adapted' | 'generated';
+export type PreparationItemStatus = 'draft' | 'approved' | 'rejected' | 'needs_review';
+
+export interface PreparationAnswer {
+  id: number;
+  question: string;
+  answer_text: string;
+  category: AnswerCategory;
+  origin: PreparationAnswerOrigin;
+  status: PreparationItemStatus;
+  source_answer_id: number | null;
+  is_sensitive: boolean;
+  canonical_fact_ids: number[];
+  unsupported_claims: unknown[];
+  missing_information: unknown[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApplicationPreparation {
+  id: number;
+  candidate_id: number;
+  job_id: number | null;
+  source_resume_id: number | null;
+  selected_resume_name: string | null;
+  selected_resume_category: string | null;
+  resume_selection_reason: string;
+  resume_selection_source: ResumeSelectionSource;
+  has_tailored_resume: boolean;
+  state: PreparationState;
+  snapshot_job_title: string;
+  snapshot_employer: string;
+  snapshot_description: string;
+  snapshot_apply_url: string;
+  snapshot_content_hash: string;
+  analysis: {
+    summary?: string;
+    required?: { text: string; evidence?: string }[];
+    preferred?: { text: string; evidence?: string }[];
+    technologies?: { text: string; evidence?: string }[];
+    education?: { text: string; evidence?: string }[];
+    experience?: { text: string; evidence?: string }[];
+    work_authorization?: { text: string; evidence?: string }[];
+    location?: { text: string; evidence?: string }[];
+    employment_type?: { text: string; evidence?: string }[];
+    responsibilities?: { text: string; evidence?: string }[];
+    company?: { text: string; evidence?: string }[];
+    benefits?: { text: string; evidence?: string }[];
+  };
+  match_report: {
+    matched?: { text: string; group: string; evidence?: string }[];
+    missing?: { text: string; reason?: string }[];
+    uncertain?: { text: string; reason?: string }[];
+  };
+  tailored_resume: {
+    header?: Record<string, string | null>;
+    education?: { title: string; detail: unknown; included?: boolean; selection_reason?: string }[];
+    work_experience?: { title: string; detail: unknown; included?: boolean; selection_reason?: string }[];
+    projects?: { title: string; detail: unknown; included?: boolean; selection_reason?: string }[];
+    skills?: { title: string; detail: unknown; included?: boolean; selection_reason?: string }[];
+    achievements?: { title: string; detail: unknown; included?: boolean; selection_reason?: string }[];
+    quality?: {
+      ok: boolean;
+      issues: string[];
+      warnings?: string[];
+      page_count?: number | null;
+    };
+    presentation?: {
+      omitted_fact_ids?: number[];
+      note?: string;
+      page_budget?: string;
+      two_page_reason?: string;
+      tradeoff?: string;
+      body_pt?: number;
+    };
+  };
+  tailored_resume_status: PreparationItemStatus;
+  design_limitation: string;
+  error_message: string;
+  has_docx: boolean;
+  has_pdf: boolean;
+  answers: PreparationAnswer[];
   created_at: string;
   updated_at: string;
 }

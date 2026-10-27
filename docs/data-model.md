@@ -265,7 +265,13 @@ not touch jobs, preferences, or saved jobs.
 | `sha256_checksum` | `TEXT` | NOT NULL | content hash; re-uploading identical bytes for the same candidate returns the existing resume (no second row, no re-parse) |
 | `parse_status` | `resume_parse_status_enum` | NOT NULL, default `pending` | `pending, success, partial, failed` — `partial` means at least one extracted fact fell back to `FactType.OTHER` (headers not fully recognized), `failed` means text extraction itself raised |
 | `parse_error` | `TEXT` | NULL | human-readable extraction failure detail, set only when `parse_status = failed` |
-| `is_primary` | `BOOLEAN` | NOT NULL, default `false` | exactly one primary resume per candidate (partial unique index). The first upload is primary; later files are not until the user sets one. |
+| `is_primary` | `BOOLEAN` | NOT NULL, default `false` | exactly one default resume per candidate (partial unique index). |
+| `profile_name` | `TEXT` | NOT NULL | display name; file bytes stay write-once |
+| `profile_description` | `TEXT` | NOT NULL | |
+| `category` | `resume_category_enum` | NOT NULL, default `custom` | `general_swe, backend, fullstack, ai_ml, custom` |
+| `is_approved` | `BOOLEAN` | NOT NULL, default `false` | only approved, non-archived profiles are auto-selected |
+| `is_archived` | `BOOLEAN` | NOT NULL, default `false` | |
+| `focus_areas` | `JSONB` | NOT NULL | list of strings used for ranking |
 | `created_at` / `updated_at` | `TIMESTAMPTZ` | NOT NULL | |
 
 ### 2a.2 `candidate_facts`
@@ -397,6 +403,63 @@ explicitly adopts it (`origin=adopted_from_answer`).
 | `is_approved_style_reference` | `BOOLEAN` | generation uses approved samples only |
 | `source_answer_id` | `BIGINT` NULL FK → `application_answers.id` ON DELETE SET NULL | |
 
+## 2d. Phase 2.3 tables — application preparation
+
+Job-specific review material. A preparation is never a submission. The
+original `resumes` row is referenced but never modified.
+
+Migration: `alembic/versions/f6a7b8c9d0e1_add_application_preparations.py`.
+
+### 2d.1 `application_preparations`
+
+One open row per `(candidate_id, job_id)` while `state` is
+`preparing`, `needs_review`, `ready`, or `failed`. Cancelled rows stay
+for history. Failed rows are kept and reused, not replaced.
+
+| Column | Type | Notes |
+|---|---|---|
+| `candidate_id` | `BIGINT` FK → `candidates.id` ON DELETE CASCADE | |
+| `job_id` | `BIGINT` NULL FK → `jobs.id` ON DELETE SET NULL | listing may disappear later |
+| `source_resume_id` | `BIGINT` NULL FK → `resumes.id` ON DELETE SET NULL | selected profile; original file is downloaded unchanged |
+| `resume_selection_reason` | `TEXT` | why this profile was chosen |
+| `resume_selection_source` | `resume_selection_source_enum` | automatic / manual / fallback_default / none |
+| `state` | `preparation_state_enum` | preparation progress only |
+| `snapshot_job_title` | `TEXT` | frozen at create time |
+| `snapshot_employer` | `TEXT` | |
+| `snapshot_description` | `TEXT` | full JD used for analysis |
+| `snapshot_apply_url` | `TEXT` | |
+| `snapshot_content_hash` | `TEXT` | listing hash at create time |
+| `analysis` | `JSONB` | stated vs inferred requirements |
+| `match_report` | `JSONB` | matched / missing / uncertain |
+| `tailored_resume` | `JSONB` | reordered verified facts only |
+| `tailored_resume_status` | `preparation_item_status_enum` | |
+| `design_limitation` | `TEXT` | records that original visual design is not reproduced |
+| `error_message` | `TEXT` | failed preparations keep this |
+| `docx_path` | `TEXT` NULL | under `storage/preparations/` |
+| `pdf_path` | `TEXT` NULL | |
+
+Partial unique index `uq_application_preparations_open` on
+`(candidate_id, job_id)` where state is open and `job_id` is not null.
+
+### 2d.2 `application_preparation_answers`
+
+Drafts for this job only. Approved library answers may be copied or
+adapted; the library row is never overwritten.
+
+| Column | Type | Notes |
+|---|---|---|
+| `preparation_id` | `BIGINT` FK → `application_preparations.id` ON DELETE CASCADE | |
+| `question` | `TEXT` | unique with preparation_id |
+| `answer_text` | `TEXT` | empty for sensitive questions until review |
+| `category` | `answer_category_enum` | |
+| `origin` | `preparation_answer_origin_enum` | reused / adapted / generated |
+| `status` | `preparation_item_status_enum` | |
+| `source_answer_id` | `BIGINT` NULL FK → `application_answers.id` ON DELETE SET NULL | |
+| `is_sensitive` | `BOOLEAN` | |
+| `canonical_fact_ids` | `JSONB` | facts cited for this draft |
+| `unsupported_claims` | `JSONB` | |
+| `missing_information` | `JSONB` | |
+
 ## 3. Enum reference
 
 | Enum | Values |
@@ -422,6 +485,11 @@ explicitly adopts it (`origin=adopted_from_answer`).
 | `fact_verification_status_enum` | `unverified, verified, edited, rejected` |
 | `canonical_fact_status_enum` | `active, conflict, archived` |
 | `canonical_fact_origin_enum` | `resume_import, manual_entry, profile` |
+| `preparation_state_enum` | `preparing, needs_review, ready, failed, cancelled` |
+| `preparation_answer_origin_enum` | `reused, adapted, generated` |
+| `preparation_item_status_enum` | `draft, approved, rejected, needs_review` |
+| `resume_category_enum` | `general_swe, backend, fullstack, ai_ml, custom` |
+| `resume_selection_source_enum` | `automatic, manual, fallback_default, none` |
 
 ## 4. Deduplication strategy (module 4)
 
@@ -451,9 +519,10 @@ for these exists yet**:
 - `candidate_facts` sourced from `manual_entry` — the extracted-fact table still supports this
   (`source` enum); the knowledge-base manual-entry path writes `canonical_facts` with
   `origin=manual_entry` instead.
-- `resume_versions` — job-specific tailored variants of a base `resumes` row, with a diff against
-  the original and generated DOCX/PDF file references (module 7, Phase 2 milestones 2.3/2.4).
-  `resumes`/`candidate_facts` themselves are now implemented — see §2a.
+- `application_preparations` / `application_preparation_answers` — **implemented** (Phase 2.3);
+  see §2d.
+- `resume_versions` — superseded for 2.3 by `application_preparations.tailored_resume`.
+  Job-specific visual template cloning remains later if needed.
 - `ai_provider_configs` — not a table. Phase 2.2 uses env settings (`AI_ENABLED`,
   `AI_PROVIDER`, `GEMINI_API_KEY`, model/temperature) plus `GET /api/ai/status`.
 - `application_answers` / `application_answer_facts` — **implemented** (Phase 2.2).
