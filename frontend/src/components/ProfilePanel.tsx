@@ -69,10 +69,9 @@ export function ProfilePanel({ onChanged }: { onChanged: () => void }) {
         work_authorization_status: form.work_authorization_status,
         requires_sponsorship: form.requires_sponsorship,
       }
-      if (exists) {
-        await api.updateCandidate(payload)
-      } else {
-        await api.createCandidate(payload)
+      const saved = exists ? await api.updateCandidate(payload) : await api.createCandidate(payload)
+      if ((saved.country ?? null) !== payload.country || (saved.current_location ?? null) !== payload.current_location) {
+        throw new Error('Location or country was not saved. The profile response did not include the value.')
       }
       setEditing(false)
       candidate.reload()
@@ -186,9 +185,12 @@ export function ProfilePanel({ onChanged }: { onChanged: () => void }) {
               <input
                 value={form.current_location}
                 onChange={(e) => setForm({ ...form, current_location: e.target.value })}
-                placeholder="Austin, TX"
+                placeholder="Santa Cruz, CA"
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5"
               />
+              {form.current_location.trim() && !form.current_location.includes(',') && (
+                <span className="mt-1 block text-xs text-amber-700">Use a city and state, for example Santa Cruz, CA.</span>
+              )}
             </label>
             <label className="block text-sm">
               <span className="font-medium text-slate-700">Country</span>

@@ -580,9 +580,32 @@ def match_listed_country(value: str, options: list[str]) -> str | None:
     return matched[0] if len(matched) == 1 else None
 
 
+def location_query(value: str) -> str:
+    """Search text that includes a verified region, so the right city is offered."""
+    city, region, country = _place_parts(_with_region_comma(value))
+    if not city:
+        return ""
+    if not region:
+        return city
+    text = f"{city}, {region}"
+    if country:
+        text = f"{text}, {country}"
+    return text
+
+
+def explain_location_miss(value: str, options: list[str]) -> str:
+    city, region, _country = _place_parts(_with_region_comma(value))
+    same_city = [option for option in options if _same(_place_parts(option)[0], city)]
+    if city and not region and len(same_city) > 1:
+        return f"Several listed cities are named {city}. Add the state, for example {city}, CA, so one city can be selected."
+    if city and region:
+        return f"No listed city matches {city}, {region}."
+    return "No listed city exactly matches the verified location, so none was selected."
+
+
 def match_listed_location(value: str, options: list[str]) -> str | None:
     """Match a city only when the region also agrees, if one was verified."""
-    city, region, country = _place_parts(value)
+    city, region, country = _place_parts(_with_region_comma(value))
     if not city:
         return None
     matched = []
@@ -601,6 +624,16 @@ def match_listed_location(value: str, options: list[str]) -> str | None:
 def _canonical_country(value: str) -> str:
     text = " ".join(value.replace(".", " ").casefold().split())
     return _COUNTRY_ALIASES.get(text, text)
+
+
+def _with_region_comma(value: str) -> str:
+    text = " ".join((value or "").split())
+    if "," in text or not text:
+        return text
+    parts = text.split(" ")
+    if len(parts) >= 2 and parts[-1].casefold() in _REGIONS:
+        return f"{' '.join(parts[:-1])}, {parts[-1]}"
+    return text
 
 
 def _place_parts(value: str) -> tuple[str, str, str]:

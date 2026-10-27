@@ -14,7 +14,13 @@ from pathlib import Path
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
 
 from app.autofill.actions import FillAction, SubmissionBlocked, refuse_submission
-from app.autofill.mapping import _dial_prefix, match_listed_country, match_listed_location
+from app.autofill.mapping import (
+    _dial_prefix,
+    explain_location_miss,
+    location_query,
+    match_listed_country,
+    match_listed_location,
+)
 from app.autofill.materials import _upload_name
 from app.autofill.urls import classify_apply_url, navigation_allowed
 
@@ -232,44 +238,60 @@ def _fill_combobox(page: Page, locator, action: FillAction) -> FieldOutcome:
             locator.press_sequentially(search, delay=20)
         listbox = locator.get_attribute("aria-controls")
         options = page.locator(f'[id="{_escape(listbox)}"] [role="option"]') if listbox else page.locator('[role="option"]')
-        options.first.wait_for(state="visible", timeout=2000)
-        texts = [text.strip() for text in options.all_inner_texts()]
-        chosen = _choose_option(action, texts)
+        texts, chosen = _wait_for_choice(page, options, action)
         if chosen is None:
             page.keyboard.press("Escape")
-            return FieldOutcome(action.field_id, action.label, "failed", _no_match_reason(action))
+            return FieldOutcome(action.field_id, action.label, "failed", _no_match_reason(action, texts))
         options.nth(texts.index(chosen)).click()
         if not _combobox_verified(page, locator, action, chosen):
-            return FieldOutcome(action.field_id, action.label, "failed", "The form value does not match the reviewed plan.")
+            return FieldOutcome(action.field_id, action.label, "failed", "The selected choice did not stay on the form.")
     except Exception:
         return FieldOutcome(action.field_id, action.label, "failed", "The dropdown could not be filled.")
     return FieldOutcome(action.field_id, action.label, "filled", "Verified.")
 
 
 def _search_text(action: FillAction) -> str:
-    if action.label.casefold().find("location") >= 0 or action.label.casefold().find("city") >= 0:
-        return action.value.split(",", 1)[0].strip()
+    if _is_location(action):
+        return location_query(action.value)
     if action.value.strip().startswith("+"):
         return action.value.strip()
     return action.value.split("+", 1)[0].strip()
 
 
+def _wait_for_choice(page: Page, options, action: FillAction) -> tuple[list[str], str | None]:
+    options.first.wait_for(state="visible", timeout=4000)
+    texts: list[str] = []
+    chosen = None
+    for _ in range(8):
+        texts = [text.strip() for text in options.all_inner_texts() if text.strip()]
+        chosen = _choose_option(action, texts)
+        if chosen is not None:
+            return texts, chosen
+        page.wait_for_timeout(300)
+    return texts, None
+
+
+def _is_location(action: FillAction) -> bool:
+    label = action.label.casefold()
+    return "location" in label or "city" in label
+
+
 def _choose_option(action: FillAction, options: list[str]) -> str | None:
-    if "location" in action.label.casefold() or "city" in action.label.casefold():
+    if _is_location(action):
         return match_listed_location(action.value, options)
     return match_listed_country(action.value, options)
 
 
-def _no_match_reason(action: FillAction) -> str:
-    if "location" in action.label.casefold() or "city" in action.label.casefold():
-        return "No listed city exactly matches the verified location, so none was selected."
+def _no_match_reason(action: FillAction, options: list[str]) -> str:
+    if _is_location(action):
+        return explain_location_miss(action.value, options)
     if action.value.strip().startswith("+"):
         return "More than one country uses this phone prefix, so none was selected."
     return "No listed choice exactly matches the verified country."
 
 
 def _combobox_verified(page: Page, locator, action: FillAction, chosen: str) -> bool:
-    if "location" in action.label.casefold() or "city" in action.label.casefold():
+    if _is_location(action):
         shown = locator.evaluate(
             """el => {
                 const root = el.closest('.select') || el.parentElement;

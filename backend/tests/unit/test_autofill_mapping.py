@@ -1,4 +1,4 @@
-from app.autofill.mapping import FactView, ProfileView, plan_autofill
+from app.autofill.mapping import FactView, ProfileView, explain_location_miss, match_listed_location, plan_autofill
 from app.schemas.autofill import to_plan_result
 
 URL = "https://boards.greenhouse.io/acme/jobs/12345"
@@ -358,3 +358,16 @@ def test_explicit_country_is_not_guessed_from_a_shared_prefix():
     assert "Add a phone number" in (missing["phone"].uncertainty or "")
     assert "Add a city" in (missing["city"].uncertainty or "")
     assert "Add a country" in (missing["country"].uncertainty or "")
+
+
+def test_city_and_state_selects_one_suggestion_and_a_bare_city_does_not():
+    options = [
+        "Santa Cruz, California, United States",
+        "Santa Cruz, Cape Verde",
+        "Santa Cruz, Philippines",
+        "Santa Cruz, Laguna, Philippines",
+    ]
+    assert match_listed_location("Santa Cruz, CA", options) == "Santa Cruz, California, United States"
+    assert match_listed_location("Santa Cruz CA", options) == "Santa Cruz, California, United States"
+    assert match_listed_location("Santa Cruz", options) is None
+    assert "Add the state" in explain_location_miss("Santa Cruz", options)

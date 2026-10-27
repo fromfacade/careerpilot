@@ -310,11 +310,7 @@ MENU = """
     <input id="city" role="combobox" aria-controls="city-list" aria-autocomplete="list">
     <div id="city-value" class="select__single-value"></div>
   </div>
-  <ul id="city-list" role="listbox" hidden>
-    <li role="option">Austin, Texas, United States</li>
-    <li role="option">Austin, Minnesota, United States</li>
-    <li role="option">Austintown, Ohio, United States</li>
-  </ul>
+  <ul id="city-list" role="listbox" hidden></ul>
   <button type="submit">Submit application</button>
 </form>
 <script>
@@ -323,8 +319,30 @@ MENU = """
     input.addEventListener('focus', () => { document.getElementById(listId).hidden = false; });
     input.addEventListener('input', () => { document.getElementById(listId).hidden = false; });
   }
+  const cities = [
+    {text: 'Austin, Texas, United States', when: (q) => q.includes('tx') || q.includes('texas')},
+    {text: 'Austin, Minnesota, United States', when: (q) => q === 'austin' || q.includes('minnesota')},
+    {text: 'Austin, Arkansas, United States', when: (q) => q === 'austin' || q.includes('arkansas')},
+    {text: 'Santa Cruz, California, United States', when: (q) => q.includes(', ca') || q.includes('california')},
+    {text: 'Santa Cruz, Cape Verde', when: (q) => q.includes(', ca') || q.includes('cape')},
+    {text: 'Santa Cruz, Philippines', when: (q) => q === 'santa cruz'},
+    {text: 'Santa Cruz, Laguna, Philippines', when: (q) => q === 'santa cruz'},
+  ];
+  function showCities() {
+    const query = document.getElementById('city').value.trim().toLowerCase();
+    const list = document.getElementById('city-list');
+    list.innerHTML = '';
+    cities.filter((city) => city.when(query)).forEach((city) => {
+      const item = document.createElement('li');
+      item.setAttribute('role', 'option');
+      item.textContent = city.text;
+      list.appendChild(item);
+    });
+    list.hidden = false;
+  }
   openList(document.getElementById('country'), 'country-list');
-  openList(document.getElementById('city'), 'city-list');
+  document.getElementById('city').addEventListener('focus', showCities);
+  document.getElementById('city').addEventListener('input', showCities);
   document.getElementById('country-list').addEventListener('click', (event) => {
     const option = event.target.closest('[role=option]');
     if (!option) return;
@@ -399,7 +417,7 @@ def test_browser_selects_unique_country_and_city_without_guessing():
         assert page.locator("#city-value").inner_text() == ""
         details = {item.field_id: item.detail for item in report.outcomes}
         assert "prefix" in details["country"]
-        assert "city" in details["city"].casefold()
+        assert "Add the state" in details["city"]
         browser.close()
 
 
