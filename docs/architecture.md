@@ -130,7 +130,7 @@ careerpilot/
 | 7 | Resume Tailoring & Versioning | **Implemented for Phase 2.3.1.** Uploaded files are resume profiles (category, approval, default). Prepare Application selects an approved original file and explains why. Tailoring is optional and never replaces the selected original. Generated PDFs are validated for extractable text. |
 | 8 | AI Provider Management | **Partial (Phase 2.2).** Common `AnswerProvider` interface, Gemini adapter (httpx), mock for tests. Disabled unless `AI_ENABLED` and a key are set. Status endpoint never returns the key. Resume parsing still has zero AI calls. |
 | 9 | Application Answer Library | **Implemented (Phase 2.2 / 2.2.1).** Manual and AI-draft answers, writing-style profile, approved writing samples as untrusted style references, grounded generation, and rewrite-without-overwrite. No form filling or submission. |
-| 10 | Form Automation Adapters | Not built. |
+| 10 | Form Automation Adapters | **Greenhouse fill (Phase 2.4.5).** A headed Chromium window fills reviewed contact and education fields and attaches the approved resume under its original filename. Exact dropdown matches only. Nothing is submitted. |
 | 11 | Submission Authorization Policy Engine | Not built. Autonomous submission stays disabled by construction — there is no submission code path in Phase 1. |
 | 12 | Application Queue & State Machine | Not built. |
 | 13 | Application Tracker | Not built. |
@@ -347,10 +347,25 @@ These are listed so that Phase 1 code does not have to be reworked later:
 
 Phase 2.3 implemented offline application preparation: JD analysis,
 qualification matching, tailored resume export, and job-specific draft
-answers for review. The following remains unimplemented: opening
-employer forms, uploading a tailored resume to those forms, filling
-fields, and any submission. This section is the spec for that later
-work.
+answers for review. Phase 2.4.1 adds Greenhouse URL classification and form-field
+detection. Phase 2.4.2 adds a reviewable contact-mapping plan. Phase
+2.4.3 adds the selected resume and approved answers to that plan.
+Phase 2.4.4 opens one isolated headed Chromium window, fills the fields
+the user approved, and can attach the selected resume. A Greenhouse job
+whose public link is the employer career site still opens the
+allow-listed Greenhouse form identified by that job's board token and
+job id. Phase 2.4.5 attaches that resume under its original filename,
+without renaming the stored file, and fills phone, dialing country,
+city, and education only when a verified value exactly matches the
+control. It does not submit. Submission remains unimplemented.
+
+The browser is a locally controlled headed Playwright window, with one
+adapter per site. The reason for that choice, and why a browser
+extension is not the default, is recorded in
+`docs/implementation-plan.md` §12. Detection stays a pure function of a
+URL plus HTML so preparation still works when no browser is installed.
+State-changing browser routes require a local token in addition to the
+localhost Host and Origin checks.
 
 The agent's responsibilities, once built, will be:
 
@@ -395,6 +410,7 @@ The agent's responsibilities, once built, will be:
     switch" already reserved in §8) must be able to halt all in-flight and future autonomous
     submissions immediately.
 
-Form automation, CAPTCHA/MFA handling, and application submission have
-no code path in this repo. Preparation materials cannot be submitted
+Form filling, CAPTCHA/MFA bypass, and application submission have no
+code path in this repo. Detection reports captcha and MFA as blockers
+and does not act on them. Preparation materials cannot be submitted
 from the dashboard or the API.

@@ -75,6 +75,7 @@ export interface Candidate {
   work_authorization_status: WorkAuthStatus;
   requires_sponsorship: TriState;
   current_location: string | null;
+  country: string | null;
   linkedin_url: string | null;
   github_url: string | null;
   portfolio_url: string | null;
@@ -490,6 +491,8 @@ export interface ApplicationPreparation {
   snapshot_employer: string;
   snapshot_description: string;
   snapshot_apply_url: string;
+  greenhouse_apply_url: string | null;
+  greenhouse_autofill_note: string;
   snapshot_content_hash: string;
   analysis: {
     summary?: string;
@@ -540,6 +543,78 @@ export interface ApplicationPreparation {
   answers: PreparationAnswer[];
   created_at: string;
   updated_at: string;
+}
+
+export interface AutofillPlanField {
+  field_id: string;
+  label: string;
+  semantic: string;
+  proposed_value: string | null;
+  proposed_replacement: string | null;
+  existing_value: string | null;
+  required: boolean | null;
+  uncertainty: string | null;
+  source_kind: string | null;
+}
+
+export interface AutofillAnswerField {
+  field_id: string;
+  label: string;
+  required: boolean | null;
+  proposed_text: string | null;
+  proposed_replacement: string | null;
+  existing_value: string | null;
+  source: string | null;
+  approval_status: string | null;
+  uncertainty: string | null;
+}
+
+export interface AutofillPlan {
+  ready: AutofillPlanField[];
+  clarification: AutofillPlanField[];
+  missing_required: AutofillPlanField[];
+  sensitive: AutofillPlanField[];
+  unsupported: AutofillPlanField[];
+  preserve_existing: AutofillPlanField[];
+  blockers?: string[];
+  resume: {
+    status: string;
+    kind: string;
+    display_name: string;
+    file_format: string | null;
+    eligible_for_attach: boolean;
+    review_required: boolean;
+    reason: string;
+    upload_name?: string;
+  };
+  answers: {
+    matched: AutofillAnswerField[];
+    missing: AutofillAnswerField[];
+    ambiguous: AutofillAnswerField[];
+    sensitive: AutofillAnswerField[];
+    preserved: AutofillAnswerField[];
+  };
+}
+
+export interface AutofillFillResult {
+  outcomes: { field_id: string; label: string; status: string; detail: string }[];
+  resume_status: string;
+  resume_detail: string;
+  stopped: string | null;
+  submitted: boolean;
+  unresolved: string[];
+}
+
+export interface AutofillSession {
+  id: string;
+  state: string;
+  preparation_id: number;
+  employer: string;
+  job_title: string;
+  apply_url: string;
+  message: string;
+  plan: AutofillPlan | null;
+  result: AutofillFillResult | null;
 }
 
 export interface AIStatus {

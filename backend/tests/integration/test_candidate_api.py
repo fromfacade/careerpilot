@@ -61,6 +61,31 @@ def test_patch_candidate_partial_update(client):
     assert body["full_name"] == "Luis"  # untouched fields preserved
 
 
+def test_country_and_location_round_trip(client):
+    created = client.post("/api/candidate", json={"full_name": "Ada Lovelace", "email": "ada.place@example.com"})
+    assert created.status_code == 201
+    assert created.json()["country"] is None
+    assert created.json()["current_location"] is None
+
+    saved = client.patch(
+        "/api/candidate",
+        json={"phone": "555-0100", "current_location": "Santa Cruz, CA", "country": "United States"},
+    )
+    assert saved.status_code == 200, saved.text
+    body = saved.json()
+    assert body["country"] == "United States"
+    assert body["current_location"] == "Santa Cruz, CA"
+    assert body["phone"] == "555-0100"
+
+    again = client.get("/api/candidate")
+    assert again.json()["country"] == "United States"
+    assert again.json()["current_location"] == "Santa Cruz, CA"
+
+    cleared = client.patch("/api/candidate", json={"country": None})
+    assert cleared.json()["country"] is None
+    assert cleared.json()["current_location"] == "Santa Cruz, CA"
+
+
 def test_preferences_requires_existing_candidate(client):
     resp = client.get("/api/candidate/preferences")
     assert resp.status_code == 404

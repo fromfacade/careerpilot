@@ -24,6 +24,8 @@ import type {
   SchedulerStatus,
 } from './types';
 
+import localToken from 'virtual:careerpilot-token';
+
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://127.0.0.1:8000';
 
 export class ApiError extends Error {
@@ -42,7 +44,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     response = await fetch(`${BASE_URL}${path}`, {
       ...init,
-      headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(path.startsWith('/api/autofill/sessions') ? { 'X-CareerPilot-Token': localToken } : {}),
+        ...(init?.headers ?? {}),
+      },
     });
   } catch (err) {
     throw new ApiError(0, `Could not reach the CareerPilot API at ${BASE_URL}. Is the backend running? (${String(err)})`);
@@ -326,6 +332,21 @@ export const api = {
       body: JSON.stringify(data),
     }),
   preparationPdfPreviewUrl: (id: number) => `${BASE_URL}/api/preparations/${id}/documents/pdf?inline=1`,
+  openAutofillSession: (preparationId: number) =>
+    request<import('./types').AutofillSession>('/api/autofill/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ preparation_id: preparationId }),
+    }),
+  fillAutofillSession: (
+    sessionId: string,
+    body: { included_field_ids: string[]; overwrite_field_ids: string[]; attach_resume: boolean },
+  ) =>
+    request<import('./types').AutofillSession>(`/api/autofill/sessions/${sessionId}/fill`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  cancelAutofillSession: (sessionId: string) =>
+    request<import('./types').AutofillSession>(`/api/autofill/sessions/${sessionId}/cancel`, { method: 'POST' }),
   downloadPreparationDocument: async (id: number, kind: 'docx' | 'pdf' | 'original' | 'selected') => {
     const response = await fetch(`${BASE_URL}/api/preparations/${id}/documents/${kind}`);
     if (!response.ok) throw new ApiError(response.status, 'Could not download the prepared document.');

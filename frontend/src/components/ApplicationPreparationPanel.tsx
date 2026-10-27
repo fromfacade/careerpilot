@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import type { ApplicationPreparation, PreparationAnswer } from '../api/types'
 import { useFetch } from '../hooks/useFetch'
 import { resumeBullets, resumeHeading, resumeSubline } from '../preparation/resumePreview'
+import { AutofillReview } from './AutofillReview'
 import { Badge } from './Badge'
 import { EmptyBlock, ErrorBlock, LoadingBlock } from './StatusViews'
 
@@ -188,6 +189,9 @@ export function ApplicationPreparationPanel({
                 >
                   <span className="font-medium text-slate-900">{row.snapshot_job_title}</span>
                   <span className="mt-1 block text-xs text-slate-500">{row.snapshot_employer}</span>
+                  {row.greenhouse_apply_url && (
+                    <span className="mt-1 block text-xs font-medium text-blue-700">Greenhouse autofill</span>
+                  )}
                   <Badge tone={row.state === 'ready' ? 'green' : row.state === 'failed' ? 'red' : 'amber'}>
                     {row.state.replace('_', ' ')}
                   </Badge>
@@ -248,6 +252,7 @@ function PreparationDetail({
           </div>
         </div>
         {prep.has_tailored_resume && prep.design_limitation && <p className="mt-2 text-xs text-amber-800">{prep.design_limitation}</p>}
+        <AutofillReview prep={prep} />
         {prep.error_message && <p className="mt-1 text-xs text-red-700">{prep.error_message}</p>}
         <details className="mt-2">
           <summary className="cursor-pointer text-xs font-medium text-blue-700">Original job description</summary>

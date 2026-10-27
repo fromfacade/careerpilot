@@ -26,9 +26,10 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
 - **Phase 2.3 (this effort)**: job-specific application preparation — JD analysis,
   qualification matching, resume tailoring/export, and job-specific answer drafts.
   **Not** form automation or submission.
-- **Phase 2.4+ (not started)**: form automation, submission authorization,
-  application queue/state machine, tracker, analytics/notifications, full audit logging.
-  Autonomous submission remains impossible because no submission code path exists.
+- **Phase 2.4 (in progress)**: Greenhouse review and headed fill. Submission
+  authorization, the application queue, tracker, analytics, and full audit
+  logging are not started. Autonomous submission remains impossible because
+  no submission code path exists.
 
 ## 2. Phase 1 increments (checklist)
 
@@ -766,22 +767,83 @@ constraint, or relevant technology used in a concrete way) over a generic
 architecture sentence. Verified GitHub and portfolio URLs are printed when
 the profile has them and are never invented.
 
-Status: **Phase 2.3 finished on `feature/application-preparation`.**
-Phase 2.4 is not started.
+Status: **Phase 2.3 is on `main`.** Phases 2.4.1–2.4.5 are complete on
+`feature/greenhouse-autofill`. Automatic submission is not implemented.
 
-## 11. Proposed Phase 2.4 — browser form automation (not implemented)
+## 11. Phase 2.4 proposal (superseded by §12)
 
-Do not start this work until the plan is approved.
+The original proposal was: open allow-listed apply URLs, detect a
+supported form, map approved profile data, never solve CAPTCHA or MFA,
+and never submit. That scope still holds. The architecture choice and
+the increment plan are in §12.
 
-Scope (later):
+## 12. Phase 2.4 — Greenhouse application autofill
 
-- Open allow-listed apply URLs (Greenhouse / Lever / Ashby first).
-- Detect a supported application form. Stop on unknown layouts.
-- Map profile fields and the selected approved resume onto labeled inputs.
-- Fill only previously approved answers. Pause on unknown or sensitive fields.
-- Never solve CAPTCHA, MFA, or anti-bot challenges.
-- Never submit unless a later authorization milestone is built.
-- Record blockers instead of inventing workarounds.
+Working branch: `feature/greenhouse-autofill`.
 
-Out of scope until explicit approval: autonomous scheduling, submission
-authorization, CAPTCHA/MFA handling, and application tracking.
+### Architecture choice
+
+Use a **locally controlled headed Playwright browser** for later fill
+increments. Increment 2.4.1 does not depend on it.
+
+A browser extension was the other option. It can see a logged-in
+session the user already has, but public Greenhouse applications
+usually do not need that session. An extension would be a second
+codebase, a broader permission surface, and a harder fit with the
+FastAPI services that already own canonical facts and approved answers.
+Playwright keeps mapping, facts, and answers in Python, works with
+Chromium on Windows, and lets Lever or Ashby be another adapter later.
+
+Tradeoffs accepted:
+
+- Reliability: Playwright drives one known Chromium. Greenhouse bot
+  checks can still stop a session; the product pauses instead of
+  retrying around them.
+- Security: automation is limited to allow-listed https hosts. The
+  page HTML is untrusted data. Playwright storage state, cookies, and
+  tokens are not persisted.
+- User experience: the user starts a session, reviews values, and
+  submits on the employer site. There is no Submit control in
+  CareerPilot.
+- Maintenance: platform selectors stay in a site adapter. Candidate
+  mapping stays independent of those selectors.
+- Integration: the detector is a pure function of URL plus HTML. The
+  application-preparation APIs keep working when Playwright is absent.
+
+### Increments
+
+1. **2.4.1 Greenhouse detection (this increment).** Classify
+   Greenhouse job URLs, reject other and suspicious URLs, and map
+   fields from caller-supplied HTML. No browser, no fill, no submit.
+2. **2.4.2 Personal information.** Map detected fields to verified
+   canonical facts, then to the single candidate profile when no fact
+   claims that field. The result is a review plan. No invented values,
+   no silent overwrite, and no browser.
+3. **2.4.3 Resume and approved answers.** The plan names the resume
+   already selected on the preparation, and matches approved answers.
+   It does not attach a file, rewrite answers, or open a browser.
+4. **2.4.4 Headed fill.** A local token opens one visible Chromium
+   window. The user reviews the live plan, excludes fields, and fills.
+   The browser does not submit.
+5. **2.4.5 Completeness.** Attach the resume under its original
+   filename, fill phone, dialing country, city, and education only from
+   verified values that exactly match, and explain every skipped field.
+   The browser still does not submit.
+
+Status: **2.4.5 implemented.** Greenhouse autofill fills verified
+contact and education fields and attaches the approved resume under
+its original filename. Custom dropdowns are filled only on an exact
+choice. Submission is not implemented.
+
+Remaining limits: a dropdown is filled only when one listed choice
+exactly matches a verified value. An explicit country name is used
+before a phone prefix. A shared prefix such as +1 selects nothing
+unless the profile names one country. A city with no region is left
+empty when several cities share that name.
+A degree level such as bachelors is not translated into a degree name.
+Two verified education records for the same field select neither.
+Custom widgets that do not expose a native input or options stay
+manual. Approved answers fill only on an exact question match.
+Sensitive, legal, demographic, and consent questions stay unanswered.
+The browser still pauses for a visible CAPTCHA or MFA challenge and
+never clicks Submit.

@@ -27,7 +27,8 @@ router = APIRouter(prefix="/api/preparations", tags=["preparations"])
 
 def _out(db: Session, row) -> ApplicationPreparationRead:
     resume = db.get(Resume, row.source_resume_id) if row.source_resume_id else None
-    return to_read(row, resume)
+    form_url, note = preparation_service.greenhouse_target(db, row)
+    return to_read(row, resume, greenhouse_apply_url=form_url, greenhouse_autofill_note=note)
 
 
 def _require_candidate(db: Session) -> Candidate:

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.autofill import router as autofill_router
 from app.api.candidate import router as candidate_router
 from app.api.ai import router as ai_router
 from app.api.answers import router as answers_router
@@ -18,6 +19,7 @@ from app.api.resumes import facts_router, resumes_router
 from app.api.writing_samples import router as writing_samples_router
 from app.api.writing_style import router as writing_style_router
 from app.core.config import get_settings
+from app.core.local_guard import LocalRequestGuard
 from app.core.logging import configure_logging, get_logger
 from app.scheduling.scheduler import start_scheduler, stop_scheduler
 
@@ -46,6 +48,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Added last so it runs first and can refuse a foreign site before any route loads candidate data.
+    app.add_middleware(LocalRequestGuard)
 
     app.include_router(health_router)
     app.include_router(candidate_router)
@@ -59,6 +63,7 @@ def create_app() -> FastAPI:
     app.include_router(writing_style_router)
     app.include_router(writing_samples_router)
     app.include_router(preparations_router)
+    app.include_router(autofill_router)
     app.include_router(ai_router)
 
     return app

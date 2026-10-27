@@ -39,7 +39,7 @@ services:
       DISCOVERY_SCHEDULER_ENABLED: "true"
       DISCOVERY_INTERVAL_MINUTES: "180"
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./backend:/app
     command: >
