@@ -271,7 +271,11 @@ def update_tailored_resume(db: Session, candidate: Candidate, preparation_id: in
         incoming_ids = set(payload.tailored_resume.get("source_fact_ids") or allowed)
         if incoming_ids - allowed:
             raise ValidationError("A tailored resume cannot add facts that were not already verified.")
-        row.tailored_resume = payload.tailored_resume
+        incoming = dict(payload.tailored_resume)
+        presentation = dict(incoming.get("presentation") or {})
+        presentation["page_budget"] = "manual"
+        incoming["presentation"] = presentation
+        row.tailored_resume = incoming
         _export_tailored_files(row)
     if payload.status is not None:
         row.tailored_resume_status = payload.status
