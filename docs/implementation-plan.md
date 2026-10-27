@@ -26,9 +26,10 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
 - **Phase 2.3 (this effort)**: job-specific application preparation — JD analysis,
   qualification matching, resume tailoring/export, and job-specific answer drafts.
   **Not** form automation or submission.
-- **Phase 2.4+ (not started)**: form automation, submission authorization,
-  application queue/state machine, tracker, analytics/notifications, full audit logging.
-  Autonomous submission remains impossible because no submission code path exists.
+- **Phase 2.4 (in progress)**: Greenhouse review and headed fill. Submission
+  authorization, the application queue, tracker, analytics, and full audit
+  logging are not started. Autonomous submission remains impossible because
+  no submission code path exists.
 
 ## 2. Phase 1 increments (checklist)
 
@@ -766,8 +767,8 @@ constraint, or relevant technology used in a concrete way) over a generic
 architecture sentence. Verified GitHub and portfolio URLs are printed when
 the profile has them and are never invented.
 
-Status: **Phase 2.3 is on `main`.** Phases 2.4.1–2.4.3 are complete on
-`feature/greenhouse-autofill`. Increments 2.4.4 and 2.4.5 are not started.
+Status: **Phase 2.3 is on `main`.** Phases 2.4.1–2.4.4 are complete on
+`feature/greenhouse-autofill`. Increment 2.4.5 is not started.
 
 ## 11. Phase 2.4 proposal (superseded by §12)
 
@@ -821,13 +822,12 @@ Tradeoffs accepted:
 3. **2.4.3 Resume and approved answers.** The plan names the resume
    already selected on the preparation, and matches approved answers.
    It does not attach a file, rewrite answers, or open a browser.
-4. **2.4.4 Review workflow.** Show proposed values, exclusions, and
-   leftovers. The user submits on Greenhouse.
+4. **2.4.4 Headed fill.** A local token opens one visible Chromium
+   window. The user reviews the live plan, excludes fields, and fills.
+   The browser does not submit.
 5. **2.4.5 Sessions and reliability.** Track preparation state, stop
    immediately, and test recovery with local fixtures.
 
-Status: **2.4.3 implemented.** The plan adds the selected resume and
-approved answers. A local request guard rejects other websites before
-candidate data is loaded. The browser executor refuses to fill or
-attach. Increments 2.4.4 and 2.4.5 are not started. Playwright is not
-installed.
+Status: **2.4.4 implemented.** Apply with CareerPilot opens a headed
+Chromium window, fills approved fields, and can attach the selected
+resume. It does not submit. Increment 2.4.5 is not started.

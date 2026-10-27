@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import type { ApplicationPreparation, PreparationAnswer } from '../api/types'
 import { useFetch } from '../hooks/useFetch'
 import { resumeBullets, resumeHeading, resumeSubline } from '../preparation/resumePreview'
+import { AutofillReview } from './AutofillReview'
 import { Badge } from './Badge'
 import { EmptyBlock, ErrorBlock, LoadingBlock } from './StatusViews'
 
@@ -248,6 +249,7 @@ function PreparationDetail({
           </div>
         </div>
         {prep.has_tailored_resume && prep.design_limitation && <p className="mt-2 text-xs text-amber-800">{prep.design_limitation}</p>}
+        <AutofillReview prep={prep} />
         {prep.error_message && <p className="mt-1 text-xs text-red-700">{prep.error_message}</p>}
         <details className="mt-2">
           <summary className="cursor-pointer text-xs font-medium text-blue-700">Original job description</summary>
