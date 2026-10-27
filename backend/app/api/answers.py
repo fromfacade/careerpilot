@@ -92,6 +92,23 @@ def generate_answer(payload: GenerateAnswerRequest, db: Session = Depends(get_db
         raise HTTPException(status_code=status, detail=str(exc)) from exc
 
 
+@router.post("/{answer_id}/rewrite", response_model=ApplicationAnswerRead, status_code=201)
+def rewrite_answer(answer_id: int, db: Session = Depends(get_db)):
+    """Create a new styled draft. The original row is never changed."""
+    candidate = _require_candidate(db)
+    try:
+        return generation_service.rewrite_draft(
+            db, candidate, answer_id, settings=get_settings()
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AIProviderError as exc:
+        status = 429 if exc.kind == "rate_limited" else 503
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+
 @router.get("/{answer_id}", response_model=ApplicationAnswerRead)
 def read_answer(answer_id: int, db: Session = Depends(get_db)):
     candidate = _require_candidate(db)

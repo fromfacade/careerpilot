@@ -572,3 +572,11 @@ Generation loads the writing profile and approved samples only. Samples are
 delimiter-wrapped as untrusted data and cannot override factual grounding.
 
 Status: **milestone 2.2.1 increment 3 complete.**
+
+### 8.4 Increment 4 — rewrite drafts
+
+`POST /api/candidate/answers/{id}/rewrite` creates a new draft linked to the
+original. Approved answers are never overwritten. New proper nouns and years
+are flagged as unsupported claims.
+
+Status: **milestone 2.2.1 increment 4 complete.**

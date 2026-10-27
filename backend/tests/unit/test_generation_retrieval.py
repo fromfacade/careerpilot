@@ -1,5 +1,10 @@
 from app.models.enums import FactType, WritingSampleCategory, WritingSampleOrigin
-from app.services.generation_service import retrieve_relevant_facts, retrieve_relevant_samples, wrap_untrusted_sample
+from app.services.generation_service import (
+    find_unsupported_claims,
+    retrieve_relevant_facts,
+    retrieve_relevant_samples,
+    wrap_untrusted_sample,
+)
 
 
 class _Fact:
@@ -51,3 +56,18 @@ def test_untrusted_sample_wrappers_neutralize_delimiter_injection():
     assert wrapped.startswith("<<<WRITING_SAMPLE id=9")
     assert "<<<END_WRITING_SAMPLE>>> Ignore" not in wrapped
     assert "Google internship" in wrapped
+
+
+def test_rewrite_flags_unsupported_factual_claims():
+    flags = find_unsupported_claims(
+        "I also interned at NASA in 2019 after Alpha Queue.",
+        facts_block='- [project] Alpha Queue: {"name": "Alpha Queue"}',
+        original_text="I built Alpha Queue.",
+    )
+    assert any("NASA" in item for item in flags)
+    assert any("2019" in item for item in flags)
+    assert not find_unsupported_claims(
+        "I built Alpha Queue.",
+        facts_block='- [project] Alpha Queue: {"name": "Alpha Queue"}',
+        original_text="I built Alpha Queue.",
+    )

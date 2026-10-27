@@ -150,6 +150,8 @@ def create_answer(
     canonical_fact_ids: list[int] | None = None,
     missing_information: list | None = None,
     generation_metadata: dict | None = None,
+    rewritten_from_id: int | None = None,
+    unsupported_claims: list | None = None,
 ) -> ApplicationAnswer:
     fingerprint = question_fingerprint(question)
     if not fingerprint:
@@ -177,6 +179,8 @@ def create_answer(
         prefer_not_to_answer=prefer_not_to_answer,
         missing_information=list(missing_information or []),
         generation_metadata=dict(generation_metadata or {}),
+        rewritten_from_id=rewritten_from_id,
+        unsupported_claims=list(unsupported_claims or []),
     )
     db.add(row)
     try:
