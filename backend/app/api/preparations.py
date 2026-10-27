@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -110,7 +110,12 @@ def update_tailored_resume(preparation_id: int, payload: TailoredResumeUpdate, d
 
 
 @router.get("/{preparation_id}/documents/{kind}")
-def download_preparation_document(preparation_id: int, kind: str, db: Session = Depends(get_db)):
+def download_preparation_document(
+    preparation_id: int,
+    kind: str,
+    db: Session = Depends(get_db),
+    inline: bool = Query(False),
+):
     candidate = _require_candidate(db)
     try:
         row = preparation_service.get_preparation_or_404(db, candidate, preparation_id)
@@ -135,7 +140,8 @@ def download_preparation_document(preparation_id: int, kind: str, db: Session = 
         raise HTTPException(status_code=404, detail="Unknown document kind.")
     if not path or not Path(path).is_file():
         raise HTTPException(status_code=404, detail="That prepared document is not available.")
-    return FileResponse(path, media_type=media, filename=name)
+    disposition = "inline" if inline and kind == "pdf" else "attachment"
+    return FileResponse(path, media_type=media, filename=name, content_disposition_type=disposition)
 
 
 @router.post("/{preparation_id}/select-resume", response_model=ApplicationPreparationRead)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from app.ai.mock import MockAnswerProvider
@@ -283,15 +285,28 @@ def test_prepares_with_selected_resume_and_optional_tailor(client, db_session, t
     assert regenerated.status_code == 200
     assert regenerated.json()["source_resume_id"] == selected_id
 
+    from app.models.resume import Resume
+
+    stored = db_session.get(Resume, resume_id)
+    assert stored is not None
+    original_bytes = Path(stored.storage_path).read_bytes()
+    selected_download = client.get(f"/api/preparations/{body['id']}/documents/selected")
+    assert selected_download.status_code == 200
+    assert selected_download.content == original_bytes
+
     tailored = client.post(f"/api/preparations/{body['id']}/tailor")
     assert tailored.status_code == 200, tailored.text
     assert tailored.json()["has_tailored_resume"] is True
     assert tailored.json()["source_resume_id"] == selected_id
     assert tailored.json()["tailored_resume"]["header"]
+    after_tailor = client.get(f"/api/preparations/{body['id']}/documents/selected")
+    assert after_tailor.content == original_bytes
 
     reverted = client.post(f"/api/preparations/{body['id']}/tailor/revert")
     assert reverted.json()["has_tailored_resume"] is False
     assert reverted.json()["source_resume_id"] == selected_id
+    after_revert = client.get(f"/api/preparations/{body['id']}/documents/selected")
+    assert after_revert.content == original_bytes
 
 
 def test_missing_job_or_empty_description_is_rejected(client, db_session):

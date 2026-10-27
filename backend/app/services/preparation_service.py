@@ -250,10 +250,17 @@ def revert_tailoring(db: Session, candidate: Candidate, preparation_id: int) -> 
 def _export_tailored_files(row: ApplicationPreparation) -> None:
     settings = get_settings()
     folder = Path(settings.preparation_storage_dir) / str(row.id)
+    document = dict(row.tailored_resume)
     try:
-        row.docx_path = str(export_docx(row.tailored_resume, folder / "tailored.docx"))
-        row.pdf_path = str(export_pdf(row.tailored_resume, folder / "tailored.pdf"))
+        row.docx_path = str(export_docx(document, folder / "tailored.docx"))
+        row.pdf_path = str(export_pdf(document, folder / "tailored.pdf"))
+        row.tailored_resume = document
+        if row.error_message.startswith("Tailored resume files"):
+            row.error_message = ""
     except Exception as exc:  # export must not erase analysis or invent facts
+        row.tailored_resume = document
+        row.docx_path = None
+        row.pdf_path = None
         row.error_message = f"Tailored resume files could not be generated: {exc}"
 
 
@@ -478,7 +485,12 @@ def mark_ready_if_approved(db: Session, row: ApplicationPreparation) -> Applicat
     has_tailored = bool((row.tailored_resume or {}).get("header"))
     resume_ok = row.source_resume_id is not None
     if has_tailored:
-        resume_ok = resume_ok and row.tailored_resume_status is PreparationItemStatus.APPROVED
+        quality = (row.tailored_resume or {}).get("quality") or {}
+        resume_ok = (
+            resume_ok
+            and row.tailored_resume_status is PreparationItemStatus.APPROVED
+            and quality.get("ok") is True
+        )
     answers_ok = bool(answers) and all(
         item.status is PreparationItemStatus.APPROVED
         and not item.unsupported_claims
