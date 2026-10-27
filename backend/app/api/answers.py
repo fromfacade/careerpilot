@@ -6,11 +6,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.exceptions import ConflictError, NotFoundError, ValidationError
+from app.core.config import get_settings
+from app.core.exceptions import AIProviderError, ConflictError, NotFoundError, ValidationError
 from app.models.candidate import Candidate
 from app.models.enums import AnswerCategory, AnswerStatus
-from app.schemas.answer import ApplicationAnswerCreate, ApplicationAnswerRead, ApplicationAnswerUpdate
-from app.services import answer_service, candidate_service
+from app.schemas.answer import (
+    ApplicationAnswerCreate,
+    ApplicationAnswerRead,
+    ApplicationAnswerUpdate,
+    GenerateAnswerRequest,
+)
+from app.services import answer_service, candidate_service, generation_service
 
 router = APIRouter(prefix="/api/candidate/answers", tags=["application-answers"])
 
@@ -52,6 +58,30 @@ def create_answer(payload: ApplicationAnswerCreate, db: Session = Depends(get_db
     except (ConflictError, ValidationError, NotFoundError) as exc:
         code = 409 if isinstance(exc, ConflictError) else 404 if isinstance(exc, NotFoundError) else 422
         raise HTTPException(status_code=code, detail=str(exc)) from exc
+
+
+@router.post("/generate", response_model=ApplicationAnswerRead, status_code=201)
+def generate_answer(payload: GenerateAnswerRequest, db: Session = Depends(get_db)):
+    """Create an AI draft grounded in verified canonical facts. Sensitive
+    categories are refused. The result is always a draft — never approved.
+    """
+    candidate = _require_candidate(db)
+    try:
+        return generation_service.generate_draft(
+            db,
+            candidate,
+            question=payload.question,
+            category=payload.category,
+            job_id=payload.job_id,
+            settings=get_settings(),
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AIProviderError as exc:
+        status = 429 if exc.kind == "rate_limited" else 503
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
 
 
 @router.get("/{answer_id}", response_model=ApplicationAnswerRead)

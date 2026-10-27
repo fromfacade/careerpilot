@@ -492,3 +492,13 @@ and never includes the API key. Failures (timeout, 429, missing key) raise `AIPr
 with a redacted message.
 
 Status: **milestone 2.2 increment 5 complete.**
+
+### 7.6 Increment 6 — grounded drafts and sensitive-question gates
+
+`POST /api/candidate/answers/generate` retrieves verified canonical facts and approved
+answers, calls the configured provider, and stores a `draft` / `ai_draft` answer with
+the fact ids used. Sensitive categories are refused before any model call. Unverified
+facts are never sent. Missing information is recorded on the draft. Provider failures
+do not create a row.
+
+Status: **milestone 2.2 increment 6 complete.**

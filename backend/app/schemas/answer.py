@@ -49,6 +49,12 @@ class ApplicationAnswerCreate(BaseModel):
     canonical_fact_ids: list[int] = Field(default_factory=list, max_length=50)
 
 
+class GenerateAnswerRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    category: AnswerCategory = AnswerCategory.OTHER
+    job_id: int | None = None
+
+
 class ApplicationAnswerUpdate(BaseModel):
     question: str | None = Field(default=None, min_length=1, max_length=2000)
     answer_text: str | None = Field(default=None, max_length=20000)
