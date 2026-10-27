@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.candidate import router as candidate_router
+from app.api.canonical import router as canonical_router
 from app.api.discovery import router as discovery_router
 from app.api.health import router as health_router
 from app.api.job_sources import router as job_sources_router
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
     app.include_router(discovery_router)
     app.include_router(resumes_router)
     app.include_router(facts_router)
+    app.include_router(canonical_router)
 
     return app
 

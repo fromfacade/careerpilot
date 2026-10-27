@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.models.candidate import Candidate
@@ -226,9 +226,18 @@ def import_verified_facts(
         outcome.created += 1
         outcome.facts.append(row)
 
+    created_ids = [fact.id for fact in outcome.facts]
     db.commit()
-    for fact in outcome.facts:
-        db.refresh(fact)
+    if created_ids:
+        loaded = {
+            row.id: row
+            for row in db.execute(
+                select(CanonicalFact)
+                .options(selectinload(CanonicalFact.sources))
+                .where(CanonicalFact.id.in_(created_ids))
+            ).scalars().all()
+        }
+        outcome.facts = [loaded[fid] for fid in created_ids if fid in loaded]
     return outcome
 
 
@@ -240,7 +249,11 @@ def list_canonical_facts(
     status: CanonicalFactStatus | None = None,
     verification_status: FactVerificationStatus | None = None,
 ) -> list[CanonicalFact]:
-    stmt = select(CanonicalFact).where(CanonicalFact.candidate_id == candidate.id)
+    stmt = (
+        select(CanonicalFact)
+        .options(selectinload(CanonicalFact.sources))
+        .where(CanonicalFact.candidate_id == candidate.id)
+    )
     if fact_type is not None:
         stmt = stmt.where(CanonicalFact.fact_type == fact_type)
     if status is not None:
@@ -252,8 +265,12 @@ def list_canonical_facts(
 
 
 def get_canonical_fact_or_404(db: Session, candidate: Candidate, fact_id: int) -> CanonicalFact:
-    fact = db.get(CanonicalFact, fact_id)
-    if fact is None or fact.candidate_id != candidate.id:
+    fact = db.execute(
+        select(CanonicalFact)
+        .options(selectinload(CanonicalFact.sources))
+        .where(CanonicalFact.id == fact_id, CanonicalFact.candidate_id == candidate.id)
+    ).scalar_one_or_none()
+    if fact is None:
         raise NotFoundError(f"No canonical fact with id={fact_id} for this candidate.")
     return fact
 

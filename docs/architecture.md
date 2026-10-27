@@ -242,7 +242,11 @@ preference was 51. Two separate problems, both now fixed:
   `GET /api/candidate/facts?fact_type=&verification_status=`,
   `PATCH /api/candidate/facts/{id}`,
   `POST /api/candidate/facts/bulk` (explicit verify/reject of selected IDs; cannot set
-  `unverified`; refuses with 422 to verify any fact flagged `needs_review`, all-or-nothing). **No PATCH/PUT/DELETE exists for a `Resume` row's file fields** — this is
+  `unverified`; refuses with 422 to verify any fact flagged `needs_review`, all-or-nothing).
+  Canonical knowledge base (`app/api/canonical.py`): `GET/POST /api/candidate/canonical-facts`,
+  `POST /api/candidate/canonical-facts/import`, `PATCH/DELETE /api/candidate/canonical-facts/{id}`,
+  archive and conflict-resolve actions. Import never overwrites an active value. Deleting a
+  resume cannot cascade onto canonical rows. **No PATCH/PUT exists for a `Resume` row's file fields** — this is
   the concrete mechanism behind "maintain an immutable copy of the original resume."
 - Storage: `backend/storage/resumes/` (configurable via `resume_storage_dir`), excluded from git
   via the pre-existing `backend/storage/` line in `.gitignore` — uploaded resumes and the PII

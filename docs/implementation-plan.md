@@ -462,3 +462,14 @@ the canonical row. Conflict resolution is an explicit `keep=existing|incoming` a
 Tests: `tests/unit/test_canonical_import.py`, `tests/integration/test_canonical_service.py`.
 
 Status: **milestone 2.2 increment 2 complete.**
+
+### 7.3 Increment 3 — canonical profile API
+
+`/api/candidate/canonical-facts` (list/create/import/get/patch/archive/resolve/delete).
+Resume deletion leaves canonical rows in place and only clears provenance pointers
+(`resume_id` / `candidate_fact_id` SET NULL), including when verified extracted facts
+are explicitly removed with the resume.
+
+Tests: `tests/integration/test_canonical_api.py`.
+
+Status: **milestone 2.2 increment 3 complete.**
