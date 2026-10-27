@@ -21,11 +21,11 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
   preferences, Greenhouse/Lever/Ashby adapters behind a configurable registry, discovery +
   normalization + dedup, rule-based eligibility/scoring, saved/dismissed states, a dashboard on
   real data, manual trigger + basic scheduling, tests, and Windows setup docs.
-- **Phase 2+ (not started)**: resume tailoring, AI provider management, answer library, form
-  automation, submission authorization engine, application queue/state machine, tracker,
-  analytics/notifications, full audit logging. These are designed for (see `docs/data-model.md`
-  §5 and `docs/architecture.md` §8) but zero code is written for them in Phase 1, and autonomous
-  submission remains impossible because no submission code path exists yet.
+- **Phase 2.1 / 2.2 (implemented)**: deterministic resume parsing, canonical knowledge base,
+  answer library, optional Gemini drafts. See §6–§7.
+- **Phase 2.3+ (not started)**: resume tailoring, form automation, submission authorization,
+  application queue/state machine, tracker, analytics/notifications, full audit logging.
+  Autonomous submission remains impossible because no submission code path exists.
 
 ## 2. Phase 1 increments (checklist)
 
@@ -401,8 +401,121 @@ Disabling the DOCX-bullet fix or restoring the old heading rule makes those test
 Existing stored resumes are **not** re-parsed automatically. Use "Reprocess this file" to apply the new
 parser; only unverified records are replaced.
 
-Milestone 2.2 is still not started.
+## 7. Phase 2 milestone 2.2 — canonical profile, answer library, grounded drafts
 
-Status: **milestone 2.1 (backend + frontend) is implemented, tested, and live-smoke-tested.**
-Stopped here per the user's explicit instruction, pending their review and approval before
-proceeding to milestone 2.2.
+Scope: an authoritative candidate knowledge base independent of any one resume, a reusable
+answer library, and a disabled-by-default AI provider for grounded draft generation. **Not** in
+scope: form automation, CAPTCHA/MFA, autonomous submission, resume tailoring, or answering
+sensitive questions without explicit authorization.
+
+Working branch: `feature/candidate-knowledge-base` (from `main` at `1fd6cce`). Commits are per
+increment; nothing is pushed or merged to `main` without approval.
+
+Decisions locked for this milestone (stated before increment 1):
+
+- Extracted `candidate_facts` stay as the resume-scoped, traceable record. A new `canonical_facts`
+  table is the knowledge base. Resume deletion never cascades onto it.
+- Import of verified/edited extracted facts is **explicit** (not auto-promoted on verify). Exact
+  content matches are skipped; same-identity different content becomes a `conflict` row. The
+  active value is never overwritten.
+- Work authorization / sponsorship / graduation date stay on `candidates` (eligibility source of
+  truth). Sensitive answers will only read those fields when the candidate authorizes it.
+- One AI provider first (Gemini), behind a common interface, disabled unless configured. Tests
+  use a mock. Keys live only in environment variables (never the frontend, never git).
+
+Increments:
+
+1. Canonical fact models + migration + schema tests.
+2. Import / dedupe / conflict service.
+3. Canonical profile API + resume-delete isolation through the service.
+4. Answer library models + API.
+5. AI provider abstraction (Gemini + mock).
+6. Grounded generation + sensitive-question gates.
+7. Knowledge Base + Answer Library frontend.
+8. Remaining integration tests and docs wrap-up.
+
+### 7.1 Increment 1 — canonical fact models
+
+New tables `canonical_facts` and `canonical_fact_sources` (see `docs/data-model.md` §2b).
+New enums `canonical_fact_status_enum` (`active|conflict|archived`) and
+`canonical_fact_origin_enum` (`resume_import|manual_entry|profile`). Existing extracted-fact
+tables and resume-delete behavior are unchanged.
+
+Changed files: `app/models/enums.py`, `app/models/canonical.py` (new), `app/models/__init__.py`,
+`alembic/versions/a1b2c3d4e5f6_add_canonical_facts.py` (new),
+`tests/integration/test_canonical_facts_schema.py` (new), `docs/data-model.md`,
+`docs/architecture.md`, `docs/implementation-plan.md`.
+
+Tests: `pytest tests/integration/test_canonical_facts_schema.py` → **5 passed**. Full backend
+suite: **254 passed**.
+
+Status: **milestone 2.2 increment 1 complete.**
+
+### 7.2 Increment 2 — import, dedupe, conflicts
+
+`app/services/canonical_service.py` promotes verified/edited extracted facts into
+`canonical_facts`. Exact content matches add a provenance link and skip a new row.
+Same-identity different content becomes `status=conflict` (`needs_review`); the active
+value is never overwritten. Manual create starts unverified. Archive/delete affect only
+the canonical row. Conflict resolution is an explicit `keep=existing|incoming` action.
+
+Tests: `tests/unit/test_canonical_import.py`, `tests/integration/test_canonical_service.py`.
+
+Status: **milestone 2.2 increment 2 complete.**
+
+### 7.3 Increment 3 — canonical profile API
+
+`/api/candidate/canonical-facts` (list/create/import/get/patch/archive/resolve/delete).
+Resume deletion leaves canonical rows in place and only clears provenance pointers
+(`resume_id` / `candidate_fact_id` SET NULL), including when verified extracted facts
+are explicitly removed with the resume.
+
+Tests: `tests/integration/test_canonical_api.py`.
+
+Status: **milestone 2.2 increment 3 complete.**
+
+### 7.4 Increment 4 — answer library
+
+`application_answers` + `application_answer_facts`. CRUD at `/api/candidate/answers`.
+Equivalent questions (normalized fingerprint) with the same text are rejected. Variants of
+the same question are allowed; only one may be preferred. Sensitive categories must go
+`draft → reviewed → approved`. Answers may link only to active verified/edited canonical facts.
+
+Status: **milestone 2.2 increment 4 complete.**
+
+### 7.5 Increment 5 — AI provider abstraction
+
+`app/ai/` with a common `AnswerProvider` interface. Gemini is the first real adapter
+(httpx, no extra SDK). A mock provider is used in tests. `AI_ENABLED` defaults to false;
+the rest of CareerPilot works without a key. `GET /api/ai/status` reports availability
+and never includes the API key. Failures (timeout, 429, missing key) raise `AIProviderError`
+with a redacted message.
+
+Status: **milestone 2.2 increment 5 complete.**
+
+### 7.6 Increment 6 — grounded drafts and sensitive-question gates
+
+`POST /api/candidate/answers/generate` retrieves verified canonical facts and approved
+answers, calls the configured provider, and stores a `draft` / `ai_draft` answer with
+the fact ids used. Sensitive categories are refused before any model call. Unverified
+facts are never sent. Missing information is recorded on the draft. Provider failures
+do not create a row.
+
+Status: **milestone 2.2 increment 6 complete.**
+
+### 7.7 Increment 7 — knowledge base and answer library UI
+
+Dashboard panels for the canonical knowledge base (import, manual add, verify, archive,
+conflict resolution, provenance) and the answer library (create, search, approve with a
+required review step for sensitive questions, preferred flag, AI draft when configured).
+AI remains off unless `AI_ENABLED` and a key are set.
+
+Status: **milestone 2.2 increment 7 complete.**
+
+### 7.8 Increment 8 — docs wrap-up
+
+Architecture module map, README, and this plan now describe 2.2 as implemented for the
+knowledge base, answer library, and optional Gemini drafts. Form automation and submission
+remain explicitly out of scope.
+
+Status: **milestone 2.2 complete on `feature/candidate-knowledge-base`.** Not merged to `main`.

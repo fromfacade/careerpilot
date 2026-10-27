@@ -51,6 +51,17 @@ class Settings(BaseSettings):
         default=10.0, description="Reject uploads larger than this before writing to disk."
     )
 
+    # --- AI (Phase 2.2). Disabled unless explicitly enabled AND a key is set.
+    # The rest of CareerPilot works with these at their defaults.
+    ai_enabled: bool = Field(default=False, description="Master switch. Off by default.")
+    ai_provider: str = Field(default="gemini", description="gemini | mock")
+    gemini_api_key: str = Field(default="", description="Server-side only. Never sent to the frontend.")
+    ai_model: str = Field(default="gemini-2.0-flash")
+    ai_temperature: float = Field(default=0.4)
+    ai_timeout_seconds: float = Field(default=20.0)
+    ai_max_output_tokens: int = Field(default=800)
+    ai_max_retries: int = Field(default=2)
+
     @property
     def cors_allowed_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]

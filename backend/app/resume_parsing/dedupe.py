@@ -63,6 +63,12 @@ def identity_key(fact_type: FactType, fact_key: str) -> tuple[str, str]:
     return fact_type.value, normalize_text(fact_key)
 
 
+def identity_key_string(fact_type: FactType, fact_key: str) -> str:
+    """Stable stored form of `identity_key` (`type|normalized_key`)."""
+    kind, key = identity_key(fact_type, fact_key)
+    return f"{kind}|{key}"
+
+
 @dataclass
 class DedupeResult:
     to_create: list[ExtractedFact]

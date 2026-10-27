@@ -301,6 +301,63 @@ verbatim matched substring (e.g. `"Sep 2021 - Jun 2025"`) — never coerced into
 since doing so would assert a precision (exact day) the source resume text doesn't actually give.
 This mirrors the existing `graduation_date_precision` pattern on `candidates`.
 
+## 2b. Phase 2.2 tables — canonical candidate knowledge base
+
+The extracted `candidate_facts` table (§2a.2) stays the resume-scoped, traceable
+record. `canonical_facts` is the independent, authoritative profile future
+application automation will read. A canonical row has **no required resume
+foreign key**; deleting an uploaded resume cannot cascade onto it.
+
+Migration: `alembic/versions/a1b2c3d4e5f6_add_canonical_facts.py`.
+
+### 2b.1 `canonical_facts`
+
+One authoritative version of one fact (school, job, project, skill group, …).
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `BIGSERIAL` | PK | |
+| `candidate_id` | `BIGINT` | NOT NULL, FK → `candidates.id` ON DELETE CASCADE | |
+| `fact_type` | `fact_type_enum` | NOT NULL | same categories as extracted facts |
+| `fact_key` | `TEXT` | NOT NULL | display label |
+| `fact_value` | `JSONB` | NOT NULL | same payload shapes as §2a.2 |
+| `identity_key` | `TEXT` | NOT NULL | `fact_type\|normalized_key` — one *active* row per identity |
+| `content_fingerprint` | `TEXT` | NOT NULL | exact-content hash (review metadata stripped) used to skip re-imports |
+| `status` | `canonical_fact_status_enum` | NOT NULL, default `active` | `active, conflict, archived` |
+| `verification_status` | `fact_verification_status_enum` | NOT NULL, default `unverified` | imported from a verified extracted fact starts `verified`; manual entries start `unverified`. Never auto-verified. |
+| `verified_at` | `TIMESTAMPTZ` | NULL | |
+| `needs_review` | `BOOLEAN` | NOT NULL, default `false` | true for conflict rows and flagged imports |
+| `review_reasons` | `JSONB` | NOT NULL, default `[]` | |
+| `conflicts_with_id` | `BIGINT` | NULL, FK → `canonical_facts.id` ON DELETE SET NULL | set on `status=conflict` rows; points at the active fact they disagree with |
+| `archived_at` | `TIMESTAMPTZ` | NULL | set when status becomes `archived` |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | NOT NULL | |
+| UNIQUE | | `(candidate_id, identity_key) WHERE status = 'active'` | one authoritative version |
+
+A same-identity import whose content differs from the active row becomes a new
+`status=conflict` row. The active value is never overwritten.
+
+### 2b.2 `canonical_fact_sources`
+
+Provenance: which extracted record, resume, or user action supplied a canonical
+fact. Multiple sources can point at one canonical row (the same job imported
+from two resumes).
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `BIGSERIAL` | PK | |
+| `canonical_fact_id` | `BIGINT` | NOT NULL, FK → `canonical_facts.id` ON DELETE CASCADE | |
+| `candidate_fact_id` | `BIGINT` | NULL, FK → `candidate_facts.id` ON DELETE SET NULL | the extracted record, if any |
+| `resume_id` | `BIGINT` | NULL, FK → `resumes.id` ON DELETE SET NULL | which file proposed it |
+| `origin` | `canonical_fact_origin_enum` | NOT NULL | `resume_import, manual_entry, profile` |
+| `note` | `TEXT` | NULL | |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | NOT NULL | |
+| UNIQUE | | `(candidate_fact_id) WHERE candidate_fact_id IS NOT NULL` | one extracted record maps to at most one canonical fact |
+
+Work authorization, sponsorship, and graduation date stay on `candidates`
+(§2.1). They remain the eligibility source of truth. `origin=profile` is reserved
+for later linking of those fields into the knowledge base; this migration does
+not move them.
+
 ## 3. Enum reference
 
 | Enum | Values |
@@ -324,6 +381,8 @@ This mirrors the existing `graduation_date_precision` pattern on `candidates`.
 | `fact_type_enum` | `education, skill, project, work_experience, achievement, other` |
 | `fact_source_enum` | `resume_extraction, manual_entry` |
 | `fact_verification_status_enum` | `unverified, verified, edited, rejected` |
+| `canonical_fact_status_enum` | `active, conflict, archived` |
+| `canonical_fact_origin_enum` | `resume_import, manual_entry, profile` |
 
 ## 4. Deduplication strategy (module 4)
 
@@ -349,15 +408,19 @@ etc.), and removes trailing slashes.
 Documented here so existing tables are designed to not conflict with them later — **no migration
 for these exists yet**:
 
-- `candidate_facts` sourced from `manual_entry` (screening-question answers not derived from a
-  resume) — the table and `source` enum value already exist (§2a.2) and support this; only the
-  manual-entry UI/endpoint is not built yet (module 9).
+- `canonical_facts` / `canonical_fact_sources` — **implemented** (Phase 2.2); see §2b.
+- `candidate_facts` sourced from `manual_entry` — the extracted-fact table still supports this
+  (`source` enum); the knowledge-base manual-entry path writes `canonical_facts` with
+  `origin=manual_entry` instead.
 - `resume_versions` — job-specific tailored variants of a base `resumes` row, with a diff against
   the original and generated DOCX/PDF file references (module 7, Phase 2 milestones 2.3/2.4).
   `resumes`/`candidate_facts` themselves are now implemented — see §2a.
-- `ai_provider_configs` — provider name, mode (`cloud/local/mock`), model, endpoint, active flag
-  (module 8, Phase 2 milestone 2.2).
-- `application_answers` — reusable Q&A pairs with a `requires_human_review` flag (module 9).
+- `ai_provider_configs` — not a table. Phase 2.2 uses env settings (`AI_ENABLED`,
+  `AI_PROVIDER`, `GEMINI_API_KEY`, model/temperature) plus `GET /api/ai/status`.
+- `application_answers` / `application_answer_facts` — **implemented** (Phase 2.2).
+  Reusable Q&A, independent of resumes. Equivalent (fingerprint + answer text) is unique.
+  At most one preferred answer per question. Sensitive categories cannot skip `reviewed`.
+  Grounded AI drafts use verified canonical facts and never persist on provider failure.
 - `applications` — the submission queue/state machine (module 12): `state` enum including
   `blocked_pending_review`, `authorized`, `submitted`, `confirmed`, `failed`, etc.
 - `application_events` — append-only state-transition audit trail for `applications` (module 12/15).

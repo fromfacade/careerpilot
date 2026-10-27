@@ -218,3 +218,76 @@ class FactVerificationStatus(str, enum.Enum):
     VERIFIED = "verified"
     EDITED = "edited"
     REJECTED = "rejected"
+
+
+class CanonicalFactStatus(str, enum.Enum):
+    """Lifecycle of an authoritative knowledge-base row.
+
+    `active` is the one version future application automation will read.
+    `conflict` is a same-identity alternative that was not silently applied.
+    `archived` is a previous version the candidate chose to retire. None of
+    these statuses is assigned automatically on resume parse.
+    """
+
+    ACTIVE = "active"
+    CONFLICT = "conflict"
+    ARCHIVED = "archived"
+
+
+class CanonicalFactOrigin(str, enum.Enum):
+    """How a canonical fact (or one of its provenance links) was supplied.
+
+    Distinct from `FactSource` on extracted `candidate_facts`: a resume can
+    only *propose* information; promoting it into the knowledge base is a
+    separate, explicit action (`resume_import`).
+    """
+
+    RESUME_IMPORT = "resume_import"
+    MANUAL_ENTRY = "manual_entry"
+    PROFILE = "profile"
+
+
+class AnswerCategory(str, enum.Enum):
+    """Application-question buckets. Sensitive categories never receive an
+    inferred value from a resume or a name; they only store what the
+    candidate typed or explicitly approved.
+    """
+
+    INTEREST = "interest"
+    EXPERIENCE = "experience"
+    SKILLS = "skills"
+    LOGISTICS = "logistics"
+    WORK_AUTHORIZATION = "work_authorization"
+    SPONSORSHIP = "sponsorship"
+    DISABILITY = "disability"
+    VETERAN = "veteran"
+    DEMOGRAPHIC = "demographic"
+    CRIMINAL_HISTORY = "criminal_history"
+    LEGAL_ATTESTATION = "legal_attestation"
+    SALARY = "salary"
+    OTHER = "other"
+
+
+class AnswerStatus(str, enum.Enum):
+    DRAFT = "draft"
+    REVIEWED = "reviewed"
+    APPROVED = "approved"
+
+
+class AnswerOrigin(str, enum.Enum):
+    MANUAL = "manual"
+    AI_DRAFT = "ai_draft"
+
+
+SENSITIVE_ANSWER_CATEGORIES = frozenset(
+    {
+        AnswerCategory.WORK_AUTHORIZATION,
+        AnswerCategory.SPONSORSHIP,
+        AnswerCategory.DISABILITY,
+        AnswerCategory.VETERAN,
+        AnswerCategory.DEMOGRAPHIC,
+        AnswerCategory.CRIMINAL_HISTORY,
+        AnswerCategory.LEGAL_ATTESTATION,
+        AnswerCategory.SALARY,
+    }
+)

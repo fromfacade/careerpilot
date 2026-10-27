@@ -86,6 +86,7 @@ careerpilot/
 │   │   ├── services/               # business logic, orchestration, pure-ish functions
 │   │   ├── sources/                # job source adapters (greenhouse/lever/ashby) + registry
 │   │   ├── resume_parsing/         # PDF/DOCX text extraction, whitespace repair, deterministic section parsing (Phase 2.1); no network calls
+│   │   ├── ai/                     # Answer-provider interface, Gemini adapter, mock (Phase 2.2); disabled by default
 │   │   ├── scheduling/             # APScheduler setup and discovery job wiring
 │   │   └── tests -> (see backend/tests)
 │   ├── tests/
@@ -120,15 +121,15 @@ careerpilot/
 
 | # | Module | Phase 1 status |
 |---|--------|------------------|
-| 1 | Candidate Profile & Verified Fact Vault | **Partial.** Core profile fields (grad date, work authorization, sponsorship) implemented directly on the candidate profile. Resume-derived facts (education/skills/projects/experience/achievements, with a human `verification_status`) are implemented as of Phase 2.1 — see §6b. Manual-entry Q&A facts for the future Answer Library (module 9) are not yet implemented. |
+| 1 | Candidate Profile & Verified Fact Vault | **Implemented for Phase 2.2.** Core profile fields stay on `candidates`. Resume-derived extracted facts (2.1) plus an independent canonical knowledge base (`canonical_facts`) with explicit import, conflict rows, and provenance that survives resume deletion. |
 | 2 | Configurable Job Source Registry | **Implemented.** `job_sources` table + admin-editable config for which employer boards to poll per provider. |
 | 3 | Job Discovery & Normalization | **Implemented** for Greenhouse, Lever, Ashby. |
 | 4 | Job Deduplication | **Implemented.** Canonical URL normalization + content hash + per-source external ID uniqueness. |
 | 5 | Eligibility Checking | **Implemented**, rule-based only (work authorization / sponsorship / grad-date window / location). As of Phase 2, deliberately scoped to *hard application requirements only* — see §6a for why this is a separate concept from Relevance. |
 | 6 | Explainable Match Scoring | **Implemented**, rule-based with a reasons breakdown returned to the UI; a `Relevance.NOT_RELEVANT` verdict caps the score (see §6a) so an out-of-scope role can never show a coincidentally high number. |
 | 7 | Resume Tailoring & Versioning | **Partial (Phase 2.1).** Upload, deterministic PDF/DOCX text extraction, and section parsing into verified `candidate_facts` are implemented — see §6b. Job-specific tailoring, diffing, versioning, and ATS export are later milestones (2.3/2.4), not built. |
-| 8 | AI Provider Management | Not built. Interface sketched in architecture only; no code. Zero network calls exist anywhere in the Phase 2.1 resume pipeline — see §6b. |
-| 9 | Application Answer Library | Not built. |
+| 8 | AI Provider Management | **Partial (Phase 2.2).** Common `AnswerProvider` interface, Gemini adapter (httpx), mock for tests. Disabled unless `AI_ENABLED` and a key are set. Status endpoint never returns the key. Resume parsing still has zero AI calls. |
+| 9 | Application Answer Library | **Implemented (Phase 2.2).** Manual and AI-draft answers, categories, preferred variants, sensitive-question review gate, links to verified canonical facts. No form filling or submission. |
 | 10 | Form Automation Adapters | Not built. |
 | 11 | Submission Authorization Policy Engine | Not built. Autonomous submission stays disabled by construction — there is no submission code path in Phase 1. |
 | 12 | Application Queue & State Machine | Not built. |
@@ -242,7 +243,11 @@ preference was 51. Two separate problems, both now fixed:
   `GET /api/candidate/facts?fact_type=&verification_status=`,
   `PATCH /api/candidate/facts/{id}`,
   `POST /api/candidate/facts/bulk` (explicit verify/reject of selected IDs; cannot set
-  `unverified`; refuses with 422 to verify any fact flagged `needs_review`, all-or-nothing). **No PATCH/PUT/DELETE exists for a `Resume` row's file fields** — this is
+  `unverified`; refuses with 422 to verify any fact flagged `needs_review`, all-or-nothing).
+  Canonical knowledge base (`app/api/canonical.py`): `GET/POST /api/candidate/canonical-facts`,
+  `POST /api/candidate/canonical-facts/import`, `PATCH/DELETE /api/candidate/canonical-facts/{id}`,
+  archive and conflict-resolve actions. Import never overwrites an active value. Deleting a
+  resume cannot cascade onto canonical rows. **No PATCH/PUT exists for a `Resume` row's file fields** — this is
   the concrete mechanism behind "maintain an immutable copy of the original resume."
 - Storage: `backend/storage/resumes/` (configurable via `resume_storage_dir`), excluded from git
   via the pre-existing `backend/storage/` line in `.gitignore` — uploaded resumes and the PII
