@@ -245,3 +245,49 @@ class CanonicalFactOrigin(str, enum.Enum):
     RESUME_IMPORT = "resume_import"
     MANUAL_ENTRY = "manual_entry"
     PROFILE = "profile"
+
+
+class AnswerCategory(str, enum.Enum):
+    """Application-question buckets. Sensitive categories never receive an
+    inferred value from a resume or a name; they only store what the
+    candidate typed or explicitly approved.
+    """
+
+    INTEREST = "interest"
+    EXPERIENCE = "experience"
+    SKILLS = "skills"
+    LOGISTICS = "logistics"
+    WORK_AUTHORIZATION = "work_authorization"
+    SPONSORSHIP = "sponsorship"
+    DISABILITY = "disability"
+    VETERAN = "veteran"
+    DEMOGRAPHIC = "demographic"
+    CRIMINAL_HISTORY = "criminal_history"
+    LEGAL_ATTESTATION = "legal_attestation"
+    SALARY = "salary"
+    OTHER = "other"
+
+
+class AnswerStatus(str, enum.Enum):
+    DRAFT = "draft"
+    REVIEWED = "reviewed"
+    APPROVED = "approved"
+
+
+class AnswerOrigin(str, enum.Enum):
+    MANUAL = "manual"
+    AI_DRAFT = "ai_draft"
+
+
+SENSITIVE_ANSWER_CATEGORIES = frozenset(
+    {
+        AnswerCategory.WORK_AUTHORIZATION,
+        AnswerCategory.SPONSORSHIP,
+        AnswerCategory.DISABILITY,
+        AnswerCategory.VETERAN,
+        AnswerCategory.DEMOGRAPHIC,
+        AnswerCategory.CRIMINAL_HISTORY,
+        AnswerCategory.LEGAL_ATTESTATION,
+        AnswerCategory.SALARY,
+    }
+)

@@ -473,3 +473,12 @@ are explicitly removed with the resume.
 Tests: `tests/integration/test_canonical_api.py`.
 
 Status: **milestone 2.2 increment 3 complete.**
+
+### 7.4 Increment 4 — answer library
+
+`application_answers` + `application_answer_facts`. CRUD at `/api/candidate/answers`.
+Equivalent questions (normalized fingerprint) with the same text are rejected. Variants of
+the same question are allowed; only one may be preferred. Sensitive categories must go
+`draft → reviewed → approved`. Answers may link only to active verified/edited canonical facts.
+
+Status: **milestone 2.2 increment 4 complete.**

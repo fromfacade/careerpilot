@@ -418,7 +418,10 @@ for these exists yet**:
   `resumes`/`candidate_facts` themselves are now implemented — see §2a.
 - `ai_provider_configs` — provider name, mode (`cloud/local/mock`), model, endpoint, active flag
   (module 8, remaining Phase 2.2 increments).
-- `application_answers` — reusable Q&A pairs (module 9, remaining Phase 2.2 increments).
+- `application_answers` / `application_answer_facts` — **implemented** (Phase 2.2 increment 4).
+  Reusable Q&A, independent of resumes. Equivalent (fingerprint + answer text) is unique.
+  At most one preferred answer per question. Sensitive categories cannot skip `reviewed`.
+  AI draft generation is a later 2.2 increment.
 - `applications` — the submission queue/state machine (module 12): `state` enum including
   `blocked_pending_review`, `authorized`, `submitted`, `confirmed`, `failed`, etc.
 - `application_events` — append-only state-transition audit trail for `applications` (module 12/15).
