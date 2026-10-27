@@ -23,7 +23,10 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
   real data, manual trigger + basic scheduling, tests, and Windows setup docs.
 - **Phase 2.1 / 2.2 (implemented)**: deterministic resume parsing, canonical knowledge base,
   answer library, optional Gemini drafts. See §6–§7.
-- **Phase 2.3+ (not started)**: resume tailoring, form automation, submission authorization,
+- **Phase 2.3 (this effort)**: job-specific application preparation — JD analysis,
+  qualification matching, resume tailoring/export, and job-specific answer drafts.
+  **Not** form automation or submission.
+- **Phase 2.4+ (not started)**: form automation, submission authorization,
   application queue/state machine, tracker, analytics/notifications, full audit logging.
   Autonomous submission remains impossible because no submission code path exists.
 
@@ -600,3 +603,48 @@ claim the system can detect or eliminate AI-sounding writing.
 
 Status: **milestone 2.2.1 complete on `feature/personalized-writing-style`.**
 Not merged to `main`.
+
+## 9. Phase 2 milestone 2.3 — application preparation
+
+Reconciles the existing plan's "2.3 tailoring/diffing" with this milestone:
+preparation includes JD analysis, qualification matching, tailored resume
+export, and job-specific answers. Form automation stays 2.4+.
+
+Working branch: `feature/application-preparation` from
+`feature/personalized-writing-style` (`e4f900a`).
+
+Decisions:
+
+- One open preparation per `(candidate, job)`. Repeat Prepare returns it.
+  Cancelled rows stay for history; a new prepare may follow a cancel.
+  Failed rows are kept and returned, not replaced.
+- Job title, employer, description, apply URL, and content hash are snapshotted
+  so later listing edits do not change this preparation.
+- JD analysis is deterministic first (section/keyword). Items are `stated` or
+  `inferred`. Matching uses only verified/edited canonical facts and explicit
+  profile fields. No match without evidence.
+- Tailoring reorders and optionally rewords existing facts. Original resume
+  bytes are never modified. Visual design is not reproduced; an ATS-friendly
+  CareerPilot layout is used and that limitation is recorded.
+- Preparation answers are separate from the answer library. Approved library
+  answers are copied/adapted, never overwritten. Sensitive questions are not
+  auto-drafted.
+- States are preparation-only: `preparing`, `needs_review`, `ready`, `failed`,
+  `cancelled`. There is no submit action.
+
+Increments:
+
+1. Preparation models, snapshot, idempotent API.
+2. Job-description analysis and qualification matching.
+3. Deterministic resume tailoring.
+4. PDF/DOCX export and original-resume preservation.
+5. Job-specific answers (reuse + grounded drafts).
+6. Dashboard Prepare Application UI.
+7. Docs wrap-up and full suites.
+
+### 9.1 Increment 1 — preparation records
+
+`application_preparations` plus create/list/get/cancel. Repeat create for the
+same job returns the open row. The job description is snapshotted.
+
+Status: **milestone 2.3 increment 1 complete.**

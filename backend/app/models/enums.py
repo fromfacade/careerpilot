@@ -337,6 +337,39 @@ class WritingSampleOrigin(str, enum.Enum):
     ADOPTED_FROM_ANSWER = "adopted_from_answer"
 
 
+class PreparationState(str, enum.Enum):
+    """Preparation progress only — never a submission status."""
+
+    PREPARING = "preparing"
+    NEEDS_REVIEW = "needs_review"
+    READY = "ready"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class PreparationAnswerOrigin(str, enum.Enum):
+    REUSED = "reused"
+    ADAPTED = "adapted"
+    GENERATED = "generated"
+
+
+class PreparationItemStatus(str, enum.Enum):
+    DRAFT = "draft"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    NEEDS_REVIEW = "needs_review"
+
+
+OPEN_PREPARATION_STATES = frozenset(
+    {
+        PreparationState.PREPARING,
+        PreparationState.NEEDS_REVIEW,
+        PreparationState.READY,
+        PreparationState.FAILED,
+    }
+)
+
+
 SENSITIVE_ANSWER_CATEGORIES = frozenset(
     {
         AnswerCategory.WORK_AUTHORIZATION,
