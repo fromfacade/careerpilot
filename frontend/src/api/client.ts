@@ -325,6 +325,7 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
+  preparationPdfPreviewUrl: (id: number) => `${BASE_URL}/api/preparations/${id}/documents/pdf?inline=1`,
   downloadPreparationDocument: async (id: number, kind: 'docx' | 'pdf' | 'original' | 'selected') => {
     const response = await fetch(`${BASE_URL}/api/preparations/${id}/documents/${kind}`);
     if (!response.ok) throw new ApiError(response.status, 'Could not download the prepared document.');

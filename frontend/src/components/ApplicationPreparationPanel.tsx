@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { api } from '../api/client'
 import type { ApplicationPreparation, PreparationAnswer } from '../api/types'
 import { useFetch } from '../hooks/useFetch'
-import { resumeBullets, resumeHeading, resumeMeta } from '../preparation/resumePreview'
+import { resumeBullets, resumeHeading, resumeSubline } from '../preparation/resumePreview'
 import { Badge } from './Badge'
 import { EmptyBlock, ErrorBlock, LoadingBlock } from './StatusViews'
 
@@ -11,16 +11,11 @@ function items(value: unknown): { text: string; reason?: string }[] {
 }
 
 function ResumeFields({ section, detail }: { section: string; detail: Record<string, unknown> }) {
-  const meta = resumeMeta(section, detail)
+  const subline = resumeSubline(section, detail)
   const bullets = resumeBullets(detail)
   return (
     <div className="mt-1 space-y-1 text-sm text-slate-700">
-      {meta.map((row) => (
-        <p key={row.label}>
-          <span className="font-medium text-slate-500">{row.label}: </span>
-          {row.value}
-        </p>
-      ))}
+      {subline ? <p className="text-slate-500">{subline}</p> : null}
       {bullets.length > 0 && (
         <ul className="list-disc space-y-0.5 pl-5">
           {bullets.map((bullet) => (
@@ -37,33 +32,49 @@ function FactList({
   section,
   rows,
   onTitleChange,
+  onIncludedChange,
 }: {
   title: string
   section: string
-  rows?: { title: string; detail: unknown }[]
+  rows?: { title: string; detail: unknown; included?: boolean }[]
   onTitleChange?: (index: number, title: string) => void
+  onIncludedChange?: (index: number, included: boolean) => void
 }) {
   if (!rows?.length) return null
   return (
     <div>
-      <h4 className="text-sm font-semibold text-slate-800">{title}</h4>
+      <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-800">{title}</h4>
       <ul className="mt-1 space-y-2 text-sm text-slate-700">
         {rows.map((row, index) => {
           const detail = typeof row.detail === 'object' && row.detail ? (row.detail as Record<string, unknown>) : {}
           const heading = resumeHeading(section, row.title, detail)
+          const included = row.included !== false
           return (
-            <li key={`${title}-${index}`}>
-              {onTitleChange ? (
-                <input
-                  value={row.title}
-                  onChange={(event) => onTitleChange(index, event.target.value)}
-                  className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm font-medium"
-                  aria-label={`${title} heading`}
-                />
-              ) : (
-                <span className="font-medium">{heading}</span>
-              )}
-              <ResumeFields section={section} detail={detail} />
+            <li key={`${title}-${index}`} className={included ? '' : 'opacity-60'}>
+              <div className="flex items-start gap-2">
+                {onIncludedChange ? (
+                  <input
+                    type="checkbox"
+                    checked={included}
+                    onChange={(event) => onIncludedChange(index, event.target.checked)}
+                    className="mt-1"
+                    aria-label={`Include ${heading || row.title} in export`}
+                  />
+                ) : null}
+                <div className="min-w-0 flex-1">
+                  {onTitleChange ? (
+                    <input
+                      value={row.title}
+                      onChange={(event) => onTitleChange(index, event.target.value)}
+                      className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm font-medium"
+                      aria-label={`${title} heading`}
+                    />
+                  ) : (
+                    <span className="font-medium">{heading}</span>
+                  )}
+                  <ResumeFields section={section} detail={detail} />
+                </div>
+              </div>
             </li>
           )
         })}
@@ -224,7 +235,12 @@ function PreparationDetail({
           <p className="mt-2 text-xs text-slate-500">No tailored draft. The selected original file is used unless you tailor for this job.</p>
         )}
         <div className="mt-2 flex flex-wrap gap-2">
-          <button type="button" disabled={busy} onClick={() => run(() => api.updatePreparationResume(prep.id, { status: 'approved' }))} className="rounded-md border border-green-300 px-2 py-1 text-xs text-green-700">
+          <button
+            type="button"
+            disabled={busy || (prep.has_tailored_resume && prep.tailored_resume.quality?.ok === false)}
+            onClick={() => run(() => api.updatePreparationResume(prep.id, { status: 'approved' }))}
+            className="rounded-md border border-green-300 px-2 py-1 text-xs text-green-700 disabled:opacity-50"
+          >
             Approve resume
           </button>
           <button type="button" disabled={busy} onClick={() => run(() => api.updatePreparationResume(prep.id, { status: 'rejected' }))} className="rounded-md border border-red-300 px-2 py-1 text-xs text-red-700">
@@ -329,6 +345,11 @@ function TailoredResumeEditor({
   run: (action: () => Promise<unknown>, ok?: string) => Promise<unknown>
 }) {
   const [draft, setDraft] = useState(prep.tailored_resume)
+  const quality = prep.tailored_resume.quality
+  const header = draft.header ?? {}
+  const contact = [header.email, header.phone, header.location, header.linkedin_url, header.github_url]
+    .filter(Boolean)
+    .join(' | ')
 
   function updateTitle(section: 'education' | 'work_experience' | 'projects' | 'skills' | 'achievements', index: number, title: string) {
     setDraft((current) => ({
@@ -337,12 +358,51 @@ function TailoredResumeEditor({
     }))
   }
 
+  function updateIncluded(section: 'education' | 'work_experience' | 'projects' | 'skills' | 'achievements', index: number, included: boolean) {
+    setDraft((current) => ({
+      ...current,
+      [section]: (current[section] ?? []).map((row, rowIndex) => (rowIndex === index ? { ...row, included } : row)),
+    }))
+  }
+
   return (
-    <div className="mt-2 space-y-2">
-      <FactList title="Education" section="education" rows={draft.education} onTitleChange={(index, title) => updateTitle('education', index, title)} />
-      <FactList title="Work" section="work_experience" rows={draft.work_experience} onTitleChange={(index, title) => updateTitle('work_experience', index, title)} />
-      <FactList title="Projects" section="projects" rows={draft.projects} onTitleChange={(index, title) => updateTitle('projects', index, title)} />
-      <FactList title="Skills" section="skills" rows={draft.skills} onTitleChange={(index, title) => updateTitle('skills', index, title)} />
+    <div className="mt-2 space-y-3">
+      {quality?.ok === false && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800" role="alert">
+          <p className="font-semibold">This export is not ready.</p>
+          <ul className="mt-1 list-disc pl-4">
+            {(quality.issues ?? []).map((issue) => (
+              <li key={issue}>{issue}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {quality?.warnings?.length ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+          {quality.warnings.map((warning) => (
+            <p key={warning}>{warning}</p>
+          ))}
+        </div>
+      ) : null}
+      {draft.presentation?.note ? <p className="text-xs text-slate-500">{draft.presentation.note}</p> : null}
+      <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="text-center text-lg font-semibold text-slate-900">{header.full_name}</p>
+        {contact ? <p className="mt-1 text-center text-xs text-slate-600">{contact}</p> : null}
+        <div className="mt-3 space-y-3">
+          <FactList title="Education" section="education" rows={draft.education} onTitleChange={(index, title) => updateTitle('education', index, title)} onIncludedChange={(index, included) => updateIncluded('education', index, included)} />
+          <FactList title="Experience" section="work_experience" rows={draft.work_experience} onTitleChange={(index, title) => updateTitle('work_experience', index, title)} onIncludedChange={(index, included) => updateIncluded('work_experience', index, included)} />
+          <FactList title="Projects" section="projects" rows={draft.projects} onTitleChange={(index, title) => updateTitle('projects', index, title)} onIncludedChange={(index, included) => updateIncluded('projects', index, included)} />
+          <FactList title="Skills" section="skills" rows={draft.skills} onTitleChange={(index, title) => updateTitle('skills', index, title)} onIncludedChange={(index, included) => updateIncluded('skills', index, included)} />
+          <FactList title="Achievements" section="achievements" rows={draft.achievements} onTitleChange={(index, title) => updateTitle('achievements', index, title)} onIncludedChange={(index, included) => updateIncluded('achievements', index, included)} />
+        </div>
+      </div>
+      {prep.has_pdf && (
+        <iframe
+          title="Tailored resume PDF preview"
+          src={api.preparationPdfPreviewUrl(prep.id)}
+          className="h-[720px] w-full rounded-md border border-slate-200 bg-slate-50"
+        />
+      )}
       <button
         type="button"
         disabled={busy}

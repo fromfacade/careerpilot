@@ -512,11 +512,18 @@ export interface ApplicationPreparation {
   };
   tailored_resume: {
     header?: Record<string, string | null>;
-    education?: { title: string; detail: unknown }[];
-    work_experience?: { title: string; detail: unknown }[];
-    projects?: { title: string; detail: unknown }[];
-    skills?: { title: string; detail: unknown }[];
-    achievements?: { title: string; detail: unknown }[];
+    education?: { title: string; detail: unknown; included?: boolean }[];
+    work_experience?: { title: string; detail: unknown; included?: boolean }[];
+    projects?: { title: string; detail: unknown; included?: boolean }[];
+    skills?: { title: string; detail: unknown; included?: boolean }[];
+    achievements?: { title: string; detail: unknown; included?: boolean }[];
+    quality?: {
+      ok: boolean;
+      issues: string[];
+      warnings?: string[];
+      page_count?: number | null;
+    };
+    presentation?: { omitted_fact_ids?: number[]; note?: string };
   };
   tailored_resume_status: PreparationItemStatus;
   design_limitation: string;
