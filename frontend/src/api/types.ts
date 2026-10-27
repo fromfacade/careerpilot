@@ -252,8 +252,18 @@ export interface Resume {
   parse_status: ResumeParseStatus;
   parse_error: string | null;
   is_primary: boolean;
+  profile_name: string;
+  profile_description: string;
+  category: ResumeCategory;
+  is_approved: boolean;
+  is_archived: boolean;
+  focus_areas: string[];
   created_at: string;
+  updated_at: string;
 }
+
+export type ResumeCategory = 'general_swe' | 'backend' | 'fullstack' | 'ai_ml' | 'custom';
+export type ResumeSelectionSource = 'automatic' | 'manual' | 'fallback_default' | 'none';
 
 export interface ResumeUploadResult {
   resume: Resume;
@@ -470,6 +480,11 @@ export interface ApplicationPreparation {
   candidate_id: number;
   job_id: number | null;
   source_resume_id: number | null;
+  selected_resume_name: string | null;
+  selected_resume_category: string | null;
+  resume_selection_reason: string;
+  resume_selection_source: ResumeSelectionSource;
+  has_tailored_resume: boolean;
   state: PreparationState;
   snapshot_job_title: string;
   snapshot_employer: string;

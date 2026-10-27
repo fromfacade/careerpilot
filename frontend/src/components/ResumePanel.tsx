@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { api } from '../api/client'
-import type { CandidateFact, FactType, FactVerificationStatus, Resume, ResumeUploadResult } from '../api/types'
+import type { CandidateFact, FactType, FactVerificationStatus, Resume, ResumeCategory, ResumeUploadResult } from '../api/types'
 import { useFetch } from '../hooks/useFetch'
 import { Badge } from './Badge'
 import { applyFieldValue, EDITABLE_FIELDS, fieldValue, isCommaList } from '../resume/factFields'
@@ -8,6 +8,14 @@ import { awaitsReview, isFieldAmbiguous, splitBulkVerifiable } from '../resume/r
 import { DeleteResumeDialog } from './DeleteResumeDialog'
 import { FactValueView, ReviewNotice } from './FactValueView'
 import { EmptyBlock, ErrorBlock, LoadingBlock } from './StatusViews'
+
+const CATEGORY_LABEL: Record<ResumeCategory, string> = {
+  general_swe: 'General SWE',
+  backend: 'Backend',
+  fullstack: 'Full-stack',
+  ai_ml: 'AI / ML',
+  custom: 'Custom',
+}
 
 const PARSE_STATUS_TONE: Record<Resume['parse_status'], 'green' | 'red' | 'amber' | 'slate'> = {
   pending: 'slate',
@@ -429,7 +437,7 @@ export function ResumePanel() {
         </p>
       )}
 
-      <h3 className="mt-4 text-sm font-semibold text-slate-900">Uploaded resumes</h3>
+      <h3 className="mt-4 text-sm font-semibold text-slate-900">Resume profiles</h3>
       {resumes.status === 'loading' && <LoadingBlock label="Loading resumes…" />}
       {resumes.status === 'error' && <ErrorBlock message={resumes.message} onRetry={resumes.reload} />}
       {resumes.status === 'success' && resumes.data.length === 0 && (
@@ -443,15 +451,29 @@ export function ResumePanel() {
               className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-100 p-2 text-sm"
             >
               <span>
-                <span className="font-medium">{r.original_filename}</span> ({r.file_format.toUpperCase()}) &middot;
-                uploaded {formatDate(r.created_at)}
+                <span className="font-medium">{r.profile_name || r.original_filename}</span>{' '}
+                <span className="text-slate-500">({r.file_format.toUpperCase()})</span>
+                <span className="mt-1 block text-xs text-slate-500">
+                  {CATEGORY_LABEL[r.category]} · updated {formatDate(r.updated_at)}
+                  {r.profile_description ? ` · ${r.profile_description}` : ''}
+                </span>
                 {r.is_primary && (
-                  <span className="ml-2">
-                    <Badge tone="blue">Primary</Badge>
+                  <span className="ml-0 mt-1 inline-block">
+                    <Badge tone="blue">Default</Badge>
+                  </span>
+                )}
+                {r.is_approved && (
+                  <span className="ml-1">
+                    <Badge tone="green">Approved</Badge>
+                  </span>
+                )}
+                {r.is_archived && (
+                  <span className="ml-1">
+                    <Badge tone="amber">Archived</Badge>
                   </span>
                 )}
               </span>
-              <span className="flex items-center gap-2">
+              <span className="flex flex-wrap items-center gap-2">
                 <Badge tone={PARSE_STATUS_TONE[r.parse_status]}>{r.parse_status}</Badge>
                 {r.parse_error && (
                   <span className="max-w-xs truncate text-xs text-red-700" title={r.parse_error}>
@@ -465,9 +487,61 @@ export function ResumePanel() {
                     onClick={() => handleSetPrimary(r.id)}
                     className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                   >
-                    {primaryBusyId === r.id ? 'Updating…' : 'Set as primary'}
+                    {primaryBusyId === r.id ? 'Updating…' : 'Set as default'}
                   </button>
                 )}
+                <button
+                  type="button"
+                  disabled={primaryBusyId === r.id}
+                  onClick={() =>
+                    api.updateResumeProfile(r.id, { is_approved: !r.is_approved }).then(() => resumes.reload())
+                  }
+                  className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {r.is_approved ? 'Unapprove' : 'Approve'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    api.updateResumeProfile(r.id, { is_archived: !r.is_archived }).then(() => resumes.reload())
+                  }
+                  className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  {r.is_archived ? 'Unarchive' : 'Archive'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const name = window.prompt('Resume profile name', r.profile_name || r.original_filename)
+                    if (name?.trim()) {
+                      void api.updateResumeProfile(r.id, { profile_name: name.trim() }).then(() => resumes.reload())
+                    }
+                  }}
+                  className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Rename
+                </button>
+                <select
+                  aria-label={`Category for ${r.profile_name || r.original_filename}`}
+                  value={r.category}
+                  onChange={(event) => {
+                    void api.updateResumeProfile(r.id, { category: event.target.value }).then(() => resumes.reload())
+                  }}
+                  className="rounded-md border border-slate-300 px-2 py-1 text-xs"
+                >
+                  {Object.entries(CATEGORY_LABEL).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => api.downloadResumeFile(r.id, r.original_filename)}
+                  className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Download
+                </button>
                 <button
                   type="button"
                   disabled={reprocessBusyId === r.id}

@@ -174,7 +174,32 @@ function PreparationDetail({
           {prep.snapshot_job_title} · {prep.snapshot_employer}
         </h3>
         <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{prep.analysis.summary}</p>
-        {prep.design_limitation && <p className="mt-2 text-xs text-amber-800">{prep.design_limitation}</p>}
+        <div className="mt-3 rounded-md border border-slate-200 p-3">
+          <p className="text-sm font-semibold text-slate-900">
+            Selected resume: {prep.selected_resume_name || 'None'}
+          </p>
+          <p className="mt-1 text-xs text-slate-600">
+            <span className="font-medium">Why selected: </span>
+            {prep.resume_selection_reason || 'No approved resume was available for automatic selection.'}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <ResumeOverride prep={prep} busy={busy} run={run} />
+            {prep.source_resume_id && (
+              <button type="button" disabled={busy} onClick={() => run(() => api.downloadPreparationDocument(prep.id, 'selected'))} className="rounded-md border border-slate-300 px-2 py-1 text-xs">
+                Download resume
+              </button>
+            )}
+            <button type="button" disabled={busy} onClick={() => run(() => api.tailorPreparation(prep.id), 'Generated an optional tailored draft.')} className="rounded-md border border-slate-300 px-2 py-1 text-xs">
+              Tailor resume for this job
+            </button>
+            {prep.has_tailored_resume && (
+              <button type="button" disabled={busy} onClick={() => run(() => api.revertPreparationTailoring(prep.id), 'Reverted to the selected original resume.')} className="rounded-md border border-slate-300 px-2 py-1 text-xs">
+                Revert tailored draft
+              </button>
+            )}
+          </div>
+        </div>
+        {prep.has_tailored_resume && prep.design_limitation && <p className="mt-2 text-xs text-amber-800">{prep.design_limitation}</p>}
         {prep.error_message && <p className="mt-1 text-xs text-red-700">{prep.error_message}</p>}
         <details className="mt-2">
           <summary className="cursor-pointer text-xs font-medium text-blue-700">Original job description</summary>
@@ -195,7 +220,9 @@ function PreparationDetail({
           <h4 className="text-sm font-semibold text-slate-800">Tailored resume</h4>
           <Badge>{prep.tailored_resume_status}</Badge>
         </div>
-        <TailoredResumeEditor prep={prep} busy={busy} run={run} />
+        {prep.has_tailored_resume ? <TailoredResumeEditor prep={prep} busy={busy} run={run} /> : (
+          <p className="mt-2 text-xs text-slate-500">No tailored draft. The selected original file is used unless you tailor for this job.</p>
+        )}
         <div className="mt-2 flex flex-wrap gap-2">
           <button type="button" disabled={busy} onClick={() => run(() => api.updatePreparationResume(prep.id, { status: 'approved' }))} className="rounded-md border border-green-300 px-2 py-1 text-xs text-green-700">
             Approve resume
@@ -235,6 +262,37 @@ function PreparationDetail({
         </button>
       </div>
     </div>
+  )
+}
+
+function ResumeOverride({
+  prep,
+  busy,
+  run,
+}: {
+  prep: ApplicationPreparation
+  busy: boolean
+  run: (action: () => Promise<unknown>, ok?: string) => Promise<unknown>
+}) {
+  const resumes = useFetch(() => api.listResumes(), [])
+  const options = resumes.status === 'success' ? resumes.data.filter((row) => row.is_approved && !row.is_archived) : []
+  if (options.length === 0) return null
+  return (
+    <label className="inline-flex items-center gap-1 text-xs text-slate-700">
+      Change resume
+      <select
+        disabled={busy}
+        value={prep.source_resume_id ?? ''}
+        onChange={(event) => run(() => api.selectPreparationResume(prep.id, Number(event.target.value)), 'Updated the selected resume.')}
+        className="rounded-md border border-slate-300 px-2 py-1 text-xs"
+      >
+        {options.map((row) => (
+          <option key={row.id} value={row.id}>
+            {row.profile_name || row.original_filename}
+          </option>
+        ))}
+      </select>
+    </label>
   )
 }
 

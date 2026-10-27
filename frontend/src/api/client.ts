@@ -179,6 +179,19 @@ export const api = {
     request<ResumeReprocessResult>(`/api/resumes/${resumeId}/reprocess`, { method: 'POST' }),
   setPrimaryResume: (resumeId: number) =>
     request<Resume>(`/api/resumes/${resumeId}/primary`, { method: 'POST' }),
+  updateResumeProfile: (resumeId: number, data: Record<string, unknown>) =>
+    request<Resume>(`/api/resumes/${resumeId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  downloadResumeFile: async (resumeId: number, filename: string) => {
+    const response = await fetch(`${BASE_URL}/api/resumes/${resumeId}/file`);
+    if (!response.ok) throw new ApiError(response.status, 'Could not download the original resume.');
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  },
   deleteResume: (resumeId: number, data: ResumeDeleteInput = {}) =>
     request<ResumeDeleteResult>(`/api/resumes/${resumeId}`, {
       method: 'DELETE',
@@ -298,19 +311,28 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
+  selectPreparationResume: (id: number, resumeId: number) =>
+    request<import('./types').ApplicationPreparation>(`/api/preparations/${id}/select-resume`, {
+      method: 'POST',
+      body: JSON.stringify({ resume_id: resumeId }),
+    }),
+  tailorPreparation: (id: number) =>
+    request<import('./types').ApplicationPreparation>(`/api/preparations/${id}/tailor`, { method: 'POST' }),
+  revertPreparationTailoring: (id: number) =>
+    request<import('./types').ApplicationPreparation>(`/api/preparations/${id}/tailor/revert`, { method: 'POST' }),
   updatePreparationAnswer: (id: number, answerId: number, data: Record<string, unknown>) =>
     request<import('./types').ApplicationPreparation>(`/api/preparations/${id}/answers/${answerId}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
-  downloadPreparationDocument: async (id: number, kind: 'docx' | 'pdf' | 'original') => {
+  downloadPreparationDocument: async (id: number, kind: 'docx' | 'pdf' | 'original' | 'selected') => {
     const response = await fetch(`${BASE_URL}/api/preparations/${id}/documents/${kind}`);
     if (!response.ok) throw new ApiError(response.status, 'Could not download the prepared document.');
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = kind === 'original' ? 'original-resume' : `tailored-resume.${kind}`;
+    link.download = kind === 'original' || kind === 'selected' ? 'selected-resume' : `tailored-resume.${kind}`;
     link.click();
     URL.revokeObjectURL(url);
   },

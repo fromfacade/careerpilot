@@ -11,7 +11,14 @@ function resume(partial: Partial<Resume> & Pick<Resume, 'id' | 'is_primary'>): R
     sha256_checksum: 'abc',
     parse_status: 'success',
     parse_error: null,
+    profile_name: `resume-${partial.id}`,
+    profile_description: '',
+    category: 'custom',
+    is_approved: false,
+    is_archived: false,
+    focus_areas: [],
     created_at: '2026-10-26T00:00:00Z',
+    updated_at: '2026-10-26T00:00:00Z',
     ...partial,
   }
 }
