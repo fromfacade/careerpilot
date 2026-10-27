@@ -1,9 +1,9 @@
 # CareerPilot
 
 A local-first, autonomous-leaning job-search and application assistant. This repo currently
-implements **Phase 1** (profile, job discovery, eligibility) plus **Phase 2.1/2.2/2.2.1**
-(resume parsing, a canonical knowledge base, a reusable answer library, and a writing-style
-profile for grounded Gemini drafts).
+implements **Phase 1** plus **Phase 2.1–2.3** (resume parsing, a canonical knowledge
+base, writing style, and job-specific application preparation). Form automation and
+application submission are not built.
 
 **No autonomous submission code exists in this repo.** Form automation and application
 submission are later phases — see `docs/architecture.md` and `docs/implementation-plan.md`.
@@ -106,8 +106,11 @@ npm run dev
 ```
 
 Open [http://localhost:5173](http://localhost:5173). You should see the CareerPilot dashboard:
-candidate profile, preferences, job source registry, discovery status, and the job list. If you
-ran the seed script above, click **"Run discovery now"** to pull real jobs from those boards.
+candidate profile, preferences, resume and knowledge-base review, writing style, job sources,
+discovery status, and the job list. After discovery, **Prepare application** on a job card
+builds a tailored resume and draft answers for review. CareerPilot does not submit
+applications. If you ran the seed script above, click **"Run discovery now"** to pull real
+jobs from those boards.
 
 ## 4. Running the tests
 
@@ -150,7 +153,8 @@ docker-compose.yml, backend/Dockerfile, frontend/Dockerfile   (untested, see abo
 
 ## Current status
 
-Phase 1 plus resume parsing (2.1) and the canonical knowledge base / answer library (2.2) are
-implemented. See `docs/implementation-plan.md` for the increment checklist. Form automation and
-autonomous submission are not built. Optional AI drafts require `AI_ENABLED=true` and
+Phase 1 plus resume parsing (2.1), the canonical knowledge base / answer library (2.2),
+personalized writing style (2.2.1), and job-specific application preparation (2.3) are
+implemented. See `docs/implementation-plan.md` for the increment checklist. Form automation
+and autonomous submission are not built. Optional AI drafts require `AI_ENABLED=true` and
 `GEMINI_API_KEY` in `backend/.env` (never committed; never sent to the frontend).

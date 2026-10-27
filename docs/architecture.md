@@ -127,7 +127,7 @@ careerpilot/
 | 4 | Job Deduplication | **Implemented.** Canonical URL normalization + content hash + per-source external ID uniqueness. |
 | 5 | Eligibility Checking | **Implemented**, rule-based only (work authorization / sponsorship / grad-date window / location). As of Phase 2, deliberately scoped to *hard application requirements only* — see §6a for why this is a separate concept from Relevance. |
 | 6 | Explainable Match Scoring | **Implemented**, rule-based with a reasons breakdown returned to the UI; a `Relevance.NOT_RELEVANT` verdict caps the score (see §6a) so an out-of-scope role can never show a coincidentally high number. |
-| 7 | Resume Tailoring & Versioning | **Partial (Phase 2.1).** Upload, deterministic PDF/DOCX text extraction, and section parsing into verified `candidate_facts` are implemented — see §6b. Job-specific tailoring, diffing, versioning, and ATS export are later milestones (2.3/2.4), not built. |
+| 7 | Resume Tailoring & Versioning | **Implemented for Phase 2.3.** Job-specific application preparations snapshot a posting, match verified qualifications, reorder facts into an ATS-friendly tailored resume (PDF/DOCX), and keep the original file untouched. Original visual design is not reproduced. |
 | 8 | AI Provider Management | **Partial (Phase 2.2).** Common `AnswerProvider` interface, Gemini adapter (httpx), mock for tests. Disabled unless `AI_ENABLED` and a key are set. Status endpoint never returns the key. Resume parsing still has zero AI calls. |
 | 9 | Application Answer Library | **Implemented (Phase 2.2 / 2.2.1).** Manual and AI-draft answers, writing-style profile, approved writing samples as untrusted style references, grounded generation, and rewrite-without-overwrite. No form filling or submission. |
 | 10 | Form Automation Adapters | Not built. |
@@ -255,6 +255,23 @@ preference was 51. Two separate problems, both now fixed:
 - Resume/fact data is strictly additive: no code in this module writes to the `candidates` table.
   Verified profile fields (graduation date, work authorization, etc.) are untouched by uploads.
 
+### 6c. Application preparation (Phase 2.3)
+
+`POST /api/preparations` creates or returns the open preparation for a
+discovered job. The listing title, employer, description, apply URL, and
+content hash are snapshotted so later board edits cannot change the
+inputs. Analysis is deterministic: items are `stated` or `inferred`.
+Qualification matching uses only verified/edited canonical facts and
+explicit profile fields. Resume tailoring reorders those facts and
+exports ATS-friendly DOCX/PDF; the original resume bytes are never
+written. The original visual design is not reproduced, and that
+limitation is stored on the row. Job-specific answers live on the
+preparation: approved library answers may be reused or adapted, new
+drafts do not write library rows, and sensitive questions stay empty for
+review. States (`preparing`, `needs_review`, `ready`, `failed`,
+`cancelled`) are preparation progress only. There is no submit endpoint
+and no form-automation adapter.
+
 ## 7. Error handling, timeouts, retries, rate limits
 
 - All outbound HTTP calls use a shared `httpx.Client`/`AsyncClient` wrapper
@@ -324,13 +341,14 @@ These are listed so that Phase 1 code does not have to be reworked later:
   development to validate adapters against reality, but these are not part of the default test
   suite (so CI stays deterministic) and are explicitly noted when run.
 
-## 11. Future: AI Application Agent (requirements only — **not implemented in this iteration**)
+## 11. Future: AI Application Agent (form automation and submission)
 
-This section documents target requirements for modules 7–13 (Resume Tailoring, AI Provider
-Management, Application Answer Library, Form Automation Adapters, Submission Authorization
-Policy Engine, Application Queue & State Machine, Application Tracker) in more concrete detail
-than §5's module map, so future implementation work has a clear spec to build against. **No code
-for any of the following exists yet; this is documentation only**, per explicit instruction.
+Phase 2.3 implemented offline application preparation: JD analysis,
+qualification matching, tailored resume export, and job-specific draft
+answers for review. The following remains unimplemented: opening
+employer forms, uploading a tailored resume to those forms, filling
+fields, and any submission. This section is the spec for that later
+work.
 
 The agent's responsibilities, once built, will be:
 
@@ -375,6 +393,6 @@ The agent's responsibilities, once built, will be:
     switch" already reserved in §8) must be able to halt all in-flight and future autonomous
     submissions immediately.
 
-None of the above has any corresponding code path today — there is no form automation, no AI
-provider integration, and no submission logic anywhere in the Phase 1/2 codebase, so none of
-these risks are reachable by construction, not merely by configuration.
+Form automation, CAPTCHA/MFA handling, and application submission have
+no code path in this repo. Preparation materials cannot be submitted
+from the dashboard or the API.

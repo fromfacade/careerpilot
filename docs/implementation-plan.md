@@ -674,3 +674,19 @@ Reuse approved library answers, generate other drafts without writing to
 the library, and leave sensitive questions empty for review.
 
 Status: **milestone 2.3 increment 5 complete.**
+
+### 9.6 Increment 6 — preparation dashboard
+
+Prepare application on each job card. A dashboard panel shows analysis,
+matches, tailored resume, answers, downloads, and approval. No submit
+control exists.
+
+Status: **milestone 2.3 increment 6 complete.**
+
+### 9.7 Increment 7 — docs wrap-up
+
+Architecture, data model, and this plan record 2.3. Form automation and
+submission remain out of scope.
+
+Status: **milestone 2.3 complete on `feature/application-preparation`.**
+Not merged to `main`.
