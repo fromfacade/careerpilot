@@ -97,3 +97,35 @@ def test_structured_entry_renders_work_and_project_fields():
     assert project[0] == "Alpha Queue"
     assert "Technologies: FastAPI, Redis" in project
     assert "• Queued jobs." in project
+
+
+def test_pdf_export_keeps_extractable_text_on_long_resume(tmp_path: Path):
+    bullets = [f"Delivered feature number {index} for the campus platform." for index in range(1, 40)]
+    document = {
+        "header": {"full_name": "Alex Rivera", "email": "alex.rivera@example.com", "location": "Santa Cruz, CA"},
+        "education": [{"title": "UCSC", "detail": {"institution": "UC Santa Cruz", "degree": "B.S. Computer Science"}}],
+        "work_experience": [
+            {
+                "title": "Intern",
+                "detail": {"employer": "Northwind Labs", "position": "Software Intern", "bullets": bullets[:12]},
+            }
+        ],
+        "projects": [
+            {
+                "title": "TaskFlow",
+                "detail": {"name": "TaskFlow", "technologies": ["FastAPI", "PostgreSQL"], "bullets": bullets[12:24]},
+            }
+        ],
+        "skills": [{"title": "Languages", "detail": {"items": ["Python", "TypeScript"]}}],
+        "achievements": [],
+    }
+    pdf_path = export_pdf(document, tmp_path / "long.pdf")
+    pdf_text = "\n".join(page.extract_text() or "" for page in PdfReader(str(pdf_path)).pages)
+    assert "Alex Rivera" in pdf_text
+    assert "Education" in pdf_text
+    assert "TaskFlow" in pdf_text
+    assert "Delivered feature number 1" in pdf_text
+    assert "Delivered feature number 24" in pdf_text
+    assert "{" not in pdf_text
+    pages = PdfReader(str(pdf_path)).pages
+    assert all((page.extract_text() or "").strip() for page in pages)
