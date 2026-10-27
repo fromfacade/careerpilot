@@ -82,8 +82,9 @@ def test_prepare_snapshots_job_and_is_idempotent(client, db_session):
     assert "submit" not in body
     assert body["analysis"]["technologies"]
     assert "matched" in body["match_report"]
-    assert "header" in body["tailored_resume"]
-    assert body["design_limitation"]
+    assert body["has_tailored_resume"] is False
+    assert body["resume_selection_source"] == "none"
+    assert "approved" in body["resume_selection_reason"].lower()
 
     job.title = "Changed After Snapshot"
     job.description_text = "This later edit must not appear in the snapshot."
@@ -154,7 +155,7 @@ def test_prepare_survives_ai_failure(client, db_session, monkeypatch):
     created = client.post("/api/preparations", json={"job_id": job.id})
     assert created.status_code == 201
     assert created.json()["analysis"]["summary"]
-    assert created.json()["tailored_resume"]["header"]
+    assert created.json()["has_tailored_resume"] is False
     assert created.json()["answers"]
     assert all(
         "500" in " ".join(item["missing_information"])
@@ -247,6 +248,50 @@ def test_unknown_skill_answer_needs_user_input_and_blocks_ready(client, db_sessi
     )
     assert edited.status_code == 200
     assert edited.json()["state"] != "ready"
+
+
+def test_prepares_with_selected_resume_and_optional_tailor(client, db_session, tmp_path, monkeypatch):
+    from app.core.config import get_settings
+
+    overridden = get_settings().model_copy(update={"resume_storage_dir": str(tmp_path / "resumes")})
+    monkeypatch.setattr("app.api.resumes.get_settings", lambda: overridden)
+    _candidate(client)
+    from tests.integration.test_resumes_api import _SAMPLE_RESUME_TEXT, _build_minimal_pdf
+
+    uploaded = client.post(
+        "/api/resumes",
+        files={"file": ("backend.pdf", _build_minimal_pdf(_SAMPLE_RESUME_TEXT), "application/pdf")},
+    )
+    assert uploaded.status_code == 201
+    resume_id = uploaded.json()["resume"]["id"]
+    client.patch(
+        f"/api/resumes/{resume_id}",
+        json={"profile_name": "Backend SWE Resume", "category": "backend", "is_approved": True, "focus_areas": ["FastAPI"]},
+    )
+    job = _job(db_session)
+    created = client.post("/api/preparations", json={"job_id": job.id})
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["source_resume_id"] == resume_id
+    assert body["selected_resume_name"] == "Backend SWE Resume"
+    assert body["has_tailored_resume"] is False
+    assert body["resume_selection_source"] in {"automatic", "fallback_default"}
+    assert "Backend SWE Resume" in body["resume_selection_reason"] or body["resume_selection_reason"]
+
+    selected_id = body["source_resume_id"]
+    regenerated = client.post(f"/api/preparations/{body['id']}/regenerate")
+    assert regenerated.status_code == 200
+    assert regenerated.json()["source_resume_id"] == selected_id
+
+    tailored = client.post(f"/api/preparations/{body['id']}/tailor")
+    assert tailored.status_code == 200, tailored.text
+    assert tailored.json()["has_tailored_resume"] is True
+    assert tailored.json()["source_resume_id"] == selected_id
+    assert tailored.json()["tailored_resume"]["header"]
+
+    reverted = client.post(f"/api/preparations/{body['id']}/tailor/revert")
+    assert reverted.json()["has_tailored_resume"] is False
+    assert reverted.json()["source_resume_id"] == selected_id
 
 
 def test_missing_job_or_empty_description_is_rejected(client, db_session):

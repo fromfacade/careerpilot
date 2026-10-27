@@ -27,6 +27,7 @@ from app.models.enums import (
     PreparationAnswerOrigin,
     PreparationItemStatus,
     PreparationState,
+    ResumeSelectionSource,
 )
 from app.models.job import Job
 from app.models.job_source import JobSource
@@ -43,6 +44,7 @@ from app.services.generation_service import (
 )
 from app.services.job_analysis import analyze_job_description, employer_context, match_qualifications
 from app.services.resume_export import export_docx, export_pdf
+from app.services.resume_selection import select_resume
 from app.services.resume_tailor import tailor_resume
 from app.services.writing_style_service import format_profile_guidance
 
@@ -121,11 +123,10 @@ def create_or_get_preparation(db: Session, candidate: Candidate, job_id: int) ->
     if not (job.description_text or "").strip():
         raise ValidationError("This job has no description to prepare from.")
     employer = job.job_source.employer.name if job.job_source and job.job_source.employer else "Unknown employer"
-    resume = _primary_resume(db, candidate)
     row = ApplicationPreparation(
         candidate_id=candidate.id,
         job_id=job.id,
-        source_resume_id=resume.id if resume else None,
+        source_resume_id=None,
         state=PreparationState.PREPARING,
         snapshot_job_title=job.title,
         snapshot_employer=employer,
@@ -169,14 +170,80 @@ def analyze_preparation(db: Session, candidate: Candidate, preparation_id: int) 
     row.match_report = match_qualifications(row.analysis, facts, candidate)
     if not row.snapshot_description.strip():
         return mark_failed(db, row, "This job has no description to analyze.")
-    row.tailored_resume = tailor_resume(candidate, facts, row.analysis)
-    _export_tailored_files(row)
+    if row.source_resume_id is None:
+        _assign_automatic_resume(db, candidate, row)
     fill_preparation_answers(db, candidate, row)
     row.state = PreparationState.NEEDS_REVIEW
-    if not row.error_message.startswith("Tailored resume files"):
+    if row.resume_selection_source is ResumeSelectionSource.NONE:
+        row.error_message = row.resume_selection_reason
+    elif not row.error_message.startswith("Tailored resume files"):
         row.error_message = ""
     db.commit()
     db.refresh(row)
+    return get_preparation_or_404(db, candidate, row.id)
+
+
+def _facts_by_resume(db: Session, candidate: Candidate) -> dict[int, list]:
+    grouped: dict[int, list] = {}
+    for fact in resume_service.list_candidate_facts(db, candidate):
+        if fact.resume_id:
+            grouped.setdefault(fact.resume_id, []).append(fact)
+    return grouped
+
+
+def _assign_automatic_resume(db: Session, candidate: Candidate, row: ApplicationPreparation) -> None:
+    choice = select_resume(
+        analysis=row.analysis or {},
+        title=row.snapshot_job_title,
+        resumes=resume_service.list_resumes(db, candidate),
+        facts_by_resume=_facts_by_resume(db, candidate),
+    )
+    row.source_resume_id = choice.resume.id if choice.resume else None
+    row.resume_selection_reason = choice.reason
+    row.resume_selection_source = choice.source
+
+
+def regenerate_answers(db: Session, candidate: Candidate, preparation_id: int) -> ApplicationPreparation:
+    row = get_preparation_or_404(db, candidate, preparation_id)
+    fill_preparation_answers(db, candidate, row)
+    row.state = PreparationState.NEEDS_REVIEW
+    db.commit()
+    db.refresh(row)
+    return get_preparation_or_404(db, candidate, row.id)
+
+
+def assign_selected_resume(db: Session, candidate: Candidate, preparation_id: int, resume_id: int) -> ApplicationPreparation:
+    row = get_preparation_or_404(db, candidate, preparation_id)
+    resume = resume_service.get_resume_or_404(db, candidate, resume_id)
+    if resume.is_archived or not resume.is_approved:
+        raise ValidationError("Only an approved, active resume profile can be attached to a preparation.")
+    row.source_resume_id = resume.id
+    row.resume_selection_source = ResumeSelectionSource.MANUAL
+    row.resume_selection_reason = f"You selected {resume.profile_name or resume.original_filename}."
+    mark_ready_if_approved(db, row)
+    return get_preparation_or_404(db, candidate, row.id)
+
+
+def tailor_for_job(db: Session, candidate: Candidate, preparation_id: int) -> ApplicationPreparation:
+    row = get_preparation_or_404(db, candidate, preparation_id)
+    facts = _verified_facts(db, candidate)
+    row.tailored_resume = tailor_resume(candidate, facts, row.analysis or {})
+    row.tailored_resume_status = PreparationItemStatus.DRAFT
+    row.design_limitation = DESIGN_LIMITATION
+    _export_tailored_files(row)
+    row.state = PreparationState.NEEDS_REVIEW
+    db.commit()
+    db.refresh(row)
+    return get_preparation_or_404(db, candidate, row.id)
+
+
+def revert_tailoring(db: Session, candidate: Candidate, preparation_id: int) -> ApplicationPreparation:
+    row = get_preparation_or_404(db, candidate, preparation_id)
+    row.tailored_resume = {}
+    row.tailored_resume_status = PreparationItemStatus.DRAFT
+    row.docx_path = None
+    row.pdf_path = None
+    mark_ready_if_approved(db, row)
     return get_preparation_or_404(db, candidate, row.id)
 
 
@@ -408,7 +475,10 @@ def mark_failed(db: Session, row: ApplicationPreparation, message: str) -> Appli
 
 def mark_ready_if_approved(db: Session, row: ApplicationPreparation) -> ApplicationPreparation:
     answers = row.answers
-    resume_ok = row.tailored_resume_status.value == "approved" if row.tailored_resume else False
+    has_tailored = bool((row.tailored_resume or {}).get("header"))
+    resume_ok = row.source_resume_id is not None
+    if has_tailored:
+        resume_ok = resume_ok and row.tailored_resume_status is PreparationItemStatus.APPROVED
     answers_ok = bool(answers) and all(
         item.status is PreparationItemStatus.APPROVED
         and not item.unsupported_claims

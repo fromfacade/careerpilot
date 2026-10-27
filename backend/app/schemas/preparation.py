@@ -11,6 +11,7 @@ from app.models.enums import (
     PreparationAnswerOrigin,
     PreparationItemStatus,
     PreparationState,
+    ResumeSelectionSource,
 )
 
 
@@ -39,6 +40,11 @@ class ApplicationPreparationRead(BaseModel):
     candidate_id: int
     job_id: int | None
     source_resume_id: int | None
+    selected_resume_name: str | None = None
+    selected_resume_category: str | None = None
+    resume_selection_reason: str = ""
+    resume_selection_source: ResumeSelectionSource = ResumeSelectionSource.NONE
+    has_tailored_resume: bool = False
     state: PreparationState
     snapshot_job_title: str
     snapshot_employer: str
@@ -72,6 +78,18 @@ class TailoredResumeUpdate(BaseModel):
     status: PreparationItemStatus | None = None
 
 
-def to_read(row) -> ApplicationPreparationRead:
+class PreparationResumeSelect(BaseModel):
+    resume_id: int
+
+
+def to_read(row, selected_resume=None) -> ApplicationPreparationRead:
     data = ApplicationPreparationRead.model_validate(row)
-    return data.model_copy(update={"has_docx": bool(row.docx_path), "has_pdf": bool(row.pdf_path)})
+    return data.model_copy(
+        update={
+            "has_docx": bool(row.docx_path),
+            "has_pdf": bool(row.pdf_path),
+            "has_tailored_resume": bool((row.tailored_resume or {}).get("header")),
+            "selected_resume_name": getattr(selected_resume, "profile_name", None) or getattr(selected_resume, "original_filename", None),
+            "selected_resume_category": selected_resume.category.value if selected_resume is not None else None,
+        }
+    )
