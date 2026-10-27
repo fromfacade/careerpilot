@@ -358,6 +358,29 @@ Work authorization, sponsorship, and graduation date stay on `candidates`
 for later linking of those fields into the knowledge base; this migration does
 not move them.
 
+## 2c. Phase 2.2.1 tables — writing style
+
+Stylistic preferences and samples are independent of qualifications. Samples
+are never treated as verified facts.
+
+Migration: `alembic/versions/c3d4e5f6a7b8_add_writing_style_profile.py`.
+
+### 2c.1 `writing_style_profiles`
+
+One row per candidate. Created with editable defaults on first read.
+
+| Column | Type | Notes |
+|---|---|---|
+| `candidate_id` | `BIGINT` UNIQUE FK → `candidates.id` ON DELETE CASCADE | |
+| `tone` | `writing_tone_enum` | default `professional_conversational` |
+| `formality` | `writing_formality_enum` | default `medium` |
+| `preferred_length` | `writing_length_enum` | default `short_medium` |
+| `sentence_complexity` | `writing_complexity_enum` | default `moderate` |
+| `technical_detail` | `writing_technical_detail_enum` | default `specific` |
+| `vocabulary` | `writing_vocabulary_enum` | default `straightforward` |
+| `phrases_to_avoid` | `JSONB` | list of strings |
+| `additional_instructions` | `TEXT` | free-form, editable |
+
 ## 3. Enum reference
 
 | Enum | Values |

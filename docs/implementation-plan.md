@@ -519,3 +519,42 @@ knowledge base, answer library, and optional Gemini drafts. Form automation and 
 remain explicitly out of scope.
 
 Status: **milestone 2.2 complete on `feature/candidate-knowledge-base`.** Not merged to `main`.
+
+## 8. Phase 2 milestone 2.2.1 — personalized writing style
+
+Scope: a persistent writing-style profile, approved writing samples stored
+separately from qualifications, style-aware grounded generation, and a rewrite
+path that never overwrites an approved answer. **Not** in scope: form
+automation, submission, or treating samples as verified facts.
+
+Working branch: `feature/personalized-writing-style`. Branched from
+`feature/candidate-knowledge-base` (`49f9260`), not local `main` (`1fd6cce`),
+because 2.2 (canonical facts, answer library, Gemini) is not on `main` yet.
+
+Decisions:
+
+- One `writing_style_profiles` row per candidate, lazy-created with the
+  candidate's stated defaults (professional-conversational, short-to-medium,
+  specific technical detail, straightforward vocabulary, buzzword avoid-list).
+- Writing samples are a separate table. They are never auto-classified as
+  authentic user writing. Adopting a revised answer as a sample is explicit.
+- Samples are untrusted prompt data: delimited, never allowed to override
+  factual-grounding or safety rules.
+- Rewrites create a new draft linked to the original. Approved answers are
+  not overwritten.
+
+Increments:
+
+1. Writing style profile models + API.
+2. Writing samples models + API.
+3. Style-aware generation (profile + approved samples only).
+4. Rewrite existing drafts with unsupported-claim flags.
+5. Dashboard Writing Style section and compare/rewrite UI.
+6. Docs wrap-up and full suites.
+
+### 8.1 Increment 1 — writing style profile
+
+`writing_style_profiles` plus `GET`/`PUT /api/candidate/writing-style`.
+Missing profiles are created with editable defaults.
+
+Status: **milestone 2.2.1 increment 1 complete.**
