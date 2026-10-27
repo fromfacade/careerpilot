@@ -68,22 +68,109 @@ def tailor_resume(candidate: Candidate, facts: list[CanonicalFact], analysis: di
     }
 
 
+_SKIP_DETAIL_KEYS = {
+    "review_reasons",
+    "ambiguous_fields",
+    "needs_review",
+    "unclassified_text",
+    "source",
+    "fact_id",
+}
+_SECTION_FIELDS = {
+    "education": ("institution", "degree", "major", "location", "dates_text", "gpa", "coursework"),
+    "work_experience": ("employer", "position", "location", "dates_text"),
+    "projects": ("name", "tagline", "technologies", "dates_text"),
+    "skills": ("items",),
+    "achievements": ("text", "organization"),
+}
+_FIELD_LABELS = {
+    "institution": "School",
+    "degree": "Degree",
+    "major": "Major",
+    "location": "Location",
+    "dates_text": "Dates",
+    "gpa": "GPA",
+    "coursework": "Coursework",
+    "employer": "Employer",
+    "position": "Position",
+    "name": "Project",
+    "tagline": "Subtitle",
+    "technologies": "Technologies",
+    "items": "Skills",
+    "text": "Achievement",
+    "organization": "Organization",
+}
+
+
+def _as_text_list(value) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def structured_entry_lines(row: dict, section: str) -> list[str]:
+    """Readable lines for one resume entry. Never emits serialized JSON."""
+    detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
+    title = (row.get("title") or "").strip()
+    lines: list[str] = []
+    heading_parts = []
+    if section == "work_experience":
+        heading_parts = [detail.get("position"), detail.get("employer")]
+    elif section == "projects":
+        heading_parts = [detail.get("name") or title]
+    elif section == "education":
+        heading_parts = [detail.get("institution") or title]
+    if any(heading_parts):
+        lines.append(" — ".join(part for part in heading_parts if part))
+    elif title:
+        lines.append(title)
+    for key in _SECTION_FIELDS.get(section, ()):
+        if key in {"name", "institution", "position", "employer"}:
+            continue
+        values = _as_text_list(detail.get(key))
+        if not values:
+            continue
+        label = _FIELD_LABELS.get(key, key.replace("_", " ").title())
+        if key in {"technologies", "items"}:
+            lines.append(f"{label}: {', '.join(values)}")
+        else:
+            for value in values:
+                lines.append(f"{label}: {value}" if key != "text" else value)
+    for bullet in _as_text_list(detail.get("bullets")):
+        lines.append(f"• {bullet}")
+    if not lines and title:
+        lines.append(title)
+    unused = [
+        key
+        for key, value in detail.items()
+        if key not in _SKIP_DETAIL_KEYS
+        and key not in _SECTION_FIELDS.get(section, ())
+        and key != "bullets"
+        and _as_text_list(value)
+    ]
+    for key in unused:
+        label = _FIELD_LABELS.get(key, key.replace("_", " ").title())
+        values = _as_text_list(detail[key])
+        if key in {"technologies", "items"}:
+            lines.append(f"{label}: {', '.join(values)}")
+        else:
+            lines.extend(values)
+    return [line for line in lines if line and not line.startswith("{")]
+
+
 def flatten_tailored_lines(document: dict) -> list[str]:
-    lines = [document.get("header", {}).get("full_name") or ""]
+    header = document.get("header") or {}
+    lines = [header.get("full_name") or ""]
+    contact = " · ".join(part for part in (header.get("email"), header.get("phone"), header.get("location")) if part)
+    if contact:
+        lines.append(contact)
     for section in ("education", "work_experience", "projects", "skills", "achievements"):
         rows = document.get(section) or []
         if not rows:
             continue
         lines.append(section.replace("_", " ").title())
         for row in rows:
-            lines.append(row.get("title") or "")
-            detail = row.get("detail") or {}
-            if isinstance(detail, dict):
-                for value in detail.values():
-                    if isinstance(value, list):
-                        lines.extend(str(item) for item in value)
-                    elif value:
-                        lines.append(str(value))
-            else:
-                lines.append(str(detail))
+            lines.extend(structured_entry_lines(row, section))
     return [line for line in lines if line]

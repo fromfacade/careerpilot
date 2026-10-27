@@ -487,6 +487,8 @@ export interface ApplicationPreparation {
     location?: { text: string; evidence?: string }[];
     employment_type?: { text: string; evidence?: string }[];
     responsibilities?: { text: string; evidence?: string }[];
+    company?: { text: string; evidence?: string }[];
+    benefits?: { text: string; evidence?: string }[];
   };
   match_report: {
     matched?: { text: string; group: string; evidence?: string }[];

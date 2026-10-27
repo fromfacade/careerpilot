@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { api } from '../api/client'
 import type { ApplicationPreparation, PreparationAnswer } from '../api/types'
 import { useFetch } from '../hooks/useFetch'
+import { resumeBullets, resumeHeading, resumeMeta } from '../preparation/resumePreview'
 import { Badge } from './Badge'
 import { EmptyBlock, ErrorBlock, LoadingBlock } from './StatusViews'
 
@@ -9,12 +10,36 @@ function items(value: unknown): { text: string; reason?: string }[] {
   return Array.isArray(value) ? (value as { text: string; reason?: string }[]) : []
 }
 
+function ResumeFields({ section, detail }: { section: string; detail: Record<string, unknown> }) {
+  const meta = resumeMeta(section, detail)
+  const bullets = resumeBullets(detail)
+  return (
+    <div className="mt-1 space-y-1 text-sm text-slate-700">
+      {meta.map((row) => (
+        <p key={row.label}>
+          <span className="font-medium text-slate-500">{row.label}: </span>
+          {row.value}
+        </p>
+      ))}
+      {bullets.length > 0 && (
+        <ul className="list-disc space-y-0.5 pl-5">
+          {bullets.map((bullet) => (
+            <li key={bullet}>{bullet}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function FactList({
   title,
+  section,
   rows,
   onTitleChange,
 }: {
   title: string
+  section: string
   rows?: { title: string; detail: unknown }[]
   onTitleChange?: (index: number, title: string) => void
 }) {
@@ -23,20 +48,25 @@ function FactList({
     <div>
       <h4 className="text-sm font-semibold text-slate-800">{title}</h4>
       <ul className="mt-1 space-y-2 text-sm text-slate-700">
-        {rows.map((row, index) => (
-          <li key={`${title}-${index}`}>
-            {onTitleChange ? (
-              <input
-                value={row.title}
-                onChange={(event) => onTitleChange(index, event.target.value)}
-                className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm font-medium"
-              />
-            ) : (
-              <span className="font-medium">{row.title}</span>
-            )}
-            {row.detail ? <span className="mt-1 block text-xs text-slate-600">{JSON.stringify(row.detail)}</span> : null}
-          </li>
-        ))}
+        {rows.map((row, index) => {
+          const detail = typeof row.detail === 'object' && row.detail ? (row.detail as Record<string, unknown>) : {}
+          const heading = resumeHeading(section, row.title, detail)
+          return (
+            <li key={`${title}-${index}`}>
+              {onTitleChange ? (
+                <input
+                  value={row.title}
+                  onChange={(event) => onTitleChange(index, event.target.value)}
+                  className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm font-medium"
+                  aria-label={`${title} heading`}
+                />
+              ) : (
+                <span className="font-medium">{heading}</span>
+              )}
+              <ResumeFields section={section} detail={detail} />
+            </li>
+          )
+        })}
       </ul>
     </div>
   )
@@ -158,7 +188,7 @@ function PreparationDetail({
       <div className="grid gap-3 sm:grid-cols-3">
         <MatchColumn title="Matched" rows={matched} tone="green" />
         <MatchColumn title="Missing" rows={missing} tone="red" />
-        <MatchColumn title="Uncertain" rows={uncertain} tone="amber" />
+        <MatchColumn title="Unknown" rows={uncertain} tone="amber" />
       </div>
       <div className="rounded-md border border-slate-200 p-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -251,10 +281,10 @@ function TailoredResumeEditor({
 
   return (
     <div className="mt-2 space-y-2">
-      <FactList title="Education" rows={draft.education} onTitleChange={(index, title) => updateTitle('education', index, title)} />
-      <FactList title="Work" rows={draft.work_experience} onTitleChange={(index, title) => updateTitle('work_experience', index, title)} />
-      <FactList title="Projects" rows={draft.projects} onTitleChange={(index, title) => updateTitle('projects', index, title)} />
-      <FactList title="Skills" rows={draft.skills} onTitleChange={(index, title) => updateTitle('skills', index, title)} />
+      <FactList title="Education" section="education" rows={draft.education} onTitleChange={(index, title) => updateTitle('education', index, title)} />
+      <FactList title="Work" section="work_experience" rows={draft.work_experience} onTitleChange={(index, title) => updateTitle('work_experience', index, title)} />
+      <FactList title="Projects" section="projects" rows={draft.projects} onTitleChange={(index, title) => updateTitle('projects', index, title)} />
+      <FactList title="Skills" section="skills" rows={draft.skills} onTitleChange={(index, title) => updateTitle('skills', index, title)} />
       <button
         type="button"
         disabled={busy}
@@ -328,7 +358,12 @@ function AnswerCard({
         <button type="button" disabled={busy} onClick={() => run(() => api.updatePreparationAnswer(prepId, answer.id, { answer_text: text }))} className="rounded-md border border-slate-300 px-2 py-1 text-xs">
           Save edit
         </button>
-        <button type="button" disabled={busy} onClick={() => run(() => api.updatePreparationAnswer(prepId, answer.id, { status: 'approved', answer_text: text }))} className="rounded-md border border-green-300 px-2 py-1 text-xs text-green-700">
+        <button
+          type="button"
+          disabled={busy || Boolean(answer.missing_information.length && !text.trim())}
+          onClick={() => run(() => api.updatePreparationAnswer(prepId, answer.id, { status: 'approved', answer_text: text }))}
+          className="rounded-md border border-green-300 px-2 py-1 text-xs text-green-700 disabled:opacity-50"
+        >
           Approve
         </button>
         <button type="button" disabled={busy} onClick={() => run(() => api.updatePreparationAnswer(prepId, answer.id, { status: 'rejected' }))} className="rounded-md border border-red-300 px-2 py-1 text-xs text-red-700">

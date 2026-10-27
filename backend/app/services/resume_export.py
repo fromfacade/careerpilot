@@ -7,7 +7,7 @@ from pathlib import Path
 from docx import Document
 from fpdf import FPDF
 
-from app.services.resume_tailor import flatten_tailored_lines
+from app.services.resume_tailor import flatten_tailored_lines, structured_entry_lines
 
 
 def export_docx(document: dict, destination: Path) -> Path:
@@ -25,17 +25,17 @@ def export_docx(document: dict, destination: Path) -> Path:
             continue
         doc.add_heading(section.replace("_", " ").title(), level=1)
         for row in rows:
-            para = doc.add_paragraph()
-            run = para.add_run(row.get("title") or "")
+            lines = structured_entry_lines(row, section)
+            if not lines:
+                continue
+            heading = doc.add_paragraph()
+            run = heading.add_run(lines[0])
             run.bold = True
-            detail = row.get("detail") or {}
-            if isinstance(detail, dict):
-                for value in detail.values():
-                    if isinstance(value, list):
-                        for item in value:
-                            doc.add_paragraph(str(item), style="List Bullet")
-                    elif value:
-                        doc.add_paragraph(str(value))
+            for line in lines[1:]:
+                if line.startswith("• "):
+                    doc.add_paragraph(line[2:], style="List Bullet")
+                else:
+                    doc.add_paragraph(line)
     doc.save(destination)
     return destination
 

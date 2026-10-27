@@ -2,7 +2,7 @@ from pathlib import Path
 
 from app.models.enums import FactType
 from app.services.resume_export import export_docx, export_pdf
-from app.services.resume_tailor import flatten_tailored_lines, tailor_resume
+from app.services.resume_tailor import flatten_tailored_lines, structured_entry_lines, tailor_resume
 from pypdf import PdfReader
 from docx import Document
 
@@ -61,3 +61,39 @@ def test_export_preserves_text_order(tmp_path: Path):
         assert text.index("Jane Doe") < text.index("Education") < text.index("UCSC")
         assert text.index("Projects") < text.index("Alpha Queue")
     assert flatten_tailored_lines(document)[0] == "Jane Doe"
+    for text in (docx_text, pdf_text, "\n".join(flatten_tailored_lines(document))):
+        assert "{" not in text
+        assert "Queued jobs." in text
+        assert "'name':" not in text
+
+
+def test_structured_entry_renders_work_and_project_fields():
+    work = structured_entry_lines(
+        {
+            "title": "Northwind",
+            "detail": {
+                "employer": "Northwind Tutoring",
+                "position": "Office Assistant",
+                "dates_text": "2024 – Present",
+                "bullets": ["Built a tracker.", "Documented workflows."],
+                "review_reasons": ["ignore this"],
+            },
+        },
+        "work_experience",
+    )
+    assert work[0] == "Office Assistant — Northwind Tutoring"
+    assert "Dates: 2024 – Present" in work
+    assert "• Built a tracker." in work
+    assert "review_reasons" not in " ".join(work)
+    assert "{" not in "".join(work)
+
+    project = structured_entry_lines(
+        {
+            "title": "Alpha Queue",
+            "detail": {"name": "Alpha Queue", "technologies": ["FastAPI", "Redis"], "bullets": ["Queued jobs."]},
+        },
+        "projects",
+    )
+    assert project[0] == "Alpha Queue"
+    assert "Technologies: FastAPI, Redis" in project
+    assert "• Queued jobs." in project
