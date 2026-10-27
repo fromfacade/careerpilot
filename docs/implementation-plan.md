@@ -21,11 +21,11 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
   preferences, Greenhouse/Lever/Ashby adapters behind a configurable registry, discovery +
   normalization + dedup, rule-based eligibility/scoring, saved/dismissed states, a dashboard on
   real data, manual trigger + basic scheduling, tests, and Windows setup docs.
-- **Phase 2+ (not started)**: resume tailoring, AI provider management, answer library, form
-  automation, submission authorization engine, application queue/state machine, tracker,
-  analytics/notifications, full audit logging. These are designed for (see `docs/data-model.md`
-  §5 and `docs/architecture.md` §8) but zero code is written for them in Phase 1, and autonomous
-  submission remains impossible because no submission code path exists yet.
+- **Phase 2.1 / 2.2 (implemented)**: deterministic resume parsing, canonical knowledge base,
+  answer library, optional Gemini drafts. See §6–§7.
+- **Phase 2.3+ (not started)**: resume tailoring, form automation, submission authorization,
+  application queue/state machine, tracker, analytics/notifications, full audit logging.
+  Autonomous submission remains impossible because no submission code path exists.
 
 ## 2. Phase 1 increments (checklist)
 
@@ -511,3 +511,11 @@ required review step for sensitive questions, preferred flag, AI draft when conf
 AI remains off unless `AI_ENABLED` and a key are set.
 
 Status: **milestone 2.2 increment 7 complete.**
+
+### 7.8 Increment 8 — docs wrap-up
+
+Architecture module map, README, and this plan now describe 2.2 as implemented for the
+knowledge base, answer library, and optional Gemini drafts. Form automation and submission
+remain explicitly out of scope.
+
+Status: **milestone 2.2 complete on `feature/candidate-knowledge-base`.** Not merged to `main`.

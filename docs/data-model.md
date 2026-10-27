@@ -408,20 +408,19 @@ etc.), and removes trailing slashes.
 Documented here so existing tables are designed to not conflict with them later — **no migration
 for these exists yet**:
 
-- `canonical_facts` / `canonical_fact_sources` — **implemented** (Phase 2.2 increment 1); see §2b.
-  Import, conflict resolution, and the API arrive in later 2.2 increments.
+- `canonical_facts` / `canonical_fact_sources` — **implemented** (Phase 2.2); see §2b.
 - `candidate_facts` sourced from `manual_entry` — the extracted-fact table still supports this
   (`source` enum); the knowledge-base manual-entry path writes `canonical_facts` with
   `origin=manual_entry` instead.
 - `resume_versions` — job-specific tailored variants of a base `resumes` row, with a diff against
   the original and generated DOCX/PDF file references (module 7, Phase 2 milestones 2.3/2.4).
   `resumes`/`candidate_facts` themselves are now implemented — see §2a.
-- `ai_provider_configs` — provider name, mode (`cloud/local/mock`), model, endpoint, active flag
-  (module 8, remaining Phase 2.2 increments).
-- `application_answers` / `application_answer_facts` — **implemented** (Phase 2.2 increment 4).
+- `ai_provider_configs` — not a table. Phase 2.2 uses env settings (`AI_ENABLED`,
+  `AI_PROVIDER`, `GEMINI_API_KEY`, model/temperature) plus `GET /api/ai/status`.
+- `application_answers` / `application_answer_facts` — **implemented** (Phase 2.2).
   Reusable Q&A, independent of resumes. Equivalent (fingerprint + answer text) is unique.
   At most one preferred answer per question. Sensitive categories cannot skip `reviewed`.
-  AI draft generation is a later 2.2 increment.
+  Grounded AI drafts use verified canonical facts and never persist on provider failure.
 - `applications` — the submission queue/state machine (module 12): `state` enum including
   `blocked_pending_review`, `authorized`, `submitted`, `confirmed`, `failed`, etc.
 - `application_events` — append-only state-transition audit trail for `applications` (module 12/15).
