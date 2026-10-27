@@ -565,3 +565,10 @@ Separate `writing_samples` table with explicit user-written vs adopted
 origins, fingerprint dedupe, length limits, and approve-for-style-reference.
 
 Status: **milestone 2.2.1 increment 2 complete.**
+
+### 8.3 Increment 3 — style-aware generation
+
+Generation loads the writing profile and approved samples only. Samples are
+delimiter-wrapped as untrusted data and cannot override factual grounding.
+
+Status: **milestone 2.2.1 increment 3 complete.**
