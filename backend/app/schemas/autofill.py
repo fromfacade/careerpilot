@@ -10,6 +10,10 @@ class AutofillDetectRequest(BaseModel):
     html: str = Field(default="", max_length=1_000_000)
 
 
+class AutofillPlanRequest(AutofillDetectRequest):
+    preparation_id: int | None = None
+
+
 class DetectedFieldRead(BaseModel):
     field_id: str
     semantic: str
@@ -21,6 +25,7 @@ class DetectedFieldRead(BaseModel):
     element_id: str
     confidence: str
     current_value: str | None = None
+    accept: str = ""
 
 
 class AutofillDetectResult(BaseModel):
@@ -75,6 +80,48 @@ class PlanFieldRead(BaseModel):
     alternatives: list[AlternativeRead]
 
 
+class ResumePlanRead(BaseModel):
+    status: str
+    kind: str
+    preparation_id: int | None = None
+    resume_id: int | None = None
+    display_name: str
+    file_format: str | None = None
+    approved: bool
+    readable: bool
+    compatible: bool
+    eligible_for_attach: bool
+    review_required: bool
+    reason: str
+
+
+class AnswerProposalRead(BaseModel):
+    field_id: str
+    label: str
+    required: bool | None
+    match_kind: str
+    proposed_text: str | None
+    proposed_replacement: str | None
+    existing_value: str | None
+    source: str | None = None
+    source_id: int | None = None
+    approval_status: str | None = None
+    origin: str | None = None
+    eligible_for_fill: bool
+    review_required: bool
+    uncertainty: str | None
+
+
+class AnswerPlanRead(BaseModel):
+    writing_style_profile_id: int | None = None
+    answers_rewritten: bool
+    matched: list[AnswerProposalRead]
+    missing: list[AnswerProposalRead]
+    ambiguous: list[AnswerProposalRead]
+    sensitive: list[AnswerProposalRead]
+    preserved: list[AnswerProposalRead]
+
+
 class AutofillPlanRead(BaseModel):
     url: str
     supported: bool
@@ -87,6 +134,8 @@ class AutofillPlanRead(BaseModel):
     preserve_existing: list[PlanFieldRead]
     warnings: list[str]
     blockers: list[str]
+    resume: ResumePlanRead
+    answers: AnswerPlanRead
 
 
 def to_plan_result(plan) -> AutofillPlanRead:

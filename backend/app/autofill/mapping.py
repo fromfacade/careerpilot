@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass, field
 
 from app.autofill.greenhouse import DetectedField, detect_application
+from app.autofill.materials import AnswerPlan, Materials, ResumePlan, apply_materials, empty_resume
 
 _PERSONAL = frozenset(
     {"first_name", "last_name", "email", "phone", "location", "linkedin", "github", "portfolio"}
@@ -151,9 +152,17 @@ class AutofillPlan:
     preserve_existing: list[PlanField] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     blockers: list[str] = field(default_factory=list)
+    resume: ResumePlan = field(default_factory=lambda: empty_resume("No resume was considered."))
+    answers: AnswerPlan = field(default_factory=AnswerPlan)
 
 
-def plan_autofill(url: str, html: str, facts: list[FactView], profile: ProfileView) -> AutofillPlan:
+def plan_autofill(
+    url: str,
+    html: str,
+    facts: list[FactView],
+    profile: ProfileView,
+    materials: Materials | None = None,
+) -> AutofillPlan:
     detection = detect_application(url, html)
     plan = AutofillPlan(
         url=detection.url,
@@ -163,10 +172,12 @@ def plan_autofill(url: str, html: str, facts: list[FactView], profile: ProfileVi
         blockers=list(detection.blockers),
     )
     if not detection.supported:
+        apply_materials(plan, detection, None)
         return plan
     for detected in detection.fields:
         item = _map_field(detected, facts, profile)
         getattr(plan, _bucket(item)).append(item)
+    apply_materials(plan, detection, materials)
     return plan
 
 

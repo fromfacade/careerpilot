@@ -111,6 +111,7 @@ class DetectedField:
     element_id: str = ""
     confidence: str = "low"
     current_value: str | None = None
+    accept: str = ""
 
 
 @dataclass
@@ -245,6 +246,7 @@ def _to_fields(controls: list[Node], ids: dict[str, Node], root: Node) -> list[D
                 element_id=primary.get("id"),
                 confidence=confidence,
                 current_value=_current_value(members, ids, root),
+                accept=primary.get("accept").strip() if _input_type(primary) == "file" else "",
             )
         )
     return fields

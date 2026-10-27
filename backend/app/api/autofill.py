@@ -12,6 +12,7 @@ from app.schemas.autofill import (
     AutofillDetectRequest,
     AutofillDetectResult,
     AutofillPlanRead,
+    AutofillPlanRequest,
     to_detect_result,
     to_plan_result,
 )
@@ -26,9 +27,11 @@ def detect_application_form(payload: AutofillDetectRequest) -> AutofillDetectRes
 
 
 @router.post("/plan", response_model=AutofillPlanRead)
-def plan_application_form(payload: AutofillDetectRequest, db: Session = Depends(get_db)) -> AutofillPlanRead:
+def plan_application_form(payload: AutofillPlanRequest, db: Session = Depends(get_db)) -> AutofillPlanRead:
     try:
         candidate = candidate_service.get_candidate_or_404(db)
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return to_plan_result(autofill_service.build_plan(db, candidate, payload.url, payload.html))
+    return to_plan_result(
+        autofill_service.build_plan(db, candidate, payload.url, payload.html, payload.preparation_id)
+    )

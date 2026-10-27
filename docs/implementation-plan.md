@@ -766,8 +766,8 @@ constraint, or relevant technology used in a concrete way) over a generic
 architecture sentence. Verified GitHub and portfolio URLs are printed when
 the profile has them and are never invented.
 
-Status: **Phase 2.3 is on `main`.** Phases 2.4.1 and 2.4.2 are complete
-on `feature/greenhouse-autofill`. Increments 2.4.3–2.4.5 are not started.
+Status: **Phase 2.3 is on `main`.** Phases 2.4.1–2.4.3 are complete on
+`feature/greenhouse-autofill`. Increments 2.4.4 and 2.4.5 are not started.
 
 ## 11. Phase 2.4 proposal (superseded by §12)
 
@@ -818,15 +818,16 @@ Tradeoffs accepted:
    canonical facts, then to the single candidate profile when no fact
    claims that field. The result is a review plan. No invented values,
    no silent overwrite, and no browser.
-3. **2.4.3 Resume and approved answers.** Attach the selected approved
-   resume only, and reuse approved answers. Sensitive questions stay
-   unfilled.
+3. **2.4.3 Resume and approved answers.** The plan names the resume
+   already selected on the preparation, and matches approved answers.
+   It does not attach a file, rewrite answers, or open a browser.
 4. **2.4.4 Review workflow.** Show proposed values, exclusions, and
    leftovers. The user submits on Greenhouse.
 5. **2.4.5 Sessions and reliability.** Track preparation state, stop
    immediately, and test recovery with local fixtures.
 
-Status: **2.4.2 implemented.** `POST /api/autofill/plan` returns a
-review plan from verified canonical facts and the candidate profile.
-It does not fill, attach a resume, or submit. Increments 2.4.3–2.4.5
-are not started. Playwright is not installed.
+Status: **2.4.3 implemented.** The plan adds the selected resume and
+approved answers. A local request guard rejects other websites before
+candidate data is loaded. The browser executor refuses to fill or
+attach. Increments 2.4.4 and 2.4.5 are not started. Playwright is not
+installed.
