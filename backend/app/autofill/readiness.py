@@ -7,18 +7,7 @@ every checked requirement was verified. CareerPilot still does not submit.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
-
-_CONFIRMATION = (
-    "thank you for applying",
-    "application has been submitted",
-    "your application has been received",
-    "we have received your application",
-)
-_SCRIPT = re.compile(r"<script\b[^>]*>.*?</script>", re.I | re.S)
-_STYLE = re.compile(r"<style\b[^>]*>.*?</style>", re.I | re.S)
-_TAG = re.compile(r"<[^>]+>")
 
 
 @dataclass(frozen=True)
@@ -94,9 +83,9 @@ class ReadinessResult:
 
 def submission_state(html: str, form_found: bool) -> bool | None:
     """True when the page says the application was received, False when the form is still open."""
-    visible = _STYLE.sub(" ", _SCRIPT.sub(" ", html or ""))
-    text = " ".join(_TAG.sub(" ", visible).casefold().split())
-    if any(phrase in text for phrase in _CONFIRMATION):
+    from app.autofill.confirmation import classify_confirmation
+
+    if classify_confirmation(html) == "received":
         return True
     if form_found:
         return False

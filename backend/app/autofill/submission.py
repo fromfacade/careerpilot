@@ -15,47 +15,14 @@ from datetime import datetime
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
 
 from app.autofill.actions import SubmissionBlocked
+from app.autofill.confirmation import classify_confirmation, outcome_wait_js
 from app.autofill.html_dom import parse_html, text_of, walk
 from app.autofill.urls import same_greenhouse_application
 
 _SUBMIT_LABELS = frozenset({"submit", "submit application", "submit your application"})
-_SUCCESS = (
-    "thank you for applying",
-    "application has been submitted",
-    "your application has been received",
-    "we have received your application",
-    "your application was submitted",
-)
-_FAILURE = (
-    "there was a problem submitting",
-    "could not submit your application",
-    "please fix the errors",
-    "this field is required",
-    "submission failed",
-    "unable to submit",
-)
 _SAFE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 _EMAIL = re.compile(r"\S+@\S+")
-_SCRIPT = re.compile(r"<script\b[^>]*>.*?</script>", re.I | re.S)
-_STYLE = re.compile(r"<style\b[^>]*>.*?</style>", re.I | re.S)
-_TAG = re.compile(r"<[^>]+>")
-_OUTCOME_JS = """() => {
-  const text = (document.body && document.body.innerText || '').toLowerCase();
-  const phrases = [
-    'thank you for applying',
-    'application has been submitted',
-    'your application has been received',
-    'we have received your application',
-    'your application was submitted',
-    'please fix the errors',
-    'this field is required',
-    'submission failed',
-    'unable to submit',
-    'could not submit your application',
-    'there was a problem submitting'
-  ];
-  return phrases.some((phrase) => text.includes(phrase));
-}"""
+_OUTCOME_JS = outcome_wait_js()
 
 
 class SubmissionGate:
@@ -200,19 +167,19 @@ def interpret_submission(html: str, *, clicked: bool, timed_out: bool) -> tuple[
     """Map the page after a click to submitted, submission_failed, or confirmation_unknown."""
     if not clicked:
         return "submission_failed", "The submit control was not used. Nothing was sent."
-    text = _visible(html)
-    if any(phrase in text for phrase in _SUCCESS):
+    kind = classify_confirmation(html)
+    if kind == "received":
         return "submitted", "The employer page confirmed the application was received."
-    if any(phrase in text for phrase in _FAILURE):
+    if kind == "failed":
         return "submission_failed", "The employer page reported a problem and did not confirm receipt. CareerPilot will not retry."
     if timed_out:
         return (
             "confirmation_unknown",
-            "The page did not show whether the application was received. Check the employer page. CareerPilot will not retry.",
+            "The page did not show whether the application was received. Check the employer page and record what you saw. CareerPilot will not retry.",
         )
     return (
         "confirmation_unknown",
-        "The page did not show a success or failure confirmation. Check the employer page. CareerPilot will not retry.",
+        "The page did not show a success or failure confirmation. Check the employer page and record what you saw. CareerPilot will not retry.",
     )
 
 
@@ -236,11 +203,6 @@ def _concealed(node) -> bool:
             return True
         current = current.parent
     return False
-
-
-def _visible(html: str) -> str:
-    text = _TAG.sub(" ", _STYLE.sub(" ", _SCRIPT.sub(" ", html or "")))
-    return " ".join(text.casefold().split())
 
 
 def _public(value: str) -> str:

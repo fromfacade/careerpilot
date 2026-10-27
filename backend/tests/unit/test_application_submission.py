@@ -146,9 +146,24 @@ def test_prepare_blocks_stale_identity_captcha_and_existing_submission():
 
 
 def test_outcome_requires_confirmation_text():
-    assert interpret_submission("<p>Thank you for applying.</p>", clicked=True, timed_out=False)[0] == "submitted"
+    received = [
+        "<p>Thank you for applying.</p>",
+        "<h1>Thanks for applying to Northwind</h1>",
+        "<p>Your application has been successfully submitted.</p>",
+        "<p>We've received your application.</p>",
+        "<p>Your application is complete.</p>",
+        "<p>You've already applied to this job.</p>",
+    ]
+    for html in received:
+        assert interpret_submission(html, clicked=True, timed_out=False)[0] == "submitted"
     assert interpret_submission("<script>thank you for applying</script><p>Loading</p>", clicked=True, timed_out=False)[0] == "confirmation_unknown"
     assert interpret_submission("<p>Please fix the errors below.</p>", clicked=True, timed_out=False)[0] == "submission_failed"
+    assert interpret_submission("<p>There was an error submitting your application.</p>", clicked=True, timed_out=False)[0] == "submission_failed"
+    mixed = "<p>Thank you for applying.</p><p>Please fix the errors below.</p>"
+    assert interpret_submission(mixed, clicked=True, timed_out=False)[0] == "confirmation_unknown"
+    assert interpret_submission("<p>200 OK</p>", clicked=True, timed_out=False)[0] == "confirmation_unknown"
+    redirect = "<meta http-equiv='refresh' content='0;url=/thanks'><p>Redirecting</p>"
+    assert interpret_submission(redirect, clicked=True, timed_out=False)[0] == "confirmation_unknown"
     assert interpret_submission("<p>You are signed in.</p>", clicked=True, timed_out=True)[0] == "confirmation_unknown"
     assert interpret_submission("<p>Still here.</p>", clicked=False, timed_out=False)[0] == "submission_failed"
 

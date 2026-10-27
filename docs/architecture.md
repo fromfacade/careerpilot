@@ -132,8 +132,8 @@ careerpilot/
 | 9 | Application Answer Library | **Implemented (Phase 2.2 / 2.2.1).** Manual and AI-draft answers, writing-style profile, approved writing samples as untrusted style references, grounded generation, and rewrite-without-overwrite. No form filling or submission. |
 | 10 | Form Automation Adapters | **Greenhouse fill, readiness, tracking, and explicit submission (Phase 2.5.3).** A headed Chromium window fills reviewed fields. Submit runs only after a fresh readiness check and a confirmation for that application. Success requires a receipt on the page. |
 | 11 | Submission Authorization Policy Engine | Not built. Autonomous submission stays disabled by construction — there is no submission code path in Phase 1. |
-| 12 | Application Queue & State Machine | **Partial (Phase 2.5.3).** `tracked_applications` moves through an authorized submit. There is no event log. |
-| 13 | Application Tracker | **Partial (Phase 2.5.2).** The preparation list shows the tracked status. Records are one row per job in Postgres. |
+| 12 | Application Queue & State Machine | **Partial (Phase 2.5.4).** `tracked_applications` moves through an authorized submit. `application_events` records each status change. |
+| 13 | Application Tracker | **Partial (Phase 2.5.4).** The preparation detail shows status, confirmation, submission time, history, and a correction when the outcome is unknown. |
 | 14 | Analytics & Notifications | Not built beyond discovery-run status surfaced in the dashboard. |
 | 15 | Privacy, Security & Audit Logging | **Partial.** Structured logging, secrets via env vars/`.env` (gitignored), no PII in logs. Full audit-log table deferred. |
 
@@ -367,7 +367,9 @@ manual. Phase 2.5.2 stores one `tracked_applications` row per job and
 shows its status on the preparation list. Readiness can move that row
 to `needs_review` or `ready_to_submit`. Phase 2.5.3 submits only after
 a separate confirmation for the open session. A button click is stored
-as submitted only when the employer page shows a receipt.
+as submitted only when the employer page shows a receipt. Phase 2.5.4
+keeps an uncertain result unknown until the user records what the
+employer page showed, and that correction is stored in the status history.
 
 The browser is a locally controlled headed Playwright window, with one
 adapter per site. The reason for that choice, and why a browser

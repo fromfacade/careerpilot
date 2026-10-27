@@ -465,6 +465,18 @@ export type ApplicationStatus =
   | 'submission_failed'
   | 'confirmation_unknown';
 
+export type ApplicationEventSource = 'browser' | 'manual';
+
+export interface ApplicationEvent {
+  id: number;
+  application_id: number;
+  previous_status: ApplicationStatus;
+  new_status: ApplicationStatus;
+  reason: string | null;
+  source: ApplicationEventSource;
+  created_at: string;
+}
+
 export interface TrackedApplication {
   id: number;
   candidate_id: number;
@@ -476,8 +488,10 @@ export interface TrackedApplication {
   submitted_at: string | null;
   confirmation: string | null;
   failure_reason: string | null;
+  resubmit_after: string | null;
   created_at: string;
   updated_at: string;
+  events: ApplicationEvent[];
 }
 
 export type PreparationState = 'preparing' | 'needs_review' | 'ready' | 'failed' | 'cancelled';

@@ -10,6 +10,7 @@ import queue
 import secrets
 import threading
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from playwright.sync_api import sync_playwright
 
@@ -50,6 +51,7 @@ class AutofillRun:
     fill_attempted: bool = False
     included_field_ids: set[str] = field(default_factory=set)
     application_status: str = ""
+    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     submit_expires_at: datetime | None = None
     submit_gate: SubmissionGate = field(default_factory=SubmissionGate)
     cancel: threading.Event = field(default_factory=threading.Event)
@@ -344,7 +346,12 @@ def submit_session(session_id: str, *, confirm: bool, preparation_id: int, apply
             if not prepared.ok or prepared.control is None:
                 return "needs_review", prepared.detail, False
             with session_scope() as db:
-                claimed = claim_for_submission(db, candidate_id=run.candidate_id, preparation_id=run.preparation_id)
+                claimed = claim_for_submission(
+                    db,
+                    candidate_id=run.candidate_id,
+                    preparation_id=run.preparation_id,
+                    session_started_at=run.started_at,
+                )
                 claimed_id = claimed.id
             clicked = click_authorized_submit(page, prepared.control, authorized=True)
             if not clicked.clicked:
@@ -407,7 +414,7 @@ def _record_unknown(run: AutofillRun, application_id: int) -> None:
     from app.models.enums import ApplicationStatus
     from app.services.application_tracking import record_submission_outcome
 
-    note = "The browser did not answer in time. Check the employer page. CareerPilot will not retry."
+    note = "The browser did not answer in time. Check the employer page and record what you saw. CareerPilot will not retry."
     with session_scope() as db:
         try:
             record_submission_outcome(

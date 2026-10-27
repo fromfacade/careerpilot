@@ -1,12 +1,16 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApplicationPreparation } from '../api/types'
 import { ApplicationPreparationPanel } from './ApplicationPreparationPanel'
+
+vi.mock('virtual:careerpilot-token', () => ({ default: 'test-token' }))
 
 vi.mock('../api/client', () => ({
   api: {
     listPreparations: vi.fn(),
     listResumes: vi.fn(),
+    getApplication: vi.fn(),
+    resolveApplication: vi.fn(),
     openAutofillSession: vi.fn(),
     fillAutofillSession: vi.fn(),
     cancelAutofillSession: vi.fn(),
@@ -51,5 +55,46 @@ describe('ApplicationPreparationPanel autofill', () => {
     expect(screen.getAllByText('Greenhouse autofill').length).toBeGreaterThan(0)
     expect(screen.getAllByText(/Application status: Needs review/).length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: /submit/i })).not.toBeInTheDocument()
+  })
+
+  it('records a correction only after the user confirms the evidence', async () => {
+    vi.mocked(api.listPreparations).mockResolvedValue([{ ...stripePrep, application_id: 9, application_status: 'confirmation_unknown' }])
+    vi.mocked(api.listResumes).mockResolvedValue([])
+    vi.mocked(api.getApplication).mockResolvedValue({
+      id: 9,
+      status: 'confirmation_unknown',
+      submitted_at: null,
+      confirmation: 'The page did not show a receipt.',
+      failure_reason: 'The page did not show a receipt.',
+      resubmit_after: null,
+      events: [
+        {
+          id: 1,
+          application_id: 9,
+          previous_status: 'submitting',
+          new_status: 'confirmation_unknown',
+          reason: 'The page did not show a receipt.',
+          source: 'browser',
+          created_at: '2026-10-27T20:00:00Z',
+        },
+      ],
+    } as never)
+    vi.mocked(api.resolveApplication).mockResolvedValue({ id: 9, status: 'submitted', events: [] } as never)
+    render(<ApplicationPreparationPanel selectedId={3} onSelected={() => undefined} />)
+    expect(await screen.findByText(/Status history/)).toBeInTheDocument()
+    expect(screen.getByText(/cannot verify whether the employer received/)).toBeInTheDocument()
+    expect(screen.getByText(/Browser/)).toBeInTheDocument()
+    const received = screen.getByRole('button', { name: 'Confirmed received' })
+    expect(received).toBeDisabled()
+    fireEvent.click(received)
+    expect(api.resolveApplication).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByRole('textbox', { name: /What did you see/ }), { target: { value: 'The employer page said the application was received.' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /I confirm this correction for Software Engineer, New Grad at Stripe only/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmed received' }))
+    expect(api.resolveApplication).toHaveBeenCalledWith(9, {
+      confirm: true,
+      received: true,
+      note: 'The employer page said the application was received.',
+    })
   })
 })

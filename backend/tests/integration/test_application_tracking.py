@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import threading
+from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import select
 
 from app.core.config import Settings
 from app.core.exceptions import NotFoundError, ValidationError
-from app.models.application import TrackedApplication
-from app.models.enums import ApplicationStatus, JobProvider
+from app.core.local_auth import load_or_create_token
+from app.models.application import ApplicationEvent, TrackedApplication
+from app.models.enums import ApplicationEventSource, ApplicationStatus, JobProvider
 from app.models.job import Job
 from app.models.job_source import Employer, JobSource
 from app.models.preparation import ApplicationPreparation
+from app.services import application_tracking
 from app.services.application_tracking import (
     apply_readiness,
     claim_for_submission,
@@ -20,6 +24,7 @@ from app.services.application_tracking import (
     ensure_for_preparation,
     get_application_or_404,
     record_submission_outcome,
+    resolve_confirmation,
     transition,
 )
 from app.ai.mock import MockAnswerProvider
@@ -46,8 +51,8 @@ def _candidate(client):
     return resp.json()
 
 
-def _job(db_session, external_id="track-1"):
-    employer = Employer(name="Northwind Tracking")
+def _job(db_session, external_id="track-1", employer_name="Northwind Tracking"):
+    employer = Employer(name=employer_name)
     db_session.add(employer)
     db_session.flush()
     source = JobSource(employer_id=employer.id, provider=JobProvider.GREENHOUSE, board_token=f"track-{external_id}")
@@ -218,6 +223,181 @@ def test_claim_rejects_a_second_submission_and_records_only_real_outcomes(client
     assert saved.status == ApplicationStatus.CONFIRMATION_UNKNOWN
     with pytest.raises(ValidationError, match="unknown"):
         claim_for_submission(db_session, candidate_id=prep["candidate_id"], preparation_id=prep["id"])
+
+
+def _to_unknown(db_session, prep):
+    row = get_application_or_404(db_session, prep["candidate_id"], prep["application_id"])
+    transition(row, ApplicationStatus.READY_TO_SUBMIT)
+    transition(row, ApplicationStatus.SUBMITTING)
+    transition(row, ApplicationStatus.CONFIRMATION_UNKNOWN, confirmation="The page did not show a receipt.")
+    db_session.commit()
+    return row
+
+
+def test_manual_resolution_records_history_and_blocks_a_stale_retry(client, db_session):
+    _candidate_body, _job, prep = _prepare(client, db_session)
+    with pytest.raises(ValidationError, match="uncertain"):
+        resolve_confirmation(
+            db_session,
+            candidate_id=prep["candidate_id"],
+            application_id=prep["application_id"],
+            received=True,
+            confirm=True,
+            note="This application has not been submitted yet.",
+        )
+    unknown = _to_unknown(db_session, prep)
+    headers = {"X-CareerPilot-Token": load_or_create_token()}
+    body = {
+        "confirm": True,
+        "received": False,
+        "note": "The form was still open on the employer page.",
+    }
+    denied = client.post(f"/api/applications/{unknown.id}/resolution", json=body)
+    assert denied.status_code == 401
+    unconfirmed = client.post(
+        f"/api/applications/{unknown.id}/resolution",
+        json={**body, "confirm": False},
+        headers=headers,
+    )
+    assert unconfirmed.status_code == 409
+    short = client.post(
+        f"/api/applications/{unknown.id}/resolution",
+        json={**body, "note": "no"},
+        headers=headers,
+    )
+    assert short.status_code == 409
+    saved = client.post(f"/api/applications/{unknown.id}/resolution", json=body, headers=headers)
+    assert saved.status_code == 200, saved.text
+    payload = saved.json()
+    assert payload["status"] == "submission_failed"
+    assert payload["resubmit_after"] is not None
+    assert "answer" not in payload
+    manual = [item for item in payload["events"] if item["source"] == "manual"]
+    assert manual[-1]["previous_status"] == "confirmation_unknown"
+    assert manual[-1]["new_status"] == "submission_failed"
+    again = client.post(f"/api/applications/{unknown.id}/resolution", json={**body, "received": True}, headers=headers)
+    assert again.status_code == 409
+
+    apply_readiness(
+        db_session,
+        candidate_id=prep["candidate_id"],
+        preparation_id=prep["id"],
+        readiness=_Readiness("ready_to_submit", []),
+    )
+    db_session.expire_all()
+    stored = db_session.get(TrackedApplication, unknown.id)
+    assert stored is not None and stored.resubmit_after is not None
+    stale = stored.resubmit_after
+    with pytest.raises(ValidationError, match="new browser session"):
+        claim_for_submission(
+            db_session,
+            candidate_id=prep["candidate_id"],
+            preparation_id=prep["id"],
+            session_started_at=stale - timedelta(seconds=5),
+        )
+    claimed = claim_for_submission(
+        db_session,
+        candidate_id=prep["candidate_id"],
+        preparation_id=prep["id"],
+        session_started_at=stale + timedelta(seconds=2),
+    )
+    assert claimed.status == ApplicationStatus.SUBMITTING
+
+
+def test_received_correction_is_terminal_and_persists(client, db_session):
+    candidate, _first_job, prep = _prepare(client, db_session)
+    unknown = _to_unknown(db_session, prep)
+    other_job = _job(db_session, "track-other", "Contoso Tracking")
+    other = client.post("/api/preparations", json={"job_id": other_job.id})
+    assert other.status_code == 201
+    resolved = resolve_confirmation(
+        db_session,
+        candidate_id=prep["candidate_id"],
+        application_id=unknown.id,
+        received=True,
+        confirm=True,
+        note="I saw thank you for applying on the employer page, not ada@example.com.",
+    )
+    assert resolved.status == ApplicationStatus.SUBMITTED
+    assert resolved.submitted_at is not None
+    assert "ada@example.com" not in (resolved.confirmation or "")
+    with pytest.raises(ValidationError, match="already submitted"):
+        claim_for_submission(db_session, candidate_id=prep["candidate_id"], preparation_id=prep["id"])
+    with pytest.raises(ValidationError, match="uncertain"):
+        resolve_confirmation(
+            db_session,
+            candidate_id=prep["candidate_id"],
+            application_id=unknown.id,
+            received=False,
+            confirm=True,
+            note="Trying to change a received application.",
+        )
+    db_session.expire_all()
+    stored = db_session.get(TrackedApplication, unknown.id)
+    untouched = db_session.get(TrackedApplication, other.json()["application_id"])
+    events = list(
+        db_session.scalars(select(ApplicationEvent).where(ApplicationEvent.application_id == unknown.id))
+    )
+    assert stored is not None
+    assert stored.status == ApplicationStatus.SUBMITTED
+    assert untouched is not None
+    assert untouched.status == ApplicationStatus.PREPARING
+    assert untouched.candidate_id == candidate["id"]
+    assert events
+    assert any(row.source == ApplicationEventSource.MANUAL for row in events)
+    assert any(row.source == ApplicationEventSource.BROWSER for row in events)
+
+
+def test_concurrent_resolution_allows_one_request(client, db_session):
+    _candidate_body, _job, prep = _prepare(client, db_session)
+    unknown = _to_unknown(db_session, prep)
+    held = threading.Event()
+    release = threading.Event()
+    original = application_tracking.resolution_locks.acquire
+    errors: list[str] = []
+
+    def slow_acquire(application_id: int) -> bool:
+        ok = original(application_id)
+        if not ok:
+            return False
+        held.set()
+        assert release.wait(3)
+        return True
+
+    def second() -> None:
+        assert held.wait(3)
+        try:
+            resolve_confirmation(
+                db_session,
+                candidate_id=prep["candidate_id"],
+                application_id=unknown.id,
+                received=False,
+                confirm=True,
+                note="A second person tried to resolve the same application.",
+            )
+        except ValidationError as exc:
+            errors.append(str(exc))
+        finally:
+            release.set()
+
+    thread = threading.Thread(target=second)
+    thread.start()
+    try:
+        application_tracking.resolution_locks.acquire = slow_acquire
+        resolved = resolve_confirmation(
+            db_session,
+            candidate_id=prep["candidate_id"],
+            application_id=unknown.id,
+            received=True,
+            confirm=True,
+            note="I saw the employer receipt page for this job.",
+        )
+    finally:
+        application_tracking.resolution_locks.acquire = original
+        release.set()
+        thread.join(3)
+    assert resolved.status == ApplicationStatus.SUBMITTED
+    assert errors == ["Another resolution is already in progress for this application."]
 
 
 def test_missing_job_and_preparation(client, db_session):

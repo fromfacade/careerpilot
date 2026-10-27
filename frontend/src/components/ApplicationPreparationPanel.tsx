@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api } from '../api/client'
-import type { ApplicationPreparation, PreparationAnswer } from '../api/types'
+import type { ApplicationPreparation, PreparationAnswer, TrackedApplication } from '../api/types'
+import localToken from 'virtual:careerpilot-token'
 import { useFetch } from '../hooks/useFetch'
 import { resumeBullets, resumeHeading, resumeSubline } from '../preparation/resumePreview'
 import { AutofillReview } from './AutofillReview'
@@ -25,7 +26,7 @@ function applicationNextStep(status: string): string | null {
     return 'The employer did not confirm receipt. Review the message, fix the form, and confirm again only if you still want to send it.'
   }
   if (status === 'confirmation_unknown') {
-    return 'CareerPilot could not tell whether the employer received this application. Check the employer page. CareerPilot will not retry.'
+    return 'CareerPilot cannot verify whether the employer received this application. Check the employer page, then record what you saw. CareerPilot will not retry.'
   }
   if (status === 'submitted') return 'The employer confirmed this application was received.'
   return null
@@ -279,12 +280,7 @@ function PreparationDetail({
         <h3 className="text-base font-semibold text-slate-900">
           {prep.snapshot_job_title} · {prep.snapshot_employer}
         </h3>
-        {applicationStatus && (
-          <div className="mt-1 text-sm text-slate-700">
-            <p>Application status: {applicationLabel(applicationStatus)}.</p>
-            {applicationNextStep(applicationStatus) && <p>{applicationNextStep(applicationStatus)}</p>}
-          </div>
-        )}
+        <ApplicationStatusCard prep={prep} applicationStatus={applicationStatus} onResolved={onApplicationStatus} />
         <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{prep.analysis.summary}</p>
         <div className="mt-3 rounded-md border border-slate-200 p-3">
           <p className="text-sm font-semibold text-slate-900">
@@ -618,5 +614,110 @@ function AnswerCard({
         </button>
       </div>
     </article>
+  )
+}
+
+function ApplicationStatusCard({
+  prep,
+  applicationStatus,
+  onResolved,
+}: {
+  prep: ApplicationPreparation
+  applicationStatus?: string | null
+  onResolved: (status: string) => void
+}) {
+  const [note, setNote] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const record = useFetch(
+    () => (prep.application_id ? api.getApplication(prep.application_id) : Promise.resolve(null)),
+    [prep.application_id, applicationStatus],
+  )
+  if (!applicationStatus && !prep.application_id) return null
+  const tracked: TrackedApplication | null = record.status === 'success' ? record.data : null
+  const status = tracked?.status || applicationStatus
+  if (!status) return null
+  const submittedAt = tracked?.submitted_at ? new Date(tracked.submitted_at).toLocaleString() : null
+  const canResolve = status === 'confirmation_unknown' && Boolean(prep.application_id)
+  const noteReady = note.trim().length >= 8
+  const correctionReady = Boolean(localToken) && confirmed && noteReady && !busy
+
+  async function resolve(received: boolean) {
+    if (!prep.application_id || !correctionReady) return
+    setBusy(true)
+    setError(null)
+    try {
+      const next = await api.resolveApplication(prep.application_id, {
+        confirm: true,
+        received,
+        note: note.trim(),
+      })
+      onResolved(next.status)
+      setConfirmed(false)
+      setNote('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The correction was not saved.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-1 space-y-2 text-sm text-slate-700">
+      <p>Application status: {applicationLabel(status)}.</p>
+      {applicationNextStep(status) && <p>{applicationNextStep(status)}</p>}
+      {submittedAt && <p>Submitted: {submittedAt}.</p>}
+      {tracked?.confirmation && <p>Confirmation: {tracked.confirmation}</p>}
+      {tracked?.failure_reason && tracked.failure_reason !== tracked.confirmation && <p>What happened: {tracked.failure_reason}</p>}
+      {tracked?.resubmit_after && status === 'submission_failed' && (
+        <p>Open a new browser session, let CareerPilot check readiness, and confirm again before sending this application.</p>
+      )}
+      {tracked && (
+        <div>
+          <p className="font-medium text-slate-900">Status history</p>
+          {tracked.events.length === 0 ? (
+            <p className="text-xs text-slate-500">No status changes yet.</p>
+          ) : (
+            <ul className="mt-1 list-disc pl-5 text-xs">
+              {tracked.events.map((event) => (
+                <li key={event.id}>
+                  {new Date(event.created_at).toLocaleString()}: {applicationLabel(event.previous_status)} to {applicationLabel(event.new_status)} ({event.source === 'manual' ? 'Your correction' : 'Browser'}). {event.reason || ''}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {canResolve && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+          <p className="font-medium">CareerPilot cannot verify this outcome.</p>
+          <p className="mt-1">This correction applies only to {prep.snapshot_job_title} at {prep.snapshot_employer}. It does not send the application again.</p>
+          <label className="mt-2 block">
+            What did you see on the employer page?
+            <textarea
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              rows={2}
+              className="mt-1 w-full rounded-md border border-amber-300 px-2 py-1 text-sm text-slate-900"
+            />
+          </label>
+          <label className="mt-2 flex items-start gap-2">
+            <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
+            <span>I confirm this correction for {prep.snapshot_job_title} at {prep.snapshot_employer} only.</span>
+          </label>
+          {!localToken && <p className="mt-2">The local API token is not loaded. Restart the frontend dev server after the API has created it.</p>}
+          {error && <p className="mt-2 text-red-700">{error}</p>}
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" disabled={!correctionReady} onClick={() => resolve(true)} className="rounded-md bg-slate-900 px-2 py-1 font-medium text-white disabled:opacity-50">
+              Confirmed received
+            </button>
+            <button type="button" disabled={!correctionReady} onClick={() => resolve(false)} className="rounded-md border border-amber-800 px-2 py-1 font-medium disabled:opacity-50">
+              Confirmed not received
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

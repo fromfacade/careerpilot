@@ -301,6 +301,12 @@ export const api = {
     request<void>(`/api/candidate/writing-samples/${sampleId}`, { method: 'DELETE' }),
   listApplications: () => request<import('./types').TrackedApplication[]>('/api/applications'),
   getApplication: (id: number) => request<import('./types').TrackedApplication>(`/api/applications/${id}`),
+  resolveApplication: (id: number, data: { confirm: boolean; received: boolean; note: string }) =>
+    request<import('./types').TrackedApplication>(`/api/applications/${id}/resolution`, {
+      method: 'POST',
+      headers: { 'X-CareerPilot-Token': localToken },
+      body: JSON.stringify(data),
+    }),
   listPreparations: () =>
     request<import('./types').ApplicationPreparation[]>('/api/preparations'),
   createPreparation: (jobId: number) =>

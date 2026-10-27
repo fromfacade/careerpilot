@@ -387,6 +387,13 @@ class ApplicationStatus(str, enum.Enum):
     CONFIRMATION_UNKNOWN = "confirmation_unknown"
 
 
+class ApplicationEventSource(str, enum.Enum):
+    """Who recorded a tracked-application status change."""
+
+    BROWSER = "browser"
+    MANUAL = "manual"
+
+
 OPEN_PREPARATION_STATES = frozenset(
     {
         PreparationState.PREPARING,

@@ -29,7 +29,8 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
 - **Phase 2.4 (complete on `feature/greenhouse-autofill`)**: Greenhouse review and headed fill. The browser does not submit.
 - **Phase 2.5.1 (complete on `feature/application-readiness`)**: application readiness. Unknown eligibility is not treated as ready.
 - **Phase 2.5.2 (complete on `feature/application-readiness`)**: persistent application tracking.
-- **Phase 2.5.3 (this increment)**: explicit Greenhouse submission for one confirmed application.
+- **Phase 2.5.3 (complete on `feature/application-readiness`)**: explicit Greenhouse submission for one confirmed application.
+- **Phase 2.5.4 (this increment)**: confirmation phrases, manual resolution, and status history.
 
 ## 2. Phase 1 increments (checklist)
 
@@ -902,6 +903,25 @@ only when the page shows a receipt. A stated employer error is
 `submission_failed`. Anything else, including a redirect or a timeout
 without that text, is `confirmation_unknown` and is not retried.
 
-Status: **2.5.3 implemented.** Confirmation detection is phrase-based.
-Increment 2.5.4 can record richer confirmation details and keep
-duplicate protection in place after the browser session closes.
+Status: **2.5.3 implemented.**
+
+## 16. Phase 2.5.4 — Confirmation, recovery, and duplicates
+
+Receipt detection accepts several Greenhouse confirmation phrases in the
+visible page text. A click, a redirect, an HTTP status, or a page that
+contains both a receipt and an error stays `confirmation_unknown`.
+
+The dashboard can record that the user saw a receipt or saw that the
+application was not received. The correction requires a confirmation and
+a short note, applies to that tracked application only, and does not
+submit again. A received correction is terminal. A not-received correction
+stays blocked until a browser session opened after that correction passes
+readiness and the user confirms submission again.
+
+`application_events` stores each status change: previous status, new
+status, time, a redacted summary, and whether the change came from the
+browser or from that correction. The preparation detail shows the
+current status, submission time, confirmation text, and that history.
+
+Status: **2.5.4 implemented.** Increment 2.5.5 can add the one-button
+dashboard workflow on top of these checks.
