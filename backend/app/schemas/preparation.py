@@ -50,6 +50,8 @@ class ApplicationPreparationRead(BaseModel):
     snapshot_employer: str
     snapshot_description: str
     snapshot_apply_url: str
+    greenhouse_apply_url: str | None = None
+    greenhouse_autofill_note: str = ""
     snapshot_content_hash: str
     analysis: dict
     match_report: dict
@@ -82,7 +84,13 @@ class PreparationResumeSelect(BaseModel):
     resume_id: int
 
 
-def to_read(row, selected_resume=None) -> ApplicationPreparationRead:
+def to_read(
+    row,
+    selected_resume=None,
+    *,
+    greenhouse_apply_url: str | None = None,
+    greenhouse_autofill_note: str = "",
+) -> ApplicationPreparationRead:
     data = ApplicationPreparationRead.model_validate(row)
     return data.model_copy(
         update={
@@ -91,5 +99,7 @@ def to_read(row, selected_resume=None) -> ApplicationPreparationRead:
             "has_tailored_resume": bool((row.tailored_resume or {}).get("header")),
             "selected_resume_name": getattr(selected_resume, "profile_name", None) or getattr(selected_resume, "original_filename", None),
             "selected_resume_category": selected_resume.category.value if selected_resume is not None else None,
+            "greenhouse_apply_url": greenhouse_apply_url,
+            "greenhouse_autofill_note": greenhouse_autofill_note,
         }
     )

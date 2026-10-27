@@ -189,6 +189,9 @@ export function ApplicationPreparationPanel({
                 >
                   <span className="font-medium text-slate-900">{row.snapshot_job_title}</span>
                   <span className="mt-1 block text-xs text-slate-500">{row.snapshot_employer}</span>
+                  {row.greenhouse_apply_url && (
+                    <span className="mt-1 block text-xs font-medium text-blue-700">Greenhouse autofill</span>
+                  )}
                   <Badge tone={row.state === 'ready' ? 'green' : row.state === 'failed' ? 'red' : 'amber'}>
                     {row.state.replace('_', ' ')}
                   </Badge>

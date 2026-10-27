@@ -351,8 +351,10 @@ answers for review. Phase 2.4.1 adds Greenhouse URL classification and form-fiel
 detection. Phase 2.4.2 adds a reviewable contact-mapping plan. Phase
 2.4.3 adds the selected resume and approved answers to that plan.
 Phase 2.4.4 opens one isolated headed Chromium window, fills the fields
-the user approved, and can attach the selected resume. It does not
-submit. Submission remains unimplemented.
+the user approved, and can attach the selected resume. A Greenhouse job
+whose public link is the employer career site still opens the
+allow-listed Greenhouse form identified by that job's board token and
+job id. It does not submit. Submission remains unimplemented.
 
 The browser is a locally controlled headed Playwright window, with one
 adapter per site. The reason for that choice, and why a browser

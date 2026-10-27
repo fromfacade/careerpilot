@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from urllib.parse import urlsplit, parse_qs
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 _GREENHOUSE_HOSTS = frozenset(
     {
@@ -26,6 +26,35 @@ class ApplyUrl:
     reason: str
     board_token: str | None = None
     job_id: str | None = None
+
+
+def greenhouse_application_url(
+    apply_url: str,
+    *,
+    provider: str | None,
+    board_token: str | None,
+    external_id: str | None,
+) -> tuple[str | None, str]:
+    """Return the Greenhouse form URL for a preparation.
+
+    Company career pages such as stripe.com/jobs?gh_jid= are not the form.
+    When the saved job came from a Greenhouse board, the board token and
+    job id still identify the allow-listed application page.
+    """
+    decision = classify_apply_url(apply_url)
+    if decision.supported:
+        return decision.raw, ""
+    if (provider or "").casefold() != "greenhouse":
+        return None, ""
+    board = (board_token or "").strip()
+    job_id = (external_id or "").strip()
+    if not _board(board) or not job_id.isdigit():
+        return None, "This Greenhouse job is missing a board token or job id, so the application form cannot be opened."
+    built = "https://boards.greenhouse.io/embed/job_app?" + urlencode({"for": board, "token": job_id})
+    check = classify_apply_url(built)
+    if not check.supported:
+        return None, check.reason or "This Greenhouse application URL could not be built."
+    return built, ""
 
 
 def navigation_allowed(url: str) -> bool:

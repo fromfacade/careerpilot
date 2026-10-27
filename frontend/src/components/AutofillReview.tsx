@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api } from '../api/client'
 import type { ApplicationPreparation, AutofillAnswerField, AutofillPlanField, AutofillSession } from '../api/types'
+import localToken from 'virtual:careerpilot-token'
 
 export function AutofillReview({ prep }: { prep: ApplicationPreparation }) {
   const [session, setSession] = useState<AutofillSession | null>(null)
@@ -9,7 +10,9 @@ export function AutofillReview({ prep }: { prep: ApplicationPreparation }) {
   const [attachResume, setAttachResume] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const greenhouse = prep.snapshot_apply_url.includes('greenhouse.io')
+  const publicUrl = prep.snapshot_apply_url || ''
+  const formUrl = prep.greenhouse_apply_url || (publicUrl.includes('greenhouse.io') ? publicUrl : '')
+  const note = prep.greenhouse_autofill_note || ''
 
   async function openSession() {
     setBusy(true)
@@ -63,21 +66,23 @@ export function AutofillReview({ prep }: { prep: ApplicationPreparation }) {
     }
   }
 
-  if (!greenhouse) return null
+  if (!formUrl && !note) return null
   const plan = session?.plan
 
   return (
     <div className="mt-3 rounded-md border border-slate-200 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <h4 className="text-sm font-semibold text-slate-900">Greenhouse autofill</h4>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={openSession}
-          className="rounded-md bg-blue-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
-        >
-          Apply with CareerPilot
-        </button>
+        {formUrl && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={openSession}
+            className="rounded-md bg-blue-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
+          >
+            Apply with CareerPilot
+          </button>
+        )}
         {session && session.state !== 'cancelled' && session.state !== 'failed' && (
           <button type="button" disabled={busy} onClick={stop} className="rounded-md border border-slate-300 px-2 py-1 text-xs">
             Stop
@@ -87,6 +92,14 @@ export function AutofillReview({ prep }: { prep: ApplicationPreparation }) {
       <p className="mt-1 text-xs text-slate-500">
         Opens a visible browser, fills only the fields you approve, and leaves the Greenhouse page for you to submit.
       </p>
+      {publicUrl && <p className="mt-1 break-all text-xs text-slate-500">Posting: {publicUrl}</p>}
+      {formUrl && <p className="mt-1 break-all text-xs text-slate-500">Application form: {formUrl}</p>}
+      {note && <p className="mt-2 text-sm text-amber-800">{note}</p>}
+      {!localToken && (
+        <p className="mt-2 text-sm text-amber-800">
+          The local API token is not loaded. Start the API, then restart this frontend dev server.
+        </p>
+      )}
       {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
       {session && (
         <div className="mt-3 space-y-3 text-sm text-slate-700">

@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.ai.registry import get_provider
 from app.ai.types import GenerationRequest
+from app.autofill.urls import greenhouse_application_url
 from app.core.config import get_settings
 from app.core.exceptions import AIProviderError, NotFoundError, ValidationError
 from app.models.candidate import Candidate
@@ -102,6 +103,18 @@ def get_preparation_or_404(db: Session, candidate: Candidate, preparation_id: in
     if row is None:
         raise NotFoundError(f"No application preparation with id={preparation_id}.")
     return row
+
+
+def greenhouse_target(db: Session, row: ApplicationPreparation) -> tuple[str | None, str]:
+    job = db.get(Job, row.job_id) if row.job_id else None
+    source = job.job_source if job is not None else None
+    provider = source.provider.value if source is not None else None
+    return greenhouse_application_url(
+        row.snapshot_apply_url,
+        provider=provider,
+        board_token=source.board_token if source is not None else None,
+        external_id=job.external_id if job is not None else None,
+    )
 
 
 def list_preparations(db: Session, candidate: Candidate) -> list[ApplicationPreparation]:

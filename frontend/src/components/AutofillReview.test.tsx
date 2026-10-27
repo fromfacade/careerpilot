@@ -115,4 +115,49 @@ describe('AutofillReview', () => {
     })
     expect(await screen.findByText(/Submitted by CareerPilot: no/)).toBeInTheDocument()
   })
+
+  it('shows autofill for a Greenhouse job whose public link is the company site', () => {
+    render(
+      <AutofillReview
+        prep={{
+          ...prep,
+          snapshot_apply_url: 'https://stripe.com/jobs/search?gh_jid=8128744',
+          greenhouse_apply_url: 'https://boards.greenhouse.io/embed/job_app?for=stripe&token=8128744',
+          greenhouse_autofill_note: '',
+        }}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Apply with CareerPilot' })).toBeInTheDocument()
+    expect(screen.getByText(/embed\/job_app/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /submit/i })).not.toBeInTheDocument()
+  })
+
+  it('shows a configuration message instead of hiding a Greenhouse job it cannot open', () => {
+    render(
+      <AutofillReview
+        prep={{
+          ...prep,
+          snapshot_apply_url: 'https://example.com/jobs/1',
+          greenhouse_apply_url: null,
+          greenhouse_autofill_note: 'This Greenhouse job is missing a board token or job id, so the application form cannot be opened.',
+        }}
+      />,
+    )
+    expect(screen.getByText(/missing a board token/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Apply with CareerPilot' })).not.toBeInTheDocument()
+  })
+
+  it('stays hidden for a non-Greenhouse preparation', () => {
+    const { container } = render(
+      <AutofillReview
+        prep={{
+          ...prep,
+          snapshot_apply_url: 'https://jobs.lever.co/northwind/abc',
+          greenhouse_apply_url: null,
+          greenhouse_autofill_note: '',
+        }}
+      />,
+    )
+    expect(container).toBeEmptyDOMElement()
+  })
 })

@@ -490,6 +490,8 @@ export interface ApplicationPreparation {
   snapshot_employer: string;
   snapshot_description: string;
   snapshot_apply_url: string;
+  greenhouse_apply_url: string | null;
+  greenhouse_autofill_note: string;
   snapshot_content_hash: string;
   analysis: {
     summary?: string;

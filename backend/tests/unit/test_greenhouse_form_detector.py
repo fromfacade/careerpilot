@@ -1,6 +1,6 @@
 from app.api.autofill import detect_application_form, router
 from app.autofill.greenhouse import detect_application
-from app.autofill.urls import classify_apply_url
+from app.autofill.urls import classify_apply_url, greenhouse_application_url
 from app.schemas.autofill import AutofillDetectRequest
 
 STANDARD = """
@@ -100,6 +100,40 @@ def test_greenhouse_job_urls_are_allow_listed_and_lookalikes_are_rejected():
     ashby = classify_apply_url("https://jobs.ashbyhq.com/acme/job-1")
     assert ashby.provider == "ashby"
     assert classify_apply_url("https://boards.greenhouse.io/acme").reason
+
+
+def test_company_career_page_resolves_to_the_greenhouse_form():
+    url, note = greenhouse_application_url(
+        "https://stripe.com/jobs/search?gh_jid=8128744",
+        provider="greenhouse",
+        board_token="stripe",
+        external_id="8128744",
+    )
+    assert note == ""
+    assert url == "https://boards.greenhouse.io/embed/job_app?for=stripe&token=8128744"
+    direct, _ = greenhouse_application_url(
+        "https://boards.greenhouse.io/acme/jobs/15",
+        provider="greenhouse",
+        board_token="acme",
+        external_id="15",
+    )
+    assert direct == "https://boards.greenhouse.io/acme/jobs/15"
+    missing, reason = greenhouse_application_url(
+        "https://example.com/jobs/1",
+        provider="greenhouse",
+        board_token="",
+        external_id="1",
+    )
+    assert missing is None
+    assert "board token" in reason
+    lever_url, lever_note = greenhouse_application_url(
+        "https://jobs.lever.co/acme/abc",
+        provider="lever",
+        board_token="acme",
+        external_id="abc",
+    )
+    assert lever_url is None
+    assert lever_note == ""
 
 
 def test_standard_greenhouse_form_maps_labels_and_leaves_questions_unknown():

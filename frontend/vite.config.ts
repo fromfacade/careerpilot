@@ -11,6 +11,7 @@ const tokenFile = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 function careerPilotToken(): Plugin {
   return {
     name: 'careerpilot-local-token',
+    enforce: 'pre',
     resolveId(id) {
       if (id === 'virtual:careerpilot-token') return '\0careerpilot-token'
     },

@@ -118,7 +118,12 @@ def start_session(preparation_id: int, *, headed: bool = True) -> AutofillRun:
             run.candidate_id = candidate.id
             run.employer = preparation.snapshot_employer
             run.job_title = preparation.snapshot_job_title
-            run.apply_url = preparation.snapshot_apply_url
+            form_url, note = preparation_service.greenhouse_target(db, preparation)
+            run.apply_url = form_url or preparation.snapshot_apply_url
+        if not form_url:
+            run.state = "failed"
+            run.message = note or "This preparation is not a supported Greenhouse application."
+            return run
         worker = BrowserWorker(headed=headed)
         run._worker = worker
 
