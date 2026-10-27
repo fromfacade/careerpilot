@@ -10,17 +10,45 @@ function items(value: unknown): { text: string; reason?: string }[] {
   return Array.isArray(value) ? (value as { text: string; reason?: string }[]) : []
 }
 
-function ResumeFields({ section, detail }: { section: string; detail: Record<string, unknown> }) {
+function ResumeFields({
+  section,
+  detail,
+  onBulletIncludedChange,
+}: {
+  section: string
+  detail: Record<string, unknown>
+  onBulletIncludedChange?: (bulletIndex: number, included: boolean) => void
+}) {
   const subline = resumeSubline(section, detail)
   const bullets = resumeBullets(detail)
+  const includedIndexes = Array.isArray(detail.included_bullet_indexes)
+    ? (detail.included_bullet_indexes as number[])
+    : bullets.map((_, index) => index)
   return (
     <div className="mt-1 space-y-1 text-sm text-slate-700">
       {subline ? <p className="text-slate-500">{subline}</p> : null}
       {bullets.length > 0 && (
         <ul className="list-disc space-y-0.5 pl-5">
-          {bullets.map((bullet) => (
-            <li key={bullet}>{bullet}</li>
-          ))}
+          {bullets.map((bullet, index) => {
+            const included = includedIndexes.includes(index)
+            return (
+              <li key={`${index}-${bullet}`} className={included ? '' : 'opacity-50'}>
+                {onBulletIncludedChange ? (
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={included}
+                      onChange={(event) => onBulletIncludedChange(index, event.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span>{bullet}</span>
+                  </label>
+                ) : (
+                  bullet
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
     </div>
@@ -33,12 +61,14 @@ function FactList({
   rows,
   onTitleChange,
   onIncludedChange,
+  onBulletIncludedChange,
 }: {
   title: string
   section: string
-  rows?: { title: string; detail: unknown; included?: boolean }[]
+  rows?: { title: string; detail: unknown; included?: boolean; selection_reason?: string }[]
   onTitleChange?: (index: number, title: string) => void
   onIncludedChange?: (index: number, included: boolean) => void
+  onBulletIncludedChange?: (index: number, bulletIndex: number, included: boolean) => void
 }) {
   if (!rows?.length) return null
   return (
@@ -72,7 +102,14 @@ function FactList({
                   ) : (
                     <span className="font-medium">{heading}</span>
                   )}
-                  <ResumeFields section={section} detail={detail} />
+                  {row.selection_reason ? <p className="text-xs text-slate-500">{row.selection_reason}</p> : null}
+                  <ResumeFields
+                    section={section}
+                    detail={detail}
+                    onBulletIncludedChange={
+                      onBulletIncludedChange ? (bulletIndex, included) => onBulletIncludedChange(index, bulletIndex, included) : undefined
+                    }
+                  />
                 </div>
               </div>
             </li>
@@ -365,6 +402,29 @@ function TailoredResumeEditor({
     }))
   }
 
+  function updateBulletIncluded(
+    section: 'work_experience' | 'projects',
+    index: number,
+    bulletIndex: number,
+    included: boolean,
+  ) {
+    setDraft((current) => ({
+      ...current,
+      [section]: (current[section] ?? []).map((row, rowIndex) => {
+        if (rowIndex !== index) return row
+        const detail = typeof row.detail === 'object' && row.detail ? { ...(row.detail as Record<string, unknown>) } : {}
+        const bullets = Array.isArray(detail.bullets) ? (detail.bullets as unknown[]) : []
+        const currentIndexes = Array.isArray(detail.included_bullet_indexes)
+          ? [...(detail.included_bullet_indexes as number[])]
+          : bullets.map((_, itemIndex) => itemIndex)
+        const next = included
+          ? Array.from(new Set([...currentIndexes, bulletIndex])).sort((left, right) => left - right)
+          : currentIndexes.filter((item) => item !== bulletIndex)
+        return { ...row, detail: { ...detail, included_bullet_indexes: next } }
+      }),
+    }))
+  }
+
   return (
     <div className="mt-2 space-y-3">
       {quality?.ok === false && (
@@ -390,8 +450,8 @@ function TailoredResumeEditor({
         {contact ? <p className="mt-1 text-center text-xs text-slate-600">{contact}</p> : null}
         <div className="mt-3 space-y-3">
           <FactList title="Education" section="education" rows={draft.education} onTitleChange={(index, title) => updateTitle('education', index, title)} onIncludedChange={(index, included) => updateIncluded('education', index, included)} />
-          <FactList title="Experience" section="work_experience" rows={draft.work_experience} onTitleChange={(index, title) => updateTitle('work_experience', index, title)} onIncludedChange={(index, included) => updateIncluded('work_experience', index, included)} />
-          <FactList title="Projects" section="projects" rows={draft.projects} onTitleChange={(index, title) => updateTitle('projects', index, title)} onIncludedChange={(index, included) => updateIncluded('projects', index, included)} />
+          <FactList title="Experience" section="work_experience" rows={draft.work_experience} onTitleChange={(index, title) => updateTitle('work_experience', index, title)} onIncludedChange={(index, included) => updateIncluded('work_experience', index, included)} onBulletIncludedChange={(index, bulletIndex, included) => updateBulletIncluded('work_experience', index, bulletIndex, included)} />
+          <FactList title="Projects" section="projects" rows={draft.projects} onTitleChange={(index, title) => updateTitle('projects', index, title)} onIncludedChange={(index, included) => updateIncluded('projects', index, included)} onBulletIncludedChange={(index, bulletIndex, included) => updateBulletIncluded('projects', index, bulletIndex, included)} />
           <FactList title="Skills" section="skills" rows={draft.skills} onTitleChange={(index, title) => updateTitle('skills', index, title)} onIncludedChange={(index, included) => updateIncluded('skills', index, included)} />
           <FactList title="Achievements" section="achievements" rows={draft.achievements} onTitleChange={(index, title) => updateTitle('achievements', index, title)} onIncludedChange={(index, included) => updateIncluded('achievements', index, included)} />
         </div>

@@ -29,5 +29,9 @@ describe('resumePreview', () => {
     expect(resumeBullets(project)).toEqual(['Queued jobs.'])
     expect(looksLikeInternalLabel('Technologies: FastAPI')).toBe(true)
     expect(looksLikeInternalLabel('Dates: 2024')).toBe(true)
+    expect(resumeHeading('achievements', 'Society of Hispanic Professional Engineers', {
+      organization: 'SHPE',
+      text: 'Participated in professional development.',
+    })).toBe('SHPE')
   })
 })

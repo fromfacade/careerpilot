@@ -27,7 +27,13 @@ export function resumeHeading(section: string, title: string, detail: ResumeDeta
     return tagline ? `${name} - ${tagline}` : name
   }
   if (section === 'education') return asString(detail.institution) || asString(detail.school) || title
-  if (section === 'skills') return ''
+  if (section === 'skills') return asString(detail.category) || title
+  if (section === 'achievements') {
+    const organization = asString(detail.organization)
+    if (organization) return organization
+    const text = asString(detail.text)
+    return title && title !== text ? title : ''
+  }
   return title
 }
 
@@ -58,8 +64,12 @@ export function resumeSubline(section: string, detail: ResumeDetail): string {
     const dates = textValues(detail.dates_text).join(' | ')
     return [tech, dates].filter(Boolean).join(' | ')
   }
-  if (section === 'skills') return textValues(detail.items).join(', ')
-  return asString(detail.organization)
+  if (section === 'skills') {
+    const items = textValues(detail.items).join(', ')
+    const category = asString(detail.category)
+    return category && items ? `${category}: ${items}` : items
+  }
+  return ''
 }
 
 export function resumeBullets(detail: ResumeDetail): string[] {
