@@ -19,6 +19,7 @@ from app.models.enums import (
     PreparationAnswerOrigin,
     PreparationItemStatus,
     PreparationState,
+    ResumeSelectionSource,
 )
 
 
@@ -30,6 +31,13 @@ class ApplicationPreparation(TimestampMixin, Base):
     job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True)
     source_resume_id: Mapped[int | None] = mapped_column(
         ForeignKey("resumes.id", ondelete="SET NULL"), nullable=True
+    )
+    resume_selection_reason: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    resume_selection_source: Mapped[ResumeSelectionSource] = mapped_column(
+        pg_enum(ResumeSelectionSource, "resume_selection_source_enum"),
+        nullable=False,
+        default=ResumeSelectionSource.NONE,
+        server_default=ResumeSelectionSource.NONE.value,
     )
     state: Mapped[PreparationState] = mapped_column(
         pg_enum(PreparationState, "preparation_state_enum"),
