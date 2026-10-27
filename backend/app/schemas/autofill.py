@@ -168,6 +168,17 @@ class AutofillPlanRead(BaseModel):
     answers: AnswerPlanRead
 
 
+class ReadinessCheckRead(BaseModel):
+    code: str
+    status: str
+    detail: str
+
+
+class ReadinessRead(BaseModel):
+    status: str
+    checks: list[ReadinessCheckRead]
+
+
 class AutofillSessionRead(BaseModel):
     id: str
     state: str
@@ -178,9 +189,12 @@ class AutofillSessionRead(BaseModel):
     message: str
     plan: AutofillPlanRead | None = None
     result: FillReportRead | None = None
+    readiness: ReadinessRead | None = None
 
 
 def to_session_result(run) -> AutofillSessionRead:
+    from app.autofill.readiness import readiness_for_run
+
     return AutofillSessionRead(
         id=run.id,
         state=run.state,
@@ -191,6 +205,7 @@ def to_session_result(run) -> AutofillSessionRead:
         message=run.message,
         plan=to_plan_result(run.plan) if run.plan is not None else None,
         result=FillReportRead.model_validate(run.result, from_attributes=True) if run.result is not None else None,
+        readiness=ReadinessRead.model_validate(readiness_for_run(run), from_attributes=True),
     )
 
 

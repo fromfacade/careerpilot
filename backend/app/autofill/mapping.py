@@ -162,6 +162,7 @@ class AutofillPlan:
     preserve_existing: list[PlanField] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     blockers: list[str] = field(default_factory=list)
+    form_found: bool = False
     resume: ResumePlan = field(default_factory=lambda: empty_resume("No resume was considered."))
     answers: AnswerPlan = field(default_factory=AnswerPlan)
 
@@ -180,6 +181,7 @@ def plan_autofill(
         rejection_reason=detection.rejection_reason,
         warnings=list(detection.warnings),
         blockers=list(detection.blockers),
+        form_found=detection.form_found,
     )
     if not detection.supported:
         apply_materials(plan, detection, None)

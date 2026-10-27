@@ -26,10 +26,8 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
 - **Phase 2.3 (this effort)**: job-specific application preparation — JD analysis,
   qualification matching, resume tailoring/export, and job-specific answer drafts.
   **Not** form automation or submission.
-- **Phase 2.4 (in progress)**: Greenhouse review and headed fill. Submission
-  authorization, the application queue, tracker, analytics, and full audit
-  logging are not started. Autonomous submission remains impossible because
-  no submission code path exists.
+- **Phase 2.4 (complete on `feature/greenhouse-autofill`)**: Greenhouse review and headed fill. The browser does not submit.
+- **Phase 2.5.1 (this increment)**: application readiness. Unknown eligibility is not treated as ready. Submission, tracking records, and confirmation retries are not started.
 
 ## 2. Phase 1 increments (checklist)
 
@@ -847,3 +845,23 @@ manual. Approved answers fill only on an exact question match.
 Sensitive, legal, demographic, and consent questions stay unanswered.
 The browser still pauses for a visible CAPTCHA or MFA challenge and
 never clicks Submit.
+
+## 13. Phase 2.5.1 — Application readiness
+
+Before any later submission step, CareerPilot checks graduation timing,
+work authorization, required fields, the approved resume, approved
+answers, unanswered sensitive questions, an active CAPTCHA or MFA
+challenge, the open Greenhouse job, and whether the page already shows
+a submission confirmation. Any check that cannot be verified is
+`needs_review`. Unknown work authorization, sponsorship, or graduation
+timing is not treated as eligible. `ready_to_submit` means the checks
+passed. It does not click Submit, and automatic submission stays off.
+
+The live page URL is compared with the selected preparation before and
+after a fill. A different Greenhouse job is not filled and its resume
+is not attached.
+
+Status: **2.5.1 implemented.** No application record is stored, and no
+submission route exists. Later increments cover tracking (2.5.2), an
+explicit submit control (2.5.3), confirmation handling (2.5.4), and the
+one-button workflow (2.5.5).

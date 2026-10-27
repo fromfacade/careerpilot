@@ -16,6 +16,7 @@ from playwright.sync_api import sync_playwright
 from app.autofill.actions import decide_fill, resume_marker, reviewed_fields
 from app.autofill.browser_fill import FillReport, NavigationBlocked, apply_actions, open_application
 from app.autofill.mapping import AutofillPlan
+from app.autofill.urls import classify_apply_url, same_greenhouse_application
 from app.core.db import session_scope
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models.candidate import Candidate
@@ -37,6 +38,16 @@ class AutofillRun:
     message: str = ""
     plan: AutofillPlan | None = None
     result: FillReport | None = None
+    employment_type: str = "unknown"
+    eligibility_reasons: list = field(default_factory=list)
+    work_authorization_status: str = "unknown"
+    sponsorship: str = "unknown"
+    identity_matches: bool = False
+    identity_detail: str = "The open page has not been compared with the selected preparation."
+    form_found: bool = False
+    already_submitted: bool | None = None
+    fill_attempted: bool = False
+    included_field_ids: set[str] = field(default_factory=set)
     cancel: threading.Event = field(default_factory=threading.Event)
     reviewed: dict = field(default_factory=dict)
     _worker: "BrowserWorker | None" = None
@@ -118,6 +129,7 @@ def start_session(preparation_id: int, *, headed: bool = True) -> AutofillRun:
             run.candidate_id = candidate.id
             run.employer = preparation.snapshot_employer
             run.job_title = preparation.snapshot_job_title
+            _remember_eligibility(run, db, candidate, preparation)
             form_url, note = preparation_service.greenhouse_target(db, preparation)
             run.apply_url = form_url or preparation.snapshot_apply_url
         if not form_url:
@@ -128,10 +140,14 @@ def start_session(preparation_id: int, *, headed: bool = True) -> AutofillRun:
         run._worker = worker
 
         def _open(page):
-            return open_application(page, run.apply_url)
+            html = open_application(page, run.apply_url)
+            return html, page.url
 
-        html = worker.call(_open, timeout=45)
-        plan = _plan_for(run, html)
+        html, final_url = worker.call(_open, timeout=45)
+        matches, detail = same_greenhouse_application(final_url, run.apply_url)
+        run.identity_matches = matches
+        run.identity_detail = detail
+        plan = _plan_for(run, html, final_url)
         run.plan = plan
         run.reviewed = reviewed_fields(plan)
         marker = resume_marker(plan)
@@ -142,7 +158,10 @@ def start_session(preparation_id: int, *, headed: bool = True) -> AutofillRun:
             run.message = "The browser session was stopped."
             _close_worker(run)
             return run
-        if plan.blockers:
+        if not matches:
+            run.state = "needs_review"
+            run.message = detail
+        elif plan.blockers:
             run.state = "needs_review"
             run.message = "A CAPTCHA or verification step is visible. CareerPilot stopped and left the window open."
         else:
@@ -171,16 +190,22 @@ def fill_session(session_id: str, *, included: set[str], overwrite: set[str], at
         run.message = "The fill was cancelled."
         return run
     run.state = "filling"
+    run.fill_attempted = True
+    run.included_field_ids = set(included)
 
     def _fill(page):
         if not page.url or page.url.startswith("about:"):
             raise NavigationBlocked("The browser is not on an application page.")
-        from app.autofill.urls import classify_apply_url
-
         if not classify_apply_url(page.url).supported:
             raise NavigationBlocked("The browser left the Greenhouse application page.")
+        matches, detail = same_greenhouse_application(page.url, run.apply_url)
+        run.identity_matches = matches
+        run.identity_detail = detail
         html = page.content()
-        live = _plan_for(run, html)
+        live = _plan_for(run, html, page.url)
+        if not matches:
+            report = FillReport(stopped=detail, submitted=False)
+            return report, live
         if run.cancel.is_set():
             report = FillReport(stopped="cancelled", submitted=False)
             return report, live
@@ -217,14 +242,19 @@ def fill_session(session_id: str, *, included: set[str], overwrite: set[str], at
             report.outcomes.append(_outcome(field_id, "stale", "The form changed since review, so this field was skipped."))
         for field_id in decision.skipped:
             report.outcomes.append(_outcome(field_id, "skipped", "This field is no longer eligible."))
+        still_same, still_detail = same_greenhouse_application(page.url, run.apply_url)
+        run.identity_matches = still_same
+        run.identity_detail = still_detail
         fresh_html = page.content()
-        fresh = _plan_for(run, fresh_html)
+        fresh = _plan_for(run, fresh_html, page.url)
         report.unresolved = _unresolved(fresh)
         report.submitted = False
+        if not still_same:
+            report.stopped = still_detail
         return report, fresh
 
     try:
-        report, _live = run._worker.call(_fill, timeout=90)
+        report, live = run._worker.call(_fill, timeout=90)
     except Exception as exc:
         if run.cancel.is_set():
             run.state = "cancelled"
@@ -234,6 +264,8 @@ def fill_session(session_id: str, *, included: set[str], overwrite: set[str], at
             run.message = _public_error(exc)
         return run
     run.result = report
+    if live is not None and run.plan is not None:
+        run.plan.blockers = list(live.blockers)
     if report.stopped == "cancelled" or run.cancel.is_set():
         run.state = "cancelled"
         run.message = "The fill was cancelled."
@@ -284,12 +316,33 @@ def _close_worker(run: AutofillRun) -> None:
         worker.close()
 
 
-def _plan_for(run: AutofillRun, html: str) -> AutofillPlan:
+def _plan_for(run: AutofillRun, html: str, url: str | None = None) -> AutofillPlan:
     with session_scope() as db:
         candidate = db.get(Candidate, run.candidate_id)
         if candidate is None:
             raise NotFoundError("No candidate profile exists yet. Create one first.")
-        return autofill_service.build_plan(db, candidate, run.apply_url, html, run.preparation_id)
+        plan = autofill_service.build_plan(db, candidate, url or run.apply_url, html, run.preparation_id)
+    run.form_found = plan.form_found
+    from app.autofill.readiness import submission_state
+
+    run.already_submitted = submission_state(html, plan.form_found)
+    return plan
+
+
+def _remember_eligibility(run: AutofillRun, db, candidate: Candidate, preparation) -> None:
+    from app.models.job import Job
+    from app.services.eligibility_service import assess_eligibility
+
+    run.work_authorization_status = candidate.work_authorization_status.value
+    run.sponsorship = candidate.requires_sponsorship.value
+    job = db.get(Job, preparation.job_id) if preparation.job_id else None
+    if job is None:
+        run.employment_type = "unknown"
+        run.eligibility_reasons = []
+        return
+    _overall, reasons = assess_eligibility(candidate, job)
+    run.employment_type = job.employment_type.value
+    run.eligibility_reasons = reasons
 
 
 def _resume_file(run: AutofillRun) -> tuple[str | None, str]:

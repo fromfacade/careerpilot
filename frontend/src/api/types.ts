@@ -605,6 +605,12 @@ export interface AutofillFillResult {
   unresolved: string[];
 }
 
+export interface ReadinessCheck {
+  code: string;
+  status: string;
+  detail: string;
+}
+
 export interface AutofillSession {
   id: string;
   state: string;
@@ -615,6 +621,10 @@ export interface AutofillSession {
   message: string;
   plan: AutofillPlan | null;
   result: AutofillFillResult | null;
+  readiness?: {
+    status: string;
+    checks: ReadinessCheck[];
+  } | null;
 }
 
 export interface AIStatus {

@@ -115,6 +115,22 @@ export function AutofillReview({ prep }: { prep: ApplicationPreparation }) {
               ? 'Filling is paused. An active verification challenge is on the page. Complete it in the browser, then choose Fill approved fields again. CareerPilot will not solve it.'
               : 'Filling is permitted for the checked fields. CareerPilot will not submit the application.'}
           </p>
+          {session.readiness && (
+            <div className="rounded-md bg-slate-50 p-2 text-xs text-slate-700">
+              <p className="font-medium text-slate-900">
+                {session.readiness.status === 'ready_to_submit'
+                  ? 'Ready for a later submission step. CareerPilot will not submit until you explicitly allow it.'
+                  : 'Needs review before submission. CareerPilot will not submit.'}
+              </p>
+              <ul className="mt-1 list-disc pl-4">
+                {session.readiness.checks
+                  .filter((item) => item.status !== 'passed')
+                  .map((item) => (
+                    <li key={item.code}>{item.detail}</li>
+                  ))}
+              </ul>
+            </div>
+          )}
           {plan && (
             <>
               <p>

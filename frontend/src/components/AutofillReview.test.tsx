@@ -167,6 +167,24 @@ describe('AutofillReview', () => {
     expect(screen.getAllByText(/School:/)).toHaveLength(1)
   })
 
+  it('shows readiness reasons and still has no submit control', async () => {
+    vi.mocked(api.openAutofillSession).mockResolvedValue({
+      ...session,
+      readiness: {
+        status: 'needs_review',
+        checks: [
+          { code: 'required_fields', status: 'needs_review', detail: 'Phone has not been filled yet.' },
+          { code: 'job_identity', status: 'passed', detail: 'The open page matches.' },
+        ],
+      },
+    })
+    render(<AutofillReview prep={prep} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Apply with CareerPilot' }))
+    expect(await screen.findByText(/Needs review before submission/)).toBeInTheDocument()
+    expect(screen.getByText(/Phone has not been filled yet/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /submit/i })).not.toBeInTheDocument()
+  })
+
   it('stays hidden for a non-Greenhouse preparation', () => {
     const { container } = render(
       <AutofillReview
