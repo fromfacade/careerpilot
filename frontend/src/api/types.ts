@@ -445,6 +445,72 @@ export interface WritingSample {
   updated_at: string;
 }
 
+export type PreparationState = 'preparing' | 'needs_review' | 'ready' | 'failed' | 'cancelled';
+export type PreparationAnswerOrigin = 'reused' | 'adapted' | 'generated';
+export type PreparationItemStatus = 'draft' | 'approved' | 'rejected' | 'needs_review';
+
+export interface PreparationAnswer {
+  id: number;
+  question: string;
+  answer_text: string;
+  category: AnswerCategory;
+  origin: PreparationAnswerOrigin;
+  status: PreparationItemStatus;
+  source_answer_id: number | null;
+  is_sensitive: boolean;
+  canonical_fact_ids: number[];
+  unsupported_claims: unknown[];
+  missing_information: unknown[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApplicationPreparation {
+  id: number;
+  candidate_id: number;
+  job_id: number | null;
+  source_resume_id: number | null;
+  state: PreparationState;
+  snapshot_job_title: string;
+  snapshot_employer: string;
+  snapshot_description: string;
+  snapshot_apply_url: string;
+  snapshot_content_hash: string;
+  analysis: {
+    summary?: string;
+    required?: { text: string; evidence?: string }[];
+    preferred?: { text: string; evidence?: string }[];
+    technologies?: { text: string; evidence?: string }[];
+    education?: { text: string; evidence?: string }[];
+    experience?: { text: string; evidence?: string }[];
+    work_authorization?: { text: string; evidence?: string }[];
+    location?: { text: string; evidence?: string }[];
+    employment_type?: { text: string; evidence?: string }[];
+    responsibilities?: { text: string; evidence?: string }[];
+  };
+  match_report: {
+    matched?: { text: string; group: string; evidence?: string }[];
+    missing?: { text: string; reason?: string }[];
+    uncertain?: { text: string; reason?: string }[];
+  };
+  tailored_resume: {
+    header?: Record<string, string | null>;
+    education?: { title: string; detail: unknown }[];
+    work_experience?: { title: string; detail: unknown }[];
+    projects?: { title: string; detail: unknown }[];
+    skills?: { title: string; detail: unknown }[];
+    achievements?: { title: string; detail: unknown }[];
+  };
+  tailored_resume_status: PreparationItemStatus;
+  design_limitation: string;
+  error_message: string;
+  has_docx: boolean;
+  has_pdf: boolean;
+  answers: PreparationAnswer[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AIStatus {
   enabled: boolean;
   provider: string;

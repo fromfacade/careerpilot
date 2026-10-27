@@ -280,4 +280,38 @@ export const api = {
     }),
   deleteWritingSample: (sampleId: number) =>
     request<void>(`/api/candidate/writing-samples/${sampleId}`, { method: 'DELETE' }),
+  listPreparations: () =>
+    request<import('./types').ApplicationPreparation[]>('/api/preparations'),
+  createPreparation: (jobId: number) =>
+    request<import('./types').ApplicationPreparation>('/api/preparations', {
+      method: 'POST',
+      body: JSON.stringify({ job_id: jobId }),
+    }),
+  getPreparation: (id: number) =>
+    request<import('./types').ApplicationPreparation>(`/api/preparations/${id}`),
+  cancelPreparation: (id: number) =>
+    request<import('./types').ApplicationPreparation>(`/api/preparations/${id}/cancel`, { method: 'POST' }),
+  regeneratePreparation: (id: number) =>
+    request<import('./types').ApplicationPreparation>(`/api/preparations/${id}/regenerate`, { method: 'POST' }),
+  updatePreparationResume: (id: number, data: Record<string, unknown>) =>
+    request<import('./types').ApplicationPreparation>(`/api/preparations/${id}/resume`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  updatePreparationAnswer: (id: number, answerId: number, data: Record<string, unknown>) =>
+    request<import('./types').ApplicationPreparation>(`/api/preparations/${id}/answers/${answerId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  downloadPreparationDocument: async (id: number, kind: 'docx' | 'pdf' | 'original') => {
+    const response = await fetch(`${BASE_URL}/api/preparations/${id}/documents/${kind}`);
+    if (!response.ok) throw new ApiError(response.status, 'Could not download the prepared document.');
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = kind === 'original' ? 'original-resume' : `tailored-resume.${kind}`;
+    link.click();
+    URL.revokeObjectURL(url);
+  },
 };

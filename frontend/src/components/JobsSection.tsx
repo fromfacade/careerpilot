@@ -144,7 +144,13 @@ function CheckboxGroup<T extends string>({
   )
 }
 
-export function JobsSection({ refreshSignal }: { refreshSignal: number }) {
+export function JobsSection({
+  refreshSignal,
+  onPrepare,
+}: {
+  refreshSignal: number
+  onPrepare: (jobId: number) => void | Promise<void>
+}) {
   const [view, setView] = useState<JobView>('recommended')
   const [sort, setSort] = useState<JobSort>('score_desc')
   const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS)
@@ -405,6 +411,16 @@ export function JobsSection({ refreshSignal }: { refreshSignal: number }) {
                   onSave={() => updateState(job.id, 'saved')}
                   onDismiss={() => updateState(job.id, 'dismissed')}
                   onUnsave={() => updateState(job.id, 'new')}
+                  onPrepare={() => {
+                    void (async () => {
+                      setBusyJobId(job.id)
+                      try {
+                        await onPrepare(job.id)
+                      } finally {
+                        setBusyJobId(null)
+                      }
+                    })()
+                  }}
                 />
               ))}
             </ul>
