@@ -265,7 +265,13 @@ not touch jobs, preferences, or saved jobs.
 | `sha256_checksum` | `TEXT` | NOT NULL | content hash; re-uploading identical bytes for the same candidate returns the existing resume (no second row, no re-parse) |
 | `parse_status` | `resume_parse_status_enum` | NOT NULL, default `pending` | `pending, success, partial, failed` — `partial` means at least one extracted fact fell back to `FactType.OTHER` (headers not fully recognized), `failed` means text extraction itself raised |
 | `parse_error` | `TEXT` | NULL | human-readable extraction failure detail, set only when `parse_status = failed` |
-| `is_primary` | `BOOLEAN` | NOT NULL, default `false` | exactly one primary resume per candidate (partial unique index). The first upload is primary; later files are not until the user sets one. |
+| `is_primary` | `BOOLEAN` | NOT NULL, default `false` | exactly one default resume per candidate (partial unique index). |
+| `profile_name` | `TEXT` | NOT NULL | display name; file bytes stay write-once |
+| `profile_description` | `TEXT` | NOT NULL | |
+| `category` | `resume_category_enum` | NOT NULL, default `custom` | `general_swe, backend, fullstack, ai_ml, custom` |
+| `is_approved` | `BOOLEAN` | NOT NULL, default `false` | only approved, non-archived profiles are auto-selected |
+| `is_archived` | `BOOLEAN` | NOT NULL, default `false` | |
+| `focus_areas` | `JSONB` | NOT NULL | list of strings used for ranking |
 | `created_at` / `updated_at` | `TIMESTAMPTZ` | NOT NULL | |
 
 ### 2a.2 `candidate_facts`
@@ -414,7 +420,9 @@ for history. Failed rows are kept and reused, not replaced.
 |---|---|---|
 | `candidate_id` | `BIGINT` FK → `candidates.id` ON DELETE CASCADE | |
 | `job_id` | `BIGINT` NULL FK → `jobs.id` ON DELETE SET NULL | listing may disappear later |
-| `source_resume_id` | `BIGINT` NULL FK → `resumes.id` ON DELETE SET NULL | original file, never rewritten |
+| `source_resume_id` | `BIGINT` NULL FK → `resumes.id` ON DELETE SET NULL | selected profile; original file is downloaded unchanged |
+| `resume_selection_reason` | `TEXT` | why this profile was chosen |
+| `resume_selection_source` | `resume_selection_source_enum` | automatic / manual / fallback_default / none |
 | `state` | `preparation_state_enum` | preparation progress only |
 | `snapshot_job_title` | `TEXT` | frozen at create time |
 | `snapshot_employer` | `TEXT` | |
@@ -480,6 +488,8 @@ adapted; the library row is never overwritten.
 | `preparation_state_enum` | `preparing, needs_review, ready, failed, cancelled` |
 | `preparation_answer_origin_enum` | `reused, adapted, generated` |
 | `preparation_item_status_enum` | `draft, approved, rejected, needs_review` |
+| `resume_category_enum` | `general_swe, backend, fullstack, ai_ml, custom` |
+| `resume_selection_source_enum` | `automatic, manual, fallback_default, none` |
 
 ## 4. Deduplication strategy (module 4)
 

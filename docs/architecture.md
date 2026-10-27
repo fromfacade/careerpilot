@@ -127,7 +127,7 @@ careerpilot/
 | 4 | Job Deduplication | **Implemented.** Canonical URL normalization + content hash + per-source external ID uniqueness. |
 | 5 | Eligibility Checking | **Implemented**, rule-based only (work authorization / sponsorship / grad-date window / location). As of Phase 2, deliberately scoped to *hard application requirements only* — see §6a for why this is a separate concept from Relevance. |
 | 6 | Explainable Match Scoring | **Implemented**, rule-based with a reasons breakdown returned to the UI; a `Relevance.NOT_RELEVANT` verdict caps the score (see §6a) so an out-of-scope role can never show a coincidentally high number. |
-| 7 | Resume Tailoring & Versioning | **Implemented for Phase 2.3.** Job-specific application preparations snapshot a posting, match verified qualifications, reorder facts into an ATS-friendly tailored resume (PDF/DOCX), and keep the original file untouched. Original visual design is not reproduced. |
+| 7 | Resume Tailoring & Versioning | **Implemented for Phase 2.3.1.** Uploaded files are resume profiles (category, approval, default). Prepare Application selects an approved original file and explains why. Tailoring is optional and never replaces the selected original. Generated PDFs are validated for extractable text. |
 | 8 | AI Provider Management | **Partial (Phase 2.2).** Common `AnswerProvider` interface, Gemini adapter (httpx), mock for tests. Disabled unless `AI_ENABLED` and a key are set. Status endpoint never returns the key. Resume parsing still has zero AI calls. |
 | 9 | Application Answer Library | **Implemented (Phase 2.2 / 2.2.1).** Manual and AI-draft answers, writing-style profile, approved writing samples as untrusted style references, grounded generation, and rewrite-without-overwrite. No form filling or submission. |
 | 10 | Form Automation Adapters | Not built. |
@@ -262,15 +262,16 @@ discovered job. The listing title, employer, description, apply URL, and
 content hash are snapshotted so later board edits cannot change the
 inputs. Analysis is deterministic: items are `stated` or `inferred`.
 Qualification matching uses only verified/edited canonical facts and
-explicit profile fields. Resume tailoring reorders those facts and
-exports ATS-friendly DOCX/PDF; the original resume bytes are never
-written. The original visual design is not reproduced, and that
+explicit profile fields. An approved resume profile is selected
+deterministically and explained. Tailoring is an explicit follow-up
+action; the selected original file is downloaded unchanged. Optional
+tailored DOCX/PDF exports are validated for extractable text. The
+original visual design is not reproduced for tailored drafts, and that
 limitation is stored on the row. Job-specific answers live on the
-preparation: approved library answers may be reused or adapted, new
-drafts do not write library rows, and sensitive questions stay empty for
-review. States (`preparing`, `needs_review`, `ready`, `failed`,
-`cancelled`) are preparation progress only. There is no submit endpoint
-and no form-automation adapter.
+preparation and can be regenerated without changing the selected resume.
+States (`preparing`, `needs_review`, `ready`, `failed`, `cancelled`) are
+preparation progress only. There is no submit endpoint and no
+form-automation adapter.
 
 ## 7. Error handling, timeouts, retries, rate limits
 

@@ -1,8 +1,8 @@
 # CareerPilot
 
 A local-first, autonomous-leaning job-search and application assistant. This repo currently
-implements **Phase 1** plus **Phase 2.1–2.3** (resume parsing, a canonical knowledge
-base, writing style, and job-specific application preparation). Form automation and
+implements **Phase 1** plus **Phase 2.1–2.3.1** (resume profiles, job-specific
+application preparation, and optional tailoring). Form automation and
 application submission are not built.
 
 **No autonomous submission code exists in this repo.** Form automation and application
@@ -153,8 +153,10 @@ docker-compose.yml, backend/Dockerfile, frontend/Dockerfile   (untested, see abo
 
 ## Current status
 
-Phase 1 plus resume parsing (2.1), the canonical knowledge base / answer library (2.2),
-personalized writing style (2.2.1), and job-specific application preparation (2.3) are
-implemented. See `docs/implementation-plan.md` for the increment checklist. Form automation
-and autonomous submission are not built. Optional AI drafts require `AI_ENABLED=true` and
-`GEMINI_API_KEY` in `backend/.env` (never committed; never sent to the frontend).
+Phase 1 plus resume parsing (2.1), the knowledge base / answer library (2.2),
+writing style (2.2.1), application preparation (2.3), and resume profiles with
+optional tailoring (2.3.1) are implemented. Prepare Application selects an
+approved original resume and drafts answers; it does not tailor unless asked.
+See `docs/implementation-plan.md`. Form automation and autonomous submission
+are not built. Optional AI drafts require `AI_ENABLED=true` and `GEMINI_API_KEY`
+in `backend/.env` (never committed; never sent to the frontend).

@@ -722,4 +722,31 @@ Decisions:
   edge, so later lines overflowed off-page. Exports are validated by
   extracted text before download.
 
-Increments: profiles, selection, optional tailoring, export fix, UI, docs.
+Increments:
+
+1. Profile metadata on `resumes` plus approve/archive/download.
+2. Deterministic resume ranking.
+3. Prepare without auto-tailoring; optional tailor/revert/override.
+4. PDF cursor fix and extractable-text validation.
+5. Dashboard profile and selected-resume controls.
+6. Docs wrap-up and Phase 2.4 proposal (not implemented).
+
+Status: **milestone 2.3.1 complete on `feature/application-preparation`.**
+Not merged to `main`.
+
+## 11. Proposed Phase 2.4 — browser form automation (not implemented)
+
+Do not start this work until the plan is approved.
+
+Scope (later):
+
+- Open allow-listed apply URLs (Greenhouse / Lever / Ashby first).
+- Detect a supported application form. Stop on unknown layouts.
+- Map profile fields and the selected approved resume onto labeled inputs.
+- Fill only previously approved answers. Pause on unknown or sensitive fields.
+- Never solve CAPTCHA, MFA, or anti-bot challenges.
+- Never submit unless a later authorization milestone is built.
+- Record blockers instead of inventing workarounds.
+
+Out of scope until explicit approval: autonomous scheduling, submission
+authorization, CAPTCHA/MFA handling, and application tracking.
