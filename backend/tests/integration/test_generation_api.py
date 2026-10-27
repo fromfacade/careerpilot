@@ -106,3 +106,24 @@ def test_provider_failure_does_not_create_an_answer(client, monkeypatch):
     assert resp.status_code == 503
     assert client.get("/api/candidate/answers").json() == []
     assert "x" not in resp.text
+
+
+def test_unavailable_model_does_not_create_an_answer(client, monkeypatch):
+    _candidate(client)
+
+    def boom(settings=None):
+        raise AIProviderError("model_unavailable", "Gemini reported the configured model is unavailable.")
+
+    monkeypatch.setattr("app.services.generation_service.get_provider", boom)
+    monkeypatch.setattr(
+        "app.api.answers.get_settings",
+        lambda: Settings(ai_enabled=True, ai_provider="gemini", gemini_api_key="secret-key"),
+    )
+    resp = client.post(
+        "/api/candidate/answers/generate",
+        json={"question": "Why this role?", "category": "interest"},
+    )
+    assert resp.status_code == 422
+    assert "unavailable" in resp.json()["detail"]
+    assert "secret-key" not in resp.text
+    assert client.get("/api/candidate/answers").json() == []

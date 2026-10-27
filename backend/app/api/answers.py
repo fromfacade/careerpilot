@@ -80,7 +80,15 @@ def generate_answer(payload: GenerateAnswerRequest, db: Session = Depends(get_db
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except AIProviderError as exc:
-        status = 429 if exc.kind == "rate_limited" else 503
+        status = {
+            "rate_limited": 429,
+            "model_unavailable": 422,
+            "invalid_key": 503,
+            "not_configured": 503,
+            "disabled": 503,
+            "timeout": 503,
+            "upstream": 503,
+        }.get(exc.kind, 503)
         raise HTTPException(status_code=status, detail=str(exc)) from exc
 
 
