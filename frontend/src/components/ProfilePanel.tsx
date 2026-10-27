@@ -25,6 +25,9 @@ export function ProfilePanel({ onChanged }: { onChanged: () => void }) {
   const [form, setForm] = useState({
     full_name: '',
     email: '',
+    phone: '',
+    current_location: '',
+    country: '',
     school: '',
     graduation_date: '',
     work_authorization_status: 'unknown' as WorkAuthStatus,
@@ -37,6 +40,9 @@ export function ProfilePanel({ onChanged }: { onChanged: () => void }) {
       setForm({
         full_name: c.full_name,
         email: c.email,
+        phone: c.phone ?? '',
+        current_location: c.current_location ?? '',
+        country: c.country ?? '',
         school: c.school ?? '',
         graduation_date: c.graduation_date ?? '',
         work_authorization_status: c.work_authorization_status,
@@ -54,6 +60,9 @@ export function ProfilePanel({ onChanged }: { onChanged: () => void }) {
       const payload = {
         full_name: form.full_name,
         email: form.email,
+        phone: form.phone || null,
+        current_location: form.current_location || null,
+        country: form.country || null,
         school: form.school || null,
         graduation_date: form.graduation_date || null,
         graduation_date_precision: form.graduation_date ? ('month' as const) : ('unknown' as const),
@@ -112,6 +121,18 @@ export function ProfilePanel({ onChanged }: { onChanged: () => void }) {
             <dd className="font-medium text-slate-900">{candidate.data.email}</dd>
           </div>
           <div>
+            <dt className="text-slate-500">Phone</dt>
+            <dd className="font-medium text-slate-900">{candidate.data.phone ?? 'Not set'}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500">Location</dt>
+            <dd className="font-medium text-slate-900">{candidate.data.current_location ?? 'Not set'}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500">Country</dt>
+            <dd className="font-medium text-slate-900">{candidate.data.country ?? 'Not set'}</dd>
+          </div>
+          <div>
             <dt className="text-slate-500">School</dt>
             <dd className="font-medium text-slate-900">{candidate.data.school ?? 'unknown'}</dd>
           </div>
@@ -149,6 +170,32 @@ export function ProfilePanel({ onChanged }: { onChanged: () => void }) {
                 type="email"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="font-medium text-slate-700">Phone</span>
+              <input
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="font-medium text-slate-700">Location (city)</span>
+              <input
+                value={form.current_location}
+                onChange={(e) => setForm({ ...form, current_location: e.target.value })}
+                placeholder="Austin, TX"
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="font-medium text-slate-700">Country</span>
+              <input
+                value={form.country}
+                onChange={(e) => setForm({ ...form, country: e.target.value })}
+                placeholder="United States"
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5"
               />
             </label>

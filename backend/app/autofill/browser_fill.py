@@ -14,6 +14,7 @@ from pathlib import Path
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
 
 from app.autofill.actions import FillAction, SubmissionBlocked, refuse_submission
+from app.autofill.mapping import _dial_prefix, match_listed_country, match_listed_location
 from app.autofill.materials import _upload_name
 from app.autofill.urls import classify_apply_url, navigation_allowed
 
@@ -98,6 +99,8 @@ def _fill_one(page: Page, action: FillAction) -> FieldOutcome:
     if locator is None or locator.count() == 0:
         return FieldOutcome(action.field_id, action.label, "failed", "The field is no longer on the page.")
     try:
+        if action.input_type == "combobox":
+            return _fill_combobox(page, locator.first, action)
         if action.input_type == "select":
             locator.first.select_option(label=action.value)
         elif action.input_type == "radio":
@@ -107,7 +110,7 @@ def _fill_one(page: Page, action: FillAction) -> FieldOutcome:
         elif action.input_type == "file":
             return FieldOutcome(action.field_id, action.label, "failed", "Resume files use the attachment step.")
         else:
-            locator.first.fill(action.value)
+            locator.first.fill(_phone_text(action) if action.input_type == "tel" else action.value)
         if not _verified(page, action):
             return FieldOutcome(action.field_id, action.label, "failed", "The form value does not match the reviewed plan.")
     except SubmissionBlocked:
@@ -215,7 +218,87 @@ def _verified(page: Page, action: FillAction) -> bool:
         actual = locator.first.evaluate("el => el.selectedOptions[0] ? el.selectedOptions[0].text : ''")
         return str(actual).strip().casefold() == action.value.strip().casefold()
     actual = locator.first.input_value()
+    if action.input_type == "tel":
+        return _phone_matches(actual, action.value)
     return actual.strip().casefold() == action.value.strip().casefold()
+
+
+def _fill_combobox(page: Page, locator, action: FillAction) -> FieldOutcome:
+    search = _search_text(action)
+    try:
+        locator.click()
+        locator.fill("")
+        if search:
+            locator.press_sequentially(search, delay=20)
+        listbox = locator.get_attribute("aria-controls")
+        options = page.locator(f'[id="{_escape(listbox)}"] [role="option"]') if listbox else page.locator('[role="option"]')
+        options.first.wait_for(state="visible", timeout=2000)
+        texts = [text.strip() for text in options.all_inner_texts()]
+        chosen = _choose_option(action, texts)
+        if chosen is None:
+            page.keyboard.press("Escape")
+            return FieldOutcome(action.field_id, action.label, "failed", _no_match_reason(action))
+        options.nth(texts.index(chosen)).click()
+        if not _combobox_verified(page, locator, action, chosen):
+            return FieldOutcome(action.field_id, action.label, "failed", "The form value does not match the reviewed plan.")
+    except Exception:
+        return FieldOutcome(action.field_id, action.label, "failed", "The dropdown could not be filled.")
+    return FieldOutcome(action.field_id, action.label, "filled", "Verified.")
+
+
+def _search_text(action: FillAction) -> str:
+    if action.label.casefold().find("location") >= 0 or action.label.casefold().find("city") >= 0:
+        return action.value.split(",", 1)[0].strip()
+    if action.value.strip().startswith("+"):
+        return action.value.strip()
+    return action.value.split("+", 1)[0].strip()
+
+
+def _choose_option(action: FillAction, options: list[str]) -> str | None:
+    if "location" in action.label.casefold() or "city" in action.label.casefold():
+        return match_listed_location(action.value, options)
+    return match_listed_country(action.value, options)
+
+
+def _no_match_reason(action: FillAction) -> str:
+    if "location" in action.label.casefold() or "city" in action.label.casefold():
+        return "No listed city exactly matches the verified location, so none was selected."
+    if action.value.strip().startswith("+"):
+        return "More than one country uses this phone prefix, so none was selected."
+    return "No listed choice exactly matches the verified country."
+
+
+def _combobox_verified(page: Page, locator, action: FillAction, chosen: str) -> bool:
+    if "location" in action.label.casefold() or "city" in action.label.casefold():
+        shown = locator.evaluate(
+            """el => {
+                const root = el.closest('.select') || el.parentElement;
+                const single = root ? root.querySelector('[class*="single-value"]') : null;
+                return (single && single.textContent) || el.getAttribute('data-selected') || '';
+            }"""
+        )
+        return str(shown).strip().casefold() == chosen.strip().casefold()
+    country = chosen.split("+", 1)[0].strip()
+    button = page.locator("button[aria-label*='selected']")
+    if button.count() == 0:
+        return False
+    aria = button.last.get_attribute("aria-label") or ""
+    return f"selected {country}".casefold() in aria.casefold()
+
+
+def _phone_text(action: FillAction) -> str:
+    text = action.value.strip()
+    prefix = _dial_prefix(text)
+    if prefix and text.startswith(prefix):
+        text = text[len(prefix):].strip()
+    digits = "".join(char for char in text if char.isdigit())
+    return digits or text
+
+
+def _phone_matches(actual: str, expected: str) -> bool:
+    found = "".join(char for char in actual if char.isdigit())
+    wanted = "".join(char for char in expected if char.isdigit())
+    return bool(found) and (found == wanted or (wanted.endswith(found) and len(found) >= 7))
 
 
 def _document_allowed(url: str) -> bool:

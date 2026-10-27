@@ -64,6 +64,9 @@ _LABELS = {
     "personal website": "portfolio",
     "city": "location",
     "location city": "location",
+    "country": "phone_country",
+    "country code": "phone_country",
+    "phone country": "phone_country",
     "school": "school",
     "school name": "school",
     "university": "school",
@@ -89,6 +92,7 @@ _NAME_TOKENS = {
     "website": "portfolio",
     "location": "location",
     "city": "location",
+    "country": "phone_country",
     "school": "school",
     "degree": "degree",
     "discipline": "discipline",
@@ -400,6 +404,8 @@ def _dedupe(fields: list[DetectedField]) -> list[DetectedField]:
 def _input_type(node: Node) -> str:
     if node.tag == "textarea":
         return "textarea"
+    if node.tag == "input" and node.get("role").casefold() == "combobox":
+        return "combobox"
     if node.tag == "select" or node.get("role").casefold() == "combobox":
         return "select"
     raw = node.get("type").casefold() or "text"

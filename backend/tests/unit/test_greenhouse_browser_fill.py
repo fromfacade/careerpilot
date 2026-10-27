@@ -264,7 +264,7 @@ def test_browser_fills_contact_education_and_keeps_the_resume_filename(tmp_path)
         )
         assert report.submitted is False
         assert page.evaluate("() => window.__submitted") is False
-        assert page.locator("#phone").input_value() == "+44 20 7946 0000"
+        assert page.locator("#phone").input_value() == "2079460000"
         assert page.locator("#phone_country").input_value() == "United Kingdom +44"
         assert page.locator("#city").input_value() == "Austin"
         assert page.locator("#school").input_value() == "Example State University"
@@ -284,6 +284,131 @@ def test_browser_fills_contact_education_and_keeps_the_resume_filename(tmp_path)
         assert "internal-storage" not in report.resume_detail
         assert stored.read_bytes() == payload
         browser.close()
+
+
+MENU = """
+<form id="application" onsubmit="window.__submitted = true; return false;">
+  <label for="first_name">First Name</label>
+  <input id="first_name" name="first_name">
+  <label for="email">Email</label>
+  <input id="email" name="email" type="email">
+  <label for="country">Country</label>
+  <div class="select">
+    <input id="country" role="combobox" aria-controls="country-list" aria-autocomplete="list">
+    <div id="country-value" class="select__single-value"></div>
+  </div>
+  <ul id="country-list" role="listbox" hidden>
+    <li role="option">United States +1</li>
+    <li role="option">Canada +1</li>
+    <li role="option">United Kingdom +44</li>
+  </ul>
+  <button id="flag" type="button" aria-label="Change country"></button>
+  <label for="phone">Phone</label>
+  <input id="phone" type="tel">
+  <label for="city">Location (City)</label>
+  <div class="select">
+    <input id="city" role="combobox" aria-controls="city-list" aria-autocomplete="list">
+    <div id="city-value" class="select__single-value"></div>
+  </div>
+  <ul id="city-list" role="listbox" hidden>
+    <li role="option">Austin, Texas, United States</li>
+    <li role="option">Austin, Minnesota, United States</li>
+    <li role="option">Austintown, Ohio, United States</li>
+  </ul>
+  <button type="submit">Submit application</button>
+</form>
+<script>
+  window.__submitted = false;
+  function openList(input, listId) {
+    input.addEventListener('focus', () => { document.getElementById(listId).hidden = false; });
+    input.addEventListener('input', () => { document.getElementById(listId).hidden = false; });
+  }
+  openList(document.getElementById('country'), 'country-list');
+  openList(document.getElementById('city'), 'city-list');
+  document.getElementById('country-list').addEventListener('click', (event) => {
+    const option = event.target.closest('[role=option]');
+    if (!option) return;
+    const name = option.textContent.trim().split('+')[0].trim();
+    document.getElementById('flag').setAttribute('aria-label', 'Change country, selected ' + name + ' (+1)');
+    document.getElementById('country-value').textContent = option.textContent.trim();
+    document.getElementById('country-list').hidden = true;
+  });
+  document.getElementById('city-list').addEventListener('click', (event) => {
+    const option = event.target.closest('[role=option]');
+    if (!option) return;
+    document.getElementById('city-value').textContent = option.textContent.trim();
+    document.getElementById('city').setAttribute('data-selected', option.textContent.trim());
+    document.getElementById('city-list').hidden = true;
+  });
+</script>
+"""
+
+
+def test_browser_selects_unique_country_and_city_without_guessing():
+    profile = ProfileView(
+        candidate_id=7,
+        full_name="Ada Lovelace",
+        email="ada@example.com",
+        phone="+1 5550100123",
+        location="Austin, TX",
+        country="Canada",
+    )
+    live = plan_autofill(URL, MENU, [], profile)
+    reviewed = reviewed_fields(live)
+    decision = decide_fill(reviewed, live, included={item.field_id for item in live.ready}, overwrite=set(), attach_resume=False)
+    assert any(action.field_id == "country" and action.value == "Canada" for action in decision.actions)
+    assert any(action.field_id == "city" and action.value == "Austin, TX" for action in decision.actions)
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.set_content(MENU)
+        report = apply_actions(page, decision.actions, resume_field_id=None, resume_path=None, resume_name="")
+        assert report.submitted is False
+        assert page.evaluate("() => window.__submitted") is False
+        assert page.locator("#first_name").input_value() == "Ada"
+        assert page.locator("#email").input_value() == "ada@example.com"
+        assert "selected Canada" in (page.locator("#flag").get_attribute("aria-label") or "")
+        assert page.locator("#city-value").inner_text() == "Austin, Texas, United States"
+        assert page.locator("#phone").input_value() == "5550100123"
+        assert all(item.status == "filled" for item in report.outcomes)
+        browser.close()
+    shared = ProfileView(
+        candidate_id=7,
+        full_name="Ada Lovelace",
+        email="ada@example.com",
+        phone="+1 5550100123",
+        location="Austin",
+    )
+    ambiguous = plan_autofill(URL, MENU, [], shared)
+    assert _field(ambiguous, "country").proposed_value == "+1"
+    assert _field(ambiguous, "city").proposed_value == "Austin"
+    refused = decide_fill(
+        reviewed_fields(ambiguous),
+        ambiguous,
+        included={"country", "city"},
+        overwrite=set(),
+        attach_resume=False,
+    )
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.set_content(MENU)
+        report = apply_actions(page, refused.actions, resume_field_id=None, resume_path=None, resume_name="")
+        assert report.submitted is False
+        assert "selected" not in (page.locator("#flag").get_attribute("aria-label") or "")
+        assert page.locator("#city-value").inner_text() == ""
+        details = {item.field_id: item.detail for item in report.outcomes}
+        assert "prefix" in details["country"]
+        assert "city" in details["city"].casefold()
+        browser.close()
+
+
+def _field(plan, field_id):
+    for bucket in (plan.ready, plan.clarification, plan.missing_required, plan.unsupported):
+        for item in bucket:
+            if item.field_id == field_id:
+                return item
+    raise AssertionError(field_id)
 
 
 def test_navigation_guard_blocks_other_origins():

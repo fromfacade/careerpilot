@@ -105,7 +105,7 @@ def test_missing_required_value_is_not_invented():
     missing = _by_id(plan.missing_required)
     assert missing["job_application[phone]"].proposed_value is None
     assert missing["job_application[phone]"].proposed_value not in {"no", "unknown", "n/a"}
-    assert missing["job_application[phone]"].uncertainty == "No verified value is available."
+    assert "Add a phone number" in (missing["job_application[phone]"].uncertainty or "")
     assert plan.ready
     assert all(item.field_id != "job_application[phone]" for item in plan.ready)
 
@@ -301,4 +301,60 @@ def test_contact_and_education_use_only_exact_verified_values():
     assert "More than one country" in (country.uncertainty or "")
     bare = ProfileView(candidate_id=7, full_name="Ada", email="ada@example.com", phone="555-0100")
     missing_code = plan_autofill(URL, CONTACT, [], bare)
-    assert "country code" in (_by_id(missing_code.clarification)["job_application[phone_country]"].uncertainty or "")
+    assert "Add a country" in (_by_id(missing_code.clarification)["job_application[phone_country]"].uncertainty or "")
+
+
+WIDGET = """
+<form id="application">
+  <label for="country">Country *</label>
+  <input id="country" role="combobox" aria-autocomplete="list" required>
+  <label for="phone">Phone *</label>
+  <input id="phone" type="tel" required>
+  <label for="city">Location (City) *</label>
+  <input id="city" role="combobox" aria-autocomplete="list" required>
+  <label for="school">School</label>
+  <input id="school" role="combobox" aria-autocomplete="list">
+</form>
+"""
+
+
+def test_explicit_country_is_not_guessed_from_a_shared_prefix():
+    profile = ProfileView(
+        candidate_id=7,
+        full_name="Ada Lovelace",
+        email="ada@example.com",
+        phone="+1 5550100123",
+        location="Austin, TX",
+        country="United States",
+    )
+    plan = plan_autofill(URL, WIDGET, [], profile)
+    ready = _by_id(plan.ready)
+    assert ready["country"].semantic == "phone_country"
+    assert ready["country"].input_type == "combobox"
+    assert ready["country"].proposed_value == "United States"
+    assert ready["phone"].proposed_value == "+1 5550100123"
+    assert ready["city"].proposed_value == "Austin, TX"
+    school = _by_id(plan.clarification)["school"]
+    assert school.eligible_for_fill is False
+    assert "does not expose" in (school.uncertainty or "")
+    native = """
+    <form>
+      <label for="phone">Phone</label>
+      <input id="phone" type="tel">
+      <label for="country">Country</label>
+      <select id="country" name="country">
+        <option>United States +1</option>
+        <option>Canada +1</option>
+        <option>United Kingdom +44</option>
+      </select>
+    </form>
+    """
+    shared = plan_autofill(URL, native, [], ProfileView(candidate_id=7, full_name="Ada", email="ada@example.com", phone="+1 5550100123"))
+    assert "More than one country" in (_by_id(shared.clarification)["country"].uncertainty or "")
+    named = plan_autofill(URL, native, [], ProfileView(candidate_id=7, full_name="Ada", email="ada@example.com", phone="+1 5550100123", country="USA"))
+    assert _by_id(named.ready)["country"].proposed_value == "United States +1"
+    empty = plan_autofill(URL, WIDGET, [], ProfileView(candidate_id=7, full_name="Ada", email="ada@example.com"))
+    missing = _by_id(empty.missing_required)
+    assert "Add a phone number" in (missing["phone"].uncertainty or "")
+    assert "Add a city" in (missing["city"].uncertainty or "")
+    assert "Add a country" in (missing["country"].uncertainty or "")

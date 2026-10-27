@@ -48,6 +48,7 @@ def build_plan(
         email=candidate.email or "",
         phone=candidate.phone,
         location=candidate.current_location,
+        country=candidate.country,
         school=candidate.school,
         major=candidate.major,
         linkedin_url=candidate.linkedin_url,

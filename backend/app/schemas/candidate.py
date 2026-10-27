@@ -34,6 +34,7 @@ class CandidateBase(BaseModel):
     work_authorization_status: WorkAuthStatus = WorkAuthStatus.UNKNOWN
     requires_sponsorship: TriState = TriState.UNKNOWN
     current_location: str | None = Field(default=None, max_length=200)
+    country: str | None = Field(default=None, max_length=100)
     linkedin_url: str | None = Field(default=None, max_length=500)
     github_url: str | None = Field(default=None, max_length=500)
     portfolio_url: str | None = Field(default=None, max_length=500)
@@ -58,6 +59,7 @@ class CandidateUpdate(BaseModel):
     work_authorization_status: WorkAuthStatus | None = None
     requires_sponsorship: TriState | None = None
     current_location: str | None = None
+    country: str | None = None
     linkedin_url: str | None = None
     github_url: str | None = None
     portfolio_url: str | None = None

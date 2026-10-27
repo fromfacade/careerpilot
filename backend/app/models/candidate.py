@@ -45,6 +45,7 @@ class Candidate(TimestampMixin, Base):
         server_default=TriState.UNKNOWN.value,
     )
     current_location: Mapped[str | None] = mapped_column(Text, nullable=True)
+    country: Mapped[str | None] = mapped_column(Text, nullable=True)
     linkedin_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     github_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     portfolio_url: Mapped[str | None] = mapped_column(Text, nullable=True)

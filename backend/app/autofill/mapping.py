@@ -43,6 +43,9 @@ _KEY_MAP = {
     "portfolio url": "portfolio",
     "website": "portfolio",
     "personal website": "portfolio",
+    "country": "phone_country",
+    "country code": "phone_country",
+    "phone country": "phone_country",
 }
 _PROFILE_FIELDS = {
     "email": "email",
@@ -94,6 +97,7 @@ class ProfileView:
     email: str = ""
     phone: str | None = None
     location: str | None = None
+    country: str | None = None
     linkedin_url: str | None = None
     github_url: str | None = None
     portfolio_url: str | None = None
@@ -216,17 +220,21 @@ def _map_field(detected: DetectedField, facts: list[FactView], profile: ProfileV
     if detected.input_type == "file" or detected.semantic not in _FILLABLE:
         item.uncertainty = "This control is not a supported application field."
         return item
+    searchable = detected.input_type == "combobox" and detected.semantic in {"phone_country", "location"}
     if detected.input_type == "select" and not detected.options:
+        item.uncertainty = "This dropdown does not expose its choices, so nothing was selected."
+        return item
+    if detected.input_type == "combobox" and not searchable:
         item.uncertainty = "This dropdown does not expose its choices, so nothing was selected."
         return item
 
     if detected.semantic == "phone_country":
-        proposal = _phone_country_proposal(profile, detected.options)
+        proposal = _phone_country_proposal(facts, profile, detected.options)
     elif detected.semantic in _EDUCATION:
         proposal = _education_proposal(detected.semantic, facts, profile, detected.options)
     else:
         proposal = _proposal(detected.semantic, facts, profile)
-        if detected.semantic == "location":
+        if detected.semantic == "location" and not searchable:
             proposal = _narrow_location(detected.label, proposal)
     item.proposed_value = proposal.value
     item.proposed_replacement = None
@@ -277,7 +285,9 @@ _ABSENT = frozenset(
         "The full name has more than two parts, so it was not split.",
         "The stored value is too long to use as a contact field.",
         "No verified degree name is available. A degree level alone was not entered.",
-        "No verified phone country code is available, so the dialing country was not selected.",
+        "No verified phone number is available. Add a phone number to your candidate profile.",
+        "No verified location is available. Add a city to your candidate profile.",
+        "No verified country is available. Add a country to your candidate profile.",
     }
 )
 
@@ -312,17 +322,73 @@ class _Proposal:
     alternatives: list[Alternative] = field(default_factory=list)
 
 
-def _phone_country_proposal(profile: ProfileView, options: list[str]) -> _Proposal:
-    provenance = [Provenance(kind="profile", profile_field="phone", candidate_id=profile.candidate_id)]
+def _phone_country_proposal(facts: list[FactView], profile: ProfileView, options: list[str]) -> _Proposal:
+    named = _country_name(facts, profile)
+    if named.value:
+        if options:
+            chosen = match_listed_country(named.value, options)
+            if chosen is None:
+                return _Proposal(uncertainty="No listed choice exactly matches the verified country.")
+            named = _Proposal(
+                value=chosen,
+                confidence=named.confidence,
+                kind=named.kind,
+                fact_id=named.fact_id,
+                provenance=named.provenance,
+            )
+        return named
+    if named.uncertainty and named.uncertainty != "No verified country is available. Add a country to your candidate profile.":
+        return named
     prefix = _dial_prefix(profile.phone)
+    provenance = [Provenance(kind="profile", profile_field="phone", candidate_id=profile.candidate_id)]
     if not prefix:
-        return _Proposal(uncertainty="No verified phone country code is available, so the dialing country was not selected.")
+        return _Proposal(uncertainty="No verified country is available. Add a country to your candidate profile.")
+    if not options:
+        return _Proposal(value=prefix, confidence="high", kind="profile", provenance=provenance)
     matched = [option for option in options if _has_prefix(option, prefix)]
     if len(matched) == 1:
         return _Proposal(value=matched[0], confidence="high", kind="profile", provenance=provenance)
     if len(matched) > 1:
         return _Proposal(uncertainty="More than one country uses this phone prefix, so none was selected.")
     return _Proposal(uncertainty="No listed choice exactly matches the verified phone country.")
+
+
+def _country_name(facts: list[FactView], profile: ProfileView) -> _Proposal:
+    matches = [fact for fact in facts if _semantic_of(fact) == "phone_country" and (_scalar(fact) or _unclear_value(fact))]
+    blocked = _blocked_ids(facts)
+    if any(fact.id in blocked or fact.status == "conflict" for fact in matches):
+        return _Proposal(uncertainty="Unresolved canonical facts claim this field and were not used.")
+    usable = [fact for fact in matches if _usable(fact)]
+    held = [fact for fact in matches if fact not in usable and _holds_back(fact)]
+    if held and not usable:
+        return _Proposal(uncertainty="The matching country record is unverified and was not used.")
+    distinct: list[tuple[str, FactView]] = []
+    for fact in usable:
+        value = _scalar(fact) or ""
+        if not any(_same(value, existing) for existing, _fact in distinct):
+            distinct.append((value, fact))
+    profile_value = profile.country.strip() if isinstance(profile.country, str) else ""
+    if len(distinct) > 1:
+        return _Proposal(uncertainty="More than one verified country matches this field.")
+    if distinct and profile_value and not _same(distinct[0][0], profile_value):
+        return _Proposal(uncertainty="A verified canonical fact and the candidate profile disagree.")
+    if distinct:
+        value, fact = distinct[0]
+        return _Proposal(
+            value=value,
+            confidence="high",
+            kind="canonical_fact",
+            fact_id=fact.id,
+            provenance=[_fact_provenance(fact)],
+        )
+    if profile_value:
+        return _Proposal(
+            value=profile_value,
+            confidence="high",
+            kind="profile",
+            provenance=[Provenance(kind="profile", profile_field="country", candidate_id=profile.candidate_id)],
+        )
+    return _Proposal(uncertainty="No verified country is available. Add a country to your candidate profile.")
 
 
 def _education_proposal(semantic: str, facts: list[FactView], profile: ProfileView, options: list[str]) -> _Proposal:
@@ -432,6 +498,126 @@ def _has_prefix(option: str, prefix: str) -> bool:
     return re.search(rf"(?<![\d+]){re.escape(prefix)}(?!\d)", option) is not None
 
 
+_COUNTRY_ALIASES = {
+    "us": "united states",
+    "usa": "united states",
+    "u s": "united states",
+    "u s a": "united states",
+    "uk": "united kingdom",
+    "u k": "united kingdom",
+    "great britain": "united kingdom",
+}
+_REGIONS = {
+    "al": "Alabama",
+    "ak": "Alaska",
+    "az": "Arizona",
+    "ar": "Arkansas",
+    "ca": "California",
+    "co": "Colorado",
+    "ct": "Connecticut",
+    "de": "Delaware",
+    "dc": "District of Columbia",
+    "fl": "Florida",
+    "ga": "Georgia",
+    "hi": "Hawaii",
+    "id": "Idaho",
+    "il": "Illinois",
+    "in": "Indiana",
+    "ia": "Iowa",
+    "ks": "Kansas",
+    "ky": "Kentucky",
+    "la": "Louisiana",
+    "me": "Maine",
+    "md": "Maryland",
+    "ma": "Massachusetts",
+    "mi": "Michigan",
+    "mn": "Minnesota",
+    "ms": "Mississippi",
+    "mo": "Missouri",
+    "mt": "Montana",
+    "ne": "Nebraska",
+    "nv": "Nevada",
+    "nh": "New Hampshire",
+    "nj": "New Jersey",
+    "nm": "New Mexico",
+    "ny": "New York",
+    "nc": "North Carolina",
+    "nd": "North Dakota",
+    "oh": "Ohio",
+    "ok": "Oklahoma",
+    "or": "Oregon",
+    "pa": "Pennsylvania",
+    "ri": "Rhode Island",
+    "sc": "South Carolina",
+    "sd": "South Dakota",
+    "tn": "Tennessee",
+    "tx": "Texas",
+    "ut": "Utah",
+    "vt": "Vermont",
+    "va": "Virginia",
+    "wa": "Washington",
+    "wv": "West Virginia",
+    "wi": "Wisconsin",
+    "wy": "Wyoming",
+    "on": "Ontario",
+    "bc": "British Columbia",
+    "qc": "Quebec",
+    "ab": "Alberta",
+}
+
+
+def match_listed_country(value: str, options: list[str]) -> str | None:
+    """Return the one listed country. A shared dialing code matches nothing."""
+    text = (value or "").strip()
+    prefix = text if re.fullmatch(r"\+\d{1,3}", text) else None
+    if prefix:
+        matched = [option for option in options if _has_prefix(option, prefix)]
+        return matched[0] if len(matched) == 1 else None
+    wanted = _canonical_country(text.split("+", 1)[0])
+    if not wanted:
+        return None
+    matched = [option for option in options if _canonical_country(option.split("+", 1)[0]) == wanted]
+    return matched[0] if len(matched) == 1 else None
+
+
+def match_listed_location(value: str, options: list[str]) -> str | None:
+    """Match a city only when the region also agrees, if one was verified."""
+    city, region, country = _place_parts(value)
+    if not city:
+        return None
+    matched = []
+    for option in options:
+        option_city, option_region, option_country = _place_parts(option)
+        if not _same(option_city, city):
+            continue
+        if region and not _region_same(region, option_region):
+            continue
+        if country and not _same(country, option_country):
+            continue
+        matched.append(option)
+    return matched[0] if len(matched) == 1 else None
+
+
+def _canonical_country(value: str) -> str:
+    text = " ".join(value.replace(".", " ").casefold().split())
+    return _COUNTRY_ALIASES.get(text, text)
+
+
+def _place_parts(value: str) -> tuple[str, str, str]:
+    parts = [part.strip() for part in (value or "").split(",") if part.strip()]
+    city = parts[0] if parts else ""
+    region = parts[1] if len(parts) > 1 else ""
+    country = parts[2] if len(parts) > 2 else ""
+    return city, region, country
+
+
+def _region_same(verified: str, option_region: str) -> bool:
+    if _same(verified, option_region):
+        return True
+    expanded = _REGIONS.get(verified.casefold())
+    return bool(expanded and _same(expanded, option_region))
+
+
 def _exact_option(value: str, options: list[str]) -> str | None:
     matches = [option for option in options if option.strip() and _same(value, option)]
     return matches[0] if len(matches) == 1 else None
@@ -539,6 +725,10 @@ def _from_profile(semantic: str, profile: ProfileView, facts: list[FactView]) ->
     raw = getattr(profile, field_name, None) if field_name else None
     value = raw.strip() if isinstance(raw, str) else None
     if not value:
+        if semantic == "phone":
+            return _Proposal(uncertainty="No verified phone number is available. Add a phone number to your candidate profile.")
+        if semantic == "location":
+            return _Proposal(uncertainty="No verified location is available. Add a city to your candidate profile.")
         return _Proposal(uncertainty="No verified value is available.")
     if len(value) > _MAX_CONTACT:
         return _Proposal(uncertainty="The stored value is too long to use as a contact field.")

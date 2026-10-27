@@ -836,8 +836,10 @@ its original filename. Custom dropdowns are filled only on an exact
 choice. Submission is not implemented.
 
 Remaining limits: a dropdown is filled only when one listed choice
-exactly matches a verified value. A dialing country is selected only
-from a verified `+` prefix, and only when one option uses that prefix.
+exactly matches a verified value. An explicit country name is used
+before a phone prefix. A shared prefix such as +1 selects nothing
+unless the profile names one country. A city with no region is left
+empty when several cities share that name.
 A degree level such as bachelors is not translated into a degree name.
 Two verified education records for the same field select neither.
 Custom widgets that do not expose a native input or options stay

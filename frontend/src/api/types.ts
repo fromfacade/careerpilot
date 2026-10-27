@@ -75,6 +75,7 @@ export interface Candidate {
   work_authorization_status: WorkAuthStatus;
   requires_sponsorship: TriState;
   current_location: string | null;
+  country: string | null;
   linkedin_url: string | null;
   github_url: string | null;
   portfolio_url: string | null;
