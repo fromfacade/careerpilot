@@ -190,11 +190,13 @@ def test_tailor_dedupes_semantic_duplicates_without_dropping_distinct_roles():
     assert "Santa Cruz" in str(education[0]["detail"])
     assert {row["detail"]["employer"] for row in work} == {"Northwind Tutoring", "Contoso Student Life"}
     assert [row["title"] for row in projects][0] == "Alpha Queue"
-    assert {row["title"] for row in projects} == {"Alpha Queue", "Beta Relay", "Gamma Scent", "Delta Builder"}
-    assert all(row["included"] is False for row in tailored["projects"] if row["title"] == "Campus Site")
+    assert {row["title"] for row in projects} == {"Alpha Queue", "Beta Relay"}
+    assert all(row["included"] is False for row in tailored["projects"] if row["title"] in {"Campus Site", "Gamma Scent", "Delta Builder"})
+    assert any(row.get("selection_reason") for row in projects)
     skills = visible_rows(tailored, "skills")
-    assert len(skills) == 1
-    assert skills[0]["detail"]["items"].count("Python") == 1
+    skill_items = [item for row in skills for item in row["detail"]["items"]]
+    assert skill_items.count("Python") == 1
+    assert {row["title"] for row in skills} >= {"Programming Languages", "Backend / APIs"}
     assert any(row["included"] is False for row in tailored["achievements"] if row["title"] == "Tracker")
     assert any(row["included"] is True for row in tailored["achievements"] if row["title"] == "SEE")
     assert [fact.fact_value for fact in facts] == original_values
@@ -260,6 +262,24 @@ def test_structured_entry_renders_work_and_project_fields():
     assert "- Queued jobs." in project
 
 
+def test_achievement_uses_organization_heading_once():
+    lines = structured_entry_lines(
+        {
+            "title": "Society of Hispanic Professional Engineers",
+            "detail": {
+                "organization": "SHPE",
+                "text": "Participated in professional development and peer mentorship initiatives supporting students in STEM.",
+            },
+        },
+        "achievements",
+    )
+    blob = "\n".join(lines)
+    assert lines[0] == "SHPE"
+    assert blob.count("SHPE") == 1
+    assert blob.count("Participated in professional development and peer mentorship initiatives supporting students in STEM.") == 1
+    assert not lines[0].startswith("Participated")
+
+
 def test_hidden_rows_do_not_render():
     hidden = structured_entry_lines(
         {"title": "Campus Site", "detail": {"name": "Campus Site"}, "included": False},
@@ -285,8 +305,9 @@ def test_pdf_export_keeps_extractable_text_on_long_resume(tmp_path: Path):
                 "detail": {"name": "TaskFlow", "technologies": ["FastAPI", "PostgreSQL"], "bullets": bullets[12:24]},
             }
         ],
-        "skills": [{"title": "Languages", "detail": {"items": ["Python", "TypeScript"]}}],
+        "skills": [{"title": "Languages", "detail": {"category": "Programming Languages", "items": ["Python", "TypeScript"]}}],
         "achievements": [],
+        "presentation": {"page_budget": "manual"},
     }
     pdf_path = export_pdf(document, tmp_path / "long.pdf")
     pdf_text = "\n".join(page.extract_text() or "" for page in PdfReader(str(pdf_path)).pages)

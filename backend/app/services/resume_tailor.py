@@ -36,10 +36,50 @@ _SKIP_DETAIL_KEYS = {
 _SECTION_LIMITS = {
     FactType.EDUCATION: 2,
     FactType.WORK_EXPERIENCE: 3,
-    FactType.PROJECT: 4,
+    FactType.PROJECT: 3,
     FactType.ACHIEVEMENT: 2,
 }
-_SKILL_ITEM_LIMIT = 18
+_MAX_PROJECTS = 3
+_MIN_PROJECTS = 2
+_MAX_BULLETS = 3
+_SKILL_ITEM_LIMIT = 8
+_SKILL_CATEGORY_ORDER = (
+    "Programming Languages",
+    "Backend / APIs",
+    "Frontend",
+    "Databases / Infrastructure",
+    "Tools / Platforms",
+    "Languages",
+)
+_SKILL_CATEGORY_ALIASES = {
+    "programming languages": "Programming Languages",
+    "languages": "Programming Languages",
+    "backend": "Backend / APIs",
+    "backend / apis": "Backend / APIs",
+    "apis": "Backend / APIs",
+    "frontend": "Frontend",
+    "databases": "Databases / Infrastructure",
+    "databases / infrastructure": "Databases / Infrastructure",
+    "infrastructure": "Databases / Infrastructure",
+    "tools": "Tools / Platforms",
+    "tools / platforms": "Tools / Platforms",
+    "platforms": "Tools / Platforms",
+}
+_PROGRAMMING_SKILLS = {
+    "python",
+    "javascript",
+    "typescript",
+    "sql",
+    "c++",
+    "c#",
+    "java",
+    "go",
+    "rust",
+    "html",
+    "css",
+    "r",
+}
+_SPOKEN_SKILLS = {"english", "spanish", "french", "mandarin", "german", "portuguese", "italian", "japanese", "korean"}
 _SECTION_TITLES = {
     "education": "EDUCATION",
     "work_experience": "EXPERIENCE",
@@ -102,7 +142,116 @@ def _fact_text(fact: CanonicalFact) -> str:
 
 
 def _score(fact: CanonicalFact, target: set[str]) -> int:
+    if fact.fact_type is FactType.PROJECT:
+        return _project_score(fact, target)
     return len(_tokens(_fact_text(fact)) & target)
+
+
+_GENERIC_TECH = {
+    "postgresql",
+    "docker",
+    "sql",
+    "git",
+    "github",
+    "linux",
+    "unix",
+    "rest",
+    "apis",
+    "api",
+    "json",
+}
+_JD_STOP = {
+    "software",
+    "engineering",
+    "engineer",
+    "intern",
+    "internship",
+    "role",
+    "team",
+    "using",
+    "build",
+    "building",
+    "built",
+    "services",
+    "service",
+    "data",
+    "stores",
+    "required",
+    "preferred",
+    "experience",
+    "work",
+    "working",
+    "with",
+    "full",
+    "stack",
+    "product",
+    "features",
+    "user",
+    "interfaces",
+    "reliable",
+    "workflows",
+    "language",
+    "models",
+    "machine",
+    "learning",
+    "background",
+    "job",
+    "processing",
+    "and",
+    "the",
+    "for",
+    "this",
+    "systems",
+    "applied",
+}
+
+
+def _project_score(fact: CanonicalFact, target: set[str]) -> int:
+    detail = _detail(fact)
+    tech = _tokens(" ".join(_as_text_list(detail.get("technologies"))))
+    name = _tokens(str(detail.get("name") or fact.fact_key))
+    bullets = _tokens(" ".join(_as_text_list(detail.get("bullets"))))
+    matched_tech = tech & target
+    specific = matched_tech - _GENERIC_TECH
+    generic = matched_tech & _GENERIC_TECH
+    return (
+        4 * len(specific)
+        + len(generic)
+        + 2 * len((name & target) - _JD_STOP)
+        + len((bullets & target) - _GENERIC_TECH - _JD_STOP)
+    )
+
+
+def _matched_terms(fact: CanonicalFact, target: set[str]) -> list[str]:
+    detail = _detail(fact)
+    haystack = _tokens(
+        " ".join(
+            [
+                str(detail.get("name") or fact.fact_key),
+                " ".join(_as_text_list(detail.get("technologies"))),
+                " ".join(_as_text_list(detail.get("bullets"))),
+            ]
+        )
+    )
+    return sorted(haystack & target)
+
+
+def _selection_reason(fact: CanonicalFact, target: set[str]) -> str:
+    matched = _matched_terms(fact, target)[:5]
+    if matched:
+        return "Matches this role's " + ", ".join(matched) + "."
+    return "Included as additional verified experience."
+
+
+def _copy_detail(fact: CanonicalFact, target: set[str]) -> dict:
+    raw = _detail(fact)
+    detail = dict(raw)
+    bullets = _as_text_list(raw.get("bullets"))
+    if bullets:
+        ranked = sorted(range(len(bullets)), key=lambda index: (-len(_tokens(bullets[index]) & target), index))
+        detail["included_bullet_indexes"] = sorted(ranked[:_MAX_BULLETS])
+        detail["bullets"] = bullets
+    return detail
 
 
 def _target_tokens(analysis: dict) -> set[str]:
@@ -219,17 +368,20 @@ def _row(fact: CanonicalFact, target: set[str], *, included: bool, source_ids: l
     return {
         "fact_id": fact.id,
         "title": fact.fact_key,
-        "detail": fact.fact_value,
+        "detail": _copy_detail(fact, target),
         "relevance": _score(fact, target),
         "included": included,
         "identity_key": _identity_key(fact),
         "source_fact_ids": source_ids,
+        "selection_reason": _selection_reason(fact, target) if included else "",
     }
 
 
 def _visible_entry_rows(facts: list[CanonicalFact], fact_type: FactType, target: set[str]) -> list[dict]:
     selected = [fact for fact in facts if fact.fact_type is fact_type]
     clusters = _cluster_facts(selected, target)
+    if fact_type is FactType.PROJECT:
+        return _project_rows(clusters, target)
     limit = _SECTION_LIMITS.get(fact_type)
     rows = []
     for index, (fact, source_ids) in enumerate(clusters):
@@ -238,33 +390,86 @@ def _visible_entry_rows(facts: list[CanonicalFact], fact_type: FactType, target:
     return rows
 
 
+def _project_rows(clusters: list[tuple[CanonicalFact, list[int]]], target: set[str]) -> list[dict]:
+    rows = [_row(fact, target, included=False, source_ids=source_ids) for fact, source_ids in clusters]
+    strong = [row for row in rows if (row["relevance"] or 0) >= 4]
+    chosen = strong[:_MAX_PROJECTS]
+    if len(chosen) < _MIN_PROJECTS:
+        extras = [row for row in rows if row not in chosen]
+        chosen.extend(extras[: _MIN_PROJECTS - len(chosen)])
+    chosen_ids = {row["fact_id"] for row in chosen}
+    for row in rows:
+        row["included"] = row["fact_id"] in chosen_ids
+        row["selection_reason"] = _project_reason(row) if row["included"] else ""
+    return rows
+
+
+def _project_reason(row: dict) -> str:
+    detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
+    matched = []
+    target_hint = row.get("selection_reason") or ""
+    if row.get("relevance"):
+        tech = ", ".join(_as_text_list(detail.get("technologies"))[:4])
+        if tech:
+            return f"Relevant technical experience ({tech})."
+    return target_hint or "Included as additional verified project experience."
+
+
+def _skill_category(fact: CanonicalFact) -> str:
+    key = _norm(fact.fact_key)
+    items = {_norm(item) for item in _as_text_list(_detail(fact).get("items"))}
+    if items and items <= _SPOKEN_SKILLS:
+        return "Languages"
+    if key in _SKILL_CATEGORY_ALIASES:
+        if key == "languages" and items and items <= _PROGRAMMING_SKILLS:
+            return "Programming Languages"
+        if key == "languages" and items and items <= _SPOKEN_SKILLS:
+            return "Languages"
+        if key == "languages" and items & _PROGRAMMING_SKILLS:
+            return "Programming Languages"
+        return _SKILL_CATEGORY_ALIASES[key]
+    return fact.fact_key.strip() or "Skills"
+
+
 def _skill_rows(facts: list[CanonicalFact], target: set[str]) -> list[dict]:
     groups = [fact for fact in facts if fact.fact_type is FactType.SKILL]
-    seen: dict[str, str] = {}
-    ranked: list[tuple[int, str]] = []
-    source_ids = [fact.id for fact in groups]
-    for fact in sorted(groups, key=lambda item: (-_score(item, target), item.id)):
+    if not groups:
+        return []
+    seen: set[str] = set()
+    buckets: dict[str, list[tuple[int, str]]] = {name: [] for name in _SKILL_CATEGORY_ORDER}
+    extra_order: list[str] = []
+    source_by_category: dict[str, list[int]] = {}
+    for fact in groups:
+        category = _skill_category(fact)
+        source_by_category.setdefault(category, []).append(fact.id)
+        if category not in buckets:
+            buckets[category] = []
+            extra_order.append(category)
         for item in _as_text_list(_detail(fact).get("items")):
             key = _norm(item)
             if not key or key in seen:
                 continue
-            seen[key] = item
-            ranked.append((len(_tokens(item) & target), item))
-    ranked.sort(key=lambda pair: (-pair[0], pair[1].casefold()))
-    items = [item for _, item in ranked[:_SKILL_ITEM_LIMIT]]
-    if not items:
-        return []
-    return [
-        {
-            "fact_id": groups[0].id,
-            "title": "Skills",
-            "detail": {"items": items},
-            "relevance": max((score for score, _ in ranked), default=0),
-            "included": True,
-            "identity_key": "skill|merged",
-            "source_fact_ids": source_ids,
-        }
-    ]
+            seen.add(key)
+            buckets[category].append((len(_tokens(item) & target), item))
+    rows = []
+    for category in list(_SKILL_CATEGORY_ORDER) + extra_order:
+        ranked = sorted(buckets.get(category) or [], key=lambda pair: (-pair[0], pair[1].casefold()))
+        items = [item for _, item in ranked[:_SKILL_ITEM_LIMIT]]
+        if not items:
+            continue
+        rows.append(
+            {
+                "fact_id": (source_by_category.get(category) or [groups[0].id])[0],
+                "title": category,
+                "detail": {"category": category, "items": items},
+                "relevance": max((score for score, _ in ranked), default=0),
+                "included": True,
+                "identity_key": f"skill|{_norm(category)}",
+                "source_fact_ids": source_by_category.get(category) or [groups[0].id],
+                "selection_reason": "",
+            }
+        )
+    return rows
 
 
 def _bullet_blob(rows: list[dict]) -> str:
@@ -321,6 +526,7 @@ def tailor_resume(candidate: Candidate, facts: list[CanonicalFact], analysis: di
         "source_fact_ids": [fact.id for fact in facts],
         "presentation": {
             "omitted_fact_ids": omitted,
+            "page_budget": "auto",
             "note": (
                 "Duplicate or lower-priority entries are hidden in the export only. "
                 "Canonical facts were not changed. Include a hidden row before approval "
@@ -356,8 +562,12 @@ def _heading_for(section: str, title: str, detail: dict) -> str:
         return ""
     if section == "achievements":
         organization = ascii_safe(str(detail.get("organization") or "")).strip()
-        text = ascii_safe(str(detail.get("text") or title)).strip()
-        return f"{text} - {organization}" if organization and text else text or ascii_safe(title)
+        if organization:
+            return organization
+        text = ascii_safe(str(detail.get("text") or "")).strip()
+        if title and title != text and len(title.split()) <= 8:
+            return ascii_safe(title)
+        return ""
     return ascii_safe(title)
 
 
@@ -390,7 +600,11 @@ def _meta_for(section: str, detail: dict) -> str:
         dates = " | ".join(_as_text_list(detail.get("dates_text")))
         return " | ".join(part for part in (tech, dates) if part)
     if section == "skills":
-        return ", ".join(_as_text_list(detail.get("items")))
+        items = ", ".join(_as_text_list(detail.get("items")))
+        category = ascii_safe(str(detail.get("category") or "")).strip()
+        if category and items:
+            return f"{category}: {items}"
+        return items
     return ""
 
 
@@ -407,7 +621,13 @@ def structured_entry_lines(row: dict, section: str) -> list[str]:
         lines.append(heading)
     if meta:
         lines.extend(part for part in meta.split("\n") if part)
-    for bullet in _as_text_list(detail.get("bullets")):
+    bullets = _as_text_list(detail.get("bullets"))
+    included_indexes = detail.get("included_bullet_indexes")
+    if isinstance(included_indexes, list) and bullets:
+        chosen = [bullets[index] for index in included_indexes if isinstance(index, int) and 0 <= index < len(bullets)]
+    else:
+        chosen = bullets
+    for bullet in chosen:
         lines.append(f"- {bullet}")
     if section == "achievements":
         for value in _as_text_list(detail.get("text")):
@@ -438,7 +658,10 @@ def iter_resume_lines(document: dict) -> list[tuple[str, str]]:
         rows_out.append(("section", heading))
         for _row, lines in entries:
             if section == "skills":
-                rows_out.append(("meta", lines[0]))
+                rows_out.extend(("meta", line) for line in lines)
+                continue
+            if lines[0].startswith("- "):
+                rows_out.extend(("bullet", line) for line in lines)
                 continue
             rows_out.append(("heading", lines[0]))
             for line in lines[1:]:
@@ -476,6 +699,21 @@ def assess_resume_quality(
     labeled = [line for line in lines if _INTERNAL_LABEL_RE.match(line.strip())]
     if labeled:
         issues.append("Internal field labels are visible: " + "; ".join(labeled[:3]))
+    skill_lines = [line for kind, line in iter_resume_lines(document) if kind == "meta" and ": " in line]
+    skill_rows = visible_rows(document, "skills")
+    if len(skill_rows) >= 2 and not any(row.get("detail", {}).get("category") for row in skill_rows if isinstance(row.get("detail"), dict)):
+        issues.append("Technical skills are not grouped into categories.")
+    if skill_rows and not any(any(name in line for name in _SKILL_CATEGORY_ORDER) for line in skill_lines + [str(row.get("title") or "") for row in skill_rows]):
+        warnings.append("Skills are present but no standard category labels were found.")
+    for row in visible_rows(document, "achievements"):
+        entry = structured_entry_lines(row, "achievements")
+        detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
+        text = " ".join(_as_text_list(detail.get("text")))
+        if entry and text and _norm(entry[0]) == _norm(text):
+            issues.append("Achievement description is used as a heading.")
+        blob = " ".join(entry)
+        if text and blob.count(text) > 1:
+            issues.append("An achievement description is repeated.")
     headings: list[str] = []
     bullets: list[str] = []
     for section in _SECTION_TITLES:
@@ -512,3 +750,33 @@ def assess_resume_quality(
         "page_count": page_count,
         "line_count": len(lines),
     }
+
+
+def hide_lowest_priority_content(document: dict) -> bool:
+    """Hide one presentation-only item so a one-page export can fit. Facts stay intact."""
+    projects = [row for row in (document.get("projects") or []) if row.get("included") is not False]
+    if len(projects) > _MIN_PROJECTS:
+        weakest = min(projects, key=lambda row: (row.get("relevance") or 0, -(row.get("fact_id") or 0)))
+        weakest["included"] = False
+        weakest["selection_reason"] = ""
+        return True
+    for section in ("projects", "work_experience"):
+        for row in document.get(section) or []:
+            if row.get("included") is False:
+                continue
+            detail = row.get("detail") if isinstance(row.get("detail"), dict) else {}
+            indexes = list(detail.get("included_bullet_indexes") or [])
+            bullets = _as_text_list(detail.get("bullets"))
+            if len(indexes) > 2:
+                detail["included_bullet_indexes"] = indexes[:-1]
+                row["detail"] = detail
+                return True
+            if not indexes and len(bullets) > 2:
+                detail["included_bullet_indexes"] = list(range(2))
+                row["detail"] = detail
+                return True
+    achievements = [row for row in (document.get("achievements") or []) if row.get("included") is not False]
+    if achievements:
+        achievements[-1]["included"] = False
+        return True
+    return False
