@@ -62,6 +62,8 @@ class ApplicationPreparationRead(BaseModel):
     has_docx: bool = False
     has_pdf: bool = False
     answers: list[PreparationAnswerRead] = Field(default_factory=list)
+    application_id: int | None = None
+    application_status: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -90,6 +92,8 @@ def to_read(
     *,
     greenhouse_apply_url: str | None = None,
     greenhouse_autofill_note: str = "",
+    application_id: int | None = None,
+    application_status: str | None = None,
 ) -> ApplicationPreparationRead:
     data = ApplicationPreparationRead.model_validate(row)
     return data.model_copy(
@@ -101,5 +105,7 @@ def to_read(
             "selected_resume_category": selected_resume.category.value if selected_resume is not None else None,
             "greenhouse_apply_url": greenhouse_apply_url,
             "greenhouse_autofill_note": greenhouse_autofill_note,
+            "application_id": application_id,
+            "application_status": application_status,
         }
     )

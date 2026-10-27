@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models.candidate import Candidate
+from app.models.enums import PreparationState
 from app.models.resume import Resume
 from app.schemas.preparation import (
     ApplicationPreparationRead,
@@ -20,7 +21,7 @@ from app.schemas.preparation import (
     TailoredResumeUpdate,
     to_read,
 )
-from app.services import candidate_service, preparation_service
+from app.services import application_tracking, candidate_service, preparation_service
 
 router = APIRouter(prefix="/api/preparations", tags=["preparations"])
 
@@ -28,7 +29,26 @@ router = APIRouter(prefix="/api/preparations", tags=["preparations"])
 def _out(db: Session, row) -> ApplicationPreparationRead:
     resume = db.get(Resume, row.source_resume_id) if row.source_resume_id else None
     form_url, note = preparation_service.greenhouse_target(db, row)
-    return to_read(row, resume, greenhouse_apply_url=form_url, greenhouse_autofill_note=note)
+    application_id = None
+    application_status = None
+    try:
+        if row.state is PreparationState.CANCELLED or row.job_id is None:
+            tracked = application_tracking.find_for_preparation(db, row)
+        else:
+            tracked = application_tracking.ensure_for_preparation(db, row)
+        if tracked is not None:
+            application_id = tracked.id
+            application_status = tracked.status.value
+    except NotFoundError:
+        pass
+    return to_read(
+        row,
+        resume,
+        greenhouse_apply_url=form_url,
+        greenhouse_autofill_note=note,
+        application_id=application_id,
+        application_status=application_status,
+    )
 
 
 def _require_candidate(db: Session) -> Candidate:

@@ -7,6 +7,13 @@ import { AutofillReview } from './AutofillReview'
 import { Badge } from './Badge'
 import { EmptyBlock, ErrorBlock, LoadingBlock } from './StatusViews'
 
+function applicationTone(status: string): 'green' | 'red' | 'amber' | 'blue' {
+  if (status === 'submitted') return 'blue'
+  if (status === 'ready_to_submit') return 'green'
+  if (status === 'submission_failed') return 'red'
+  return 'amber'
+}
+
 function items(value: unknown): { text: string; reason?: string }[] {
   return Array.isArray(value) ? (value as { text: string; reason?: string }[]) : []
 }
@@ -192,9 +199,16 @@ export function ApplicationPreparationPanel({
                   {row.greenhouse_apply_url && (
                     <span className="mt-1 block text-xs font-medium text-blue-700">Greenhouse autofill</span>
                   )}
-                  <Badge tone={row.state === 'ready' ? 'green' : row.state === 'failed' ? 'red' : 'amber'}>
-                    {row.state.replace('_', ' ')}
-                  </Badge>
+                  <span className="mt-1 flex flex-wrap gap-1">
+                    <Badge tone={row.state === 'ready' ? 'green' : row.state === 'failed' ? 'red' : 'amber'}>
+                      {row.state.replaceAll('_', ' ')}
+                    </Badge>
+                    {row.application_status && (
+                      <Badge tone={applicationTone(row.application_status)}>
+                        Application {row.application_status.replaceAll('_', ' ')}
+                      </Badge>
+                    )}
+                  </span>
                 </button>
               </li>
             ))}
@@ -225,6 +239,11 @@ function PreparationDetail({
         <h3 className="text-base font-semibold text-slate-900">
           {prep.snapshot_job_title} · {prep.snapshot_employer}
         </h3>
+        {prep.application_status && (
+          <p className="mt-1 text-sm text-slate-700">
+            Application status: {prep.application_status.replaceAll('_', ' ')}. CareerPilot does not submit from this screen.
+          </p>
+        )}
         <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{prep.analysis.summary}</p>
         <div className="mt-3 rounded-md border border-slate-200 p-3">
           <p className="text-sm font-semibold text-slate-900">

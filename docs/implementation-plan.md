@@ -27,7 +27,8 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
   qualification matching, resume tailoring/export, and job-specific answer drafts.
   **Not** form automation or submission.
 - **Phase 2.4 (complete on `feature/greenhouse-autofill`)**: Greenhouse review and headed fill. The browser does not submit.
-- **Phase 2.5.1 (this increment)**: application readiness. Unknown eligibility is not treated as ready. Submission, tracking records, and confirmation retries are not started.
+- **Phase 2.5.1 (complete on `feature/application-readiness`)**: application readiness. Unknown eligibility is not treated as ready.
+- **Phase 2.5.2 (this increment)**: persistent application tracking. Browser submission is not started.
 
 ## 2. Phase 1 increments (checklist)
 
@@ -861,7 +862,24 @@ The live page URL is compared with the selected preparation before and
 after a fill. A different Greenhouse job is not filled and its resume
 is not attached.
 
-Status: **2.5.1 implemented.** No application record is stored, and no
-submission route exists. Later increments cover tracking (2.5.2), an
-explicit submit control (2.5.3), confirmation handling (2.5.4), and the
-one-button workflow (2.5.5).
+Status: **2.5.1 implemented.** A passing readiness result does not submit.
+Optional demographic questions do not block readiness. Required
+sensitive or legal questions stay manual. Graduation follows an explicit
+requirement in the posting; a silent internship or new-grad posting does
+not use a generic date window.
+
+## 14. Phase 2.5.2 — Application tracking
+
+`tracked_applications` stores one row per candidate and job: employer,
+preparation, selected resume, status, timestamps, and nullable
+submission time, confirmation text, and failure reason. Status changes
+go through a fixed transition table. Readiness can set `needs_review`
+or `ready_to_submit`. It cannot set `submitting` or `submitted`.
+A submitted or uncertain record is not overwritten by a later readiness
+check. Records do not store answers, credentials, or contact details.
+The preparation list shows the application status. Rows survive an API
+restart because they live in Postgres.
+
+Status: **2.5.2 implemented.** There is still no browser submit control.
+Increment 2.5.3 can add an explicit, per-application submit step on top
+of these records.

@@ -165,13 +165,18 @@ class TestGraduationTimingRule:
 
         grad_reason = next(r for r in reasons if r["rule"] == "graduation_timing")
         assert grad_reason["result"] == Eligibility.UNKNOWN.value
+        assert "does not state" in grad_reason["detail"]
         assert eligibility == Eligibility.UNKNOWN
 
     def test_new_grad_ineligible_when_graduation_too_far_out(self, db_session):
         today = date.today()
         far_future = date(today.year + 3, today.month, 1)
         candidate = _make_candidate(db_session, requires_sponsorship=TriState.NO, graduation_date=far_future)
-        job = _make_job(db_session, employment_type=EmploymentType.NEW_GRAD)
+        job = _make_job(
+            db_session,
+            employment_type=EmploymentType.NEW_GRAD,
+            description_text="New graduates within 12 months of graduation.",
+        )
 
         eligibility, reasons = assess_eligibility(candidate, job)
 
@@ -183,7 +188,11 @@ class TestGraduationTimingRule:
         today = date.today()
         near_future = today + timedelta(days=60)
         candidate = _make_candidate(db_session, requires_sponsorship=TriState.NO, graduation_date=near_future)
-        job = _make_job(db_session, employment_type=EmploymentType.NEW_GRAD)
+        job = _make_job(
+            db_session,
+            employment_type=EmploymentType.NEW_GRAD,
+            description_text="New graduates within 12 months of graduation.",
+        )
 
         eligibility, reasons = assess_eligibility(candidate, job)
 
@@ -194,7 +203,11 @@ class TestGraduationTimingRule:
     def test_internship_ineligible_when_already_graduated(self, db_session):
         past = date.today() - timedelta(days=400)
         candidate = _make_candidate(db_session, requires_sponsorship=TriState.NO, graduation_date=past)
-        job = _make_job(db_session, employment_type=EmploymentType.INTERNSHIP)
+        job = _make_job(
+            db_session,
+            employment_type=EmploymentType.INTERNSHIP,
+            description_text="This internship is open to current students.",
+        )
 
         eligibility, reasons = assess_eligibility(candidate, job)
 
@@ -205,7 +218,11 @@ class TestGraduationTimingRule:
     def test_internship_eligible_when_still_a_student(self, db_session):
         # Target: graduation Dec 2027, matching the user's actual timeline.
         candidate = _make_candidate(db_session, requires_sponsorship=TriState.NO, graduation_date=date(2027, 12, 1))
-        job = _make_job(db_session, employment_type=EmploymentType.INTERNSHIP)
+        job = _make_job(
+            db_session,
+            employment_type=EmploymentType.INTERNSHIP,
+            description_text="Applicants must be currently enrolled in a degree program.",
+        )
 
         eligibility, reasons = assess_eligibility(candidate, job)
 
@@ -218,11 +235,51 @@ class TestGraduationTimingRule:
         today = date.today()
         far_future = date(today.year + 3, today.month, 1)
         candidate = _make_candidate(db_session, graduation_date=far_future)  # sponsorship left UNKNOWN
-        job = _make_job(db_session, employment_type=EmploymentType.NEW_GRAD)
+        job = _make_job(
+            db_session,
+            employment_type=EmploymentType.NEW_GRAD,
+            description_text="New graduates within 12 months of graduation.",
+        )
 
         eligibility, _ = assess_eligibility(candidate, job)
 
         assert eligibility == Eligibility.INELIGIBLE
+
+    def test_silent_new_grad_posting_does_not_use_a_generic_window(self, db_session):
+        today = date.today()
+        far_future = date(today.year + 3, today.month, 1)
+        candidate = _make_candidate(db_session, requires_sponsorship=TriState.NO, graduation_date=far_future)
+        job = _make_job(db_session, employment_type=EmploymentType.NEW_GRAD, description_text="Build great software.")
+
+        eligibility, reasons = assess_eligibility(candidate, job)
+
+        grad_reason = next(r for r in reasons if r["rule"] == "graduation_timing")
+        assert grad_reason["result"] == Eligibility.UNKNOWN.value
+        assert "generic date window" in grad_reason["detail"]
+        assert eligibility == Eligibility.UNKNOWN
+
+    def test_class_of_year_in_the_posting_decides_eligibility(self, db_session):
+        candidate = _make_candidate(db_session, requires_sponsorship=TriState.NO, graduation_date=date(2026, 12, 4))
+        match = _make_job(
+            db_session,
+            title="Match class",
+            employment_type=EmploymentType.FULL_TIME,
+            description_text="We are hiring the class of 2026.",
+        )
+        miss = _make_job(
+            db_session,
+            title="Other class",
+            employment_type=EmploymentType.FULL_TIME,
+            description_text="We are hiring the class of 2027.",
+        )
+
+        match_eligibility, match_reasons = assess_eligibility(candidate, match)
+        miss_eligibility, miss_reasons = assess_eligibility(candidate, miss)
+
+        assert next(r for r in match_reasons if r["rule"] == "graduation_timing")["result"] == Eligibility.ELIGIBLE.value
+        assert match_eligibility == Eligibility.ELIGIBLE
+        assert next(r for r in miss_reasons if r["rule"] == "graduation_timing")["result"] == Eligibility.INELIGIBLE.value
+        assert miss_eligibility == Eligibility.INELIGIBLE
 
 
 class TestMatchScoring:

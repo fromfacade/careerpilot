@@ -167,6 +167,7 @@ def start_session(preparation_id: int, *, headed: bool = True) -> AutofillRun:
         else:
             run.state = "ready_to_fill"
             run.message = "Review the plan, then fill the fields you approve. CareerPilot will not submit."
+        _persist_readiness(run)
         return run
     except Exception as exc:
         if run.cancel.is_set():
@@ -274,9 +275,11 @@ def fill_session(session_id: str, *, included: set[str], overwrite: set[str], at
     if report.stopped:
         run.state = "needs_review"
         run.message = report.stopped
+        _persist_readiness(run)
         return run
     run.state = "filled_for_review"
     run.message = "The browser is open for review. CareerPilot did not submit the application."
+    _persist_readiness(run)
     return run
 
 
@@ -327,6 +330,21 @@ def _plan_for(run: AutofillRun, html: str, url: str | None = None) -> AutofillPl
 
     run.already_submitted = submission_state(html, plan.form_found)
     return plan
+
+
+def _persist_readiness(run: AutofillRun) -> None:
+    if not run.candidate_id or not run.preparation_id:
+        return
+    from app.autofill.readiness import readiness_for_run
+    from app.services.application_tracking import apply_readiness
+
+    with session_scope() as db:
+        apply_readiness(
+            db,
+            candidate_id=run.candidate_id,
+            preparation_id=run.preparation_id,
+            readiness=readiness_for_run(run),
+        )
 
 
 def _remember_eligibility(run: AutofillRun, db, candidate: Candidate, preparation) -> None:

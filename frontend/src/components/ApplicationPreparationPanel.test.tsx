@@ -37,6 +37,7 @@ const stripePrep = {
   analysis: { summary: 'Internship on the payments team.', required: [], preferred: [] },
   match_report: { matched: [], missing: [], uncertain: [] },
   answers: [],
+  application_status: 'needs_review',
 } as unknown as ApplicationPreparation
 
 describe('ApplicationPreparationPanel autofill', () => {
@@ -48,6 +49,7 @@ describe('ApplicationPreparationPanel autofill', () => {
     render(<ApplicationPreparationPanel selectedId={3} onSelected={() => undefined} />)
     expect(await screen.findByRole('button', { name: 'Apply with CareerPilot' })).toBeInTheDocument()
     expect(screen.getAllByText('Greenhouse autofill').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Application needs review/).length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: /submit/i })).not.toBeInTheDocument()
   })
 })

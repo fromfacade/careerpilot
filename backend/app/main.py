@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.applications import router as applications_router
 from app.api.autofill import router as autofill_router
 from app.api.candidate import router as candidate_router
 from app.api.ai import router as ai_router
@@ -63,6 +64,7 @@ def create_app() -> FastAPI:
     app.include_router(writing_style_router)
     app.include_router(writing_samples_router)
     app.include_router(preparations_router)
+    app.include_router(applications_router)
     app.include_router(autofill_router)
     app.include_router(ai_router)
 

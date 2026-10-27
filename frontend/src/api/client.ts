@@ -299,6 +299,8 @@ export const api = {
     }),
   deleteWritingSample: (sampleId: number) =>
     request<void>(`/api/candidate/writing-samples/${sampleId}`, { method: 'DELETE' }),
+  listApplications: () => request<import('./types').TrackedApplication[]>('/api/applications'),
+  getApplication: (id: number) => request<import('./types').TrackedApplication>(`/api/applications/${id}`),
   listPreparations: () =>
     request<import('./types').ApplicationPreparation[]>('/api/preparations'),
   createPreparation: (jobId: number) =>

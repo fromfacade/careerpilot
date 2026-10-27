@@ -95,6 +95,7 @@ def test_unknown_graduation_needs_review():
 def test_unknown_job_type_cannot_verify_graduation():
     view = _ready()
     view.employment_type = "unknown"
+    view.eligibility = [item for item in view.eligibility if item.rule != "graduation_timing"]
     result, check = _check(view, "graduation")
     assert result.status == "needs_review"
     assert "job type is unknown" in check.detail
@@ -183,6 +184,30 @@ def test_optional_ambiguous_answer_does_not_block_readiness():
     view = _ready()
     view.answers = [AnswerView("why", "Why this role?", False, "ambiguous", uncertainty="Several answers are close.")]
     assert assess_readiness(view).status == "ready_to_submit"
+
+
+def test_optional_demographic_question_does_not_block_readiness():
+    view = _ready()
+    view.fields.append(FieldView("eeo", "Gender", False, "sensitive"))
+    result, check = _check(view, "sensitive_questions")
+    assert check.status == "passed"
+    assert result.status == "ready_to_submit"
+
+
+def test_required_sensitive_question_stays_manual():
+    view = _ready()
+    view.fields.append(FieldView("workauth", "Work authorization", True, "sensitive"))
+    result, check = _check(view, "sensitive_questions")
+    assert result.status == "needs_review"
+    assert "Work authorization" in check.detail
+
+
+def test_sensitive_question_with_unknown_required_flag_needs_review():
+    view = _ready()
+    view.fields.append(FieldView("eeo", "Veteran status", None, "sensitive"))
+    result, check = _check(view, "sensitive_questions")
+    assert result.status == "needs_review"
+    assert "could not tell" in check.detail
 
 
 def test_unanswered_sensitive_question_needs_review():

@@ -460,6 +460,35 @@ adapted; the library row is never overwritten.
 | `unsupported_claims` | `JSONB` | |
 | `missing_information` | `JSONB` | |
 
+## 2e. Phase 2.5.2 table — tracked applications
+
+One row per `(candidate_id, job_id)` for the life of that application.
+The row stores status and short notes. It does not store answers,
+credentials, email addresses, or phone numbers. Confirmation and
+failure text are redacted when they contain an email or a long number.
+
+Migration: `alembic/versions/i9d0e1f2a3b4_add_tracked_applications.py`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `candidate_id` | `BIGINT` FK → `candidates.id` ON DELETE CASCADE | |
+| `job_id` | `BIGINT` FK → `jobs.id` ON DELETE RESTRICT | unique with candidate_id |
+| `employer` | `TEXT` | employer name snapshot |
+| `preparation_id` | `BIGINT` NULL FK → `application_preparations.id` ON DELETE SET NULL | |
+| `resume_id` | `BIGINT` NULL FK → `resumes.id` ON DELETE SET NULL | selected resume id only |
+| `status` | `application_status_enum` | see below |
+| `submitted_at` | `TIMESTAMPTZ` NULL | set only when status becomes submitted |
+| `confirmation` | `TEXT` NULL | employer confirmation text, redacted |
+| `failure_reason` | `TEXT` NULL | readiness or failure summary, redacted |
+
+Allowed moves: `preparing` ↔ `needs_review` ↔ `ready_to_submit`;
+`ready_to_submit` → `submitting`; `submitting` → `submitted`,
+`submission_failed`, or `confirmation_unknown`. `submitted` is terminal.
+`confirmation_unknown` can be corrected to `submitted` or
+`submission_failed`, and cannot return to `submitting`. Readiness
+writes only `needs_review` or `ready_to_submit`, and it does not change
+a row that is `submitting`, `submitted`, or `confirmation_unknown`.
+
 ## 3. Enum reference
 
 | Enum | Values |
@@ -486,6 +515,7 @@ adapted; the library row is never overwritten.
 | `canonical_fact_status_enum` | `active, conflict, archived` |
 | `canonical_fact_origin_enum` | `resume_import, manual_entry, profile` |
 | `preparation_state_enum` | `preparing, needs_review, ready, failed, cancelled` |
+| `application_status_enum` | `preparing, needs_review, ready_to_submit, submitting, submitted, submission_failed, confirmation_unknown` |
 | `preparation_answer_origin_enum` | `reused, adapted, generated` |
 | `preparation_item_status_enum` | `draft, approved, rejected, needs_review` |
 | `resume_category_enum` | `general_swe, backend, fullstack, ai_ml, custom` |
@@ -529,8 +559,10 @@ for these exists yet**:
   Reusable Q&A, independent of resumes. Equivalent (fingerprint + answer text) is unique.
   At most one preferred answer per question. Sensitive categories cannot skip `reviewed`.
   Grounded AI drafts use verified canonical facts and never persist on provider failure.
-- `applications` — the submission queue/state machine (module 12): `state` enum including
-  `blocked_pending_review`, `authorized`, `submitted`, `confirmed`, `failed`, etc.
+- `tracked_applications` — **implemented** (Phase 2.5.2); see §2e. One row
+  per candidate and job. It is a status record, not the module 12 event log.
+- `applications` — the fuller submission queue/state machine (module 12) remains
+  future. 2.5.2 does not add `blocked_pending_review` or an event table.
 - `application_events` — append-only state-transition audit trail for `applications` (module 12/15).
 - `submission_policies`, `platform_authorizations`, `daily_submission_counters` — the
   Authorization Policy Engine and its daily-limit/emergency-pause enforcement (module 11).

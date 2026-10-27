@@ -120,12 +120,17 @@ def assess_readiness(view: ReadinessView) -> ReadinessResult:
 
 
 def _graduation(view: ReadinessView) -> ReadinessCheck:
+    reason = next((item for item in view.eligibility if item.rule == "graduation_timing"), None)
+    if reason is not None:
+        if reason.result == "eligible":
+            return ReadinessCheck("graduation", "passed", reason.detail)
+        return ReadinessCheck("graduation", "needs_review", reason.detail)
     kind = (view.employment_type or "unknown").casefold()
     if kind in {"full_time", "contract"}:
         return ReadinessCheck(
             "graduation",
             "passed",
-            "This role is not an internship or new-grad posting, so the graduation window was not required.",
+            "This posting does not state a graduation requirement.",
         )
     if kind not in {"internship", "new_grad"}:
         return ReadinessCheck(
@@ -133,11 +138,7 @@ def _graduation(view: ReadinessView) -> ReadinessCheck:
             "needs_review",
             "The job type is unknown, so graduation eligibility could not be verified.",
         )
-    reason = next((item for item in view.eligibility if item.rule == "graduation_timing"), None)
-    if reason is None or reason.result != "eligible":
-        detail = reason.detail if reason else "Graduation eligibility was not assessed."
-        return ReadinessCheck("graduation", "needs_review", detail)
-    return ReadinessCheck("graduation", "passed", reason.detail)
+    return ReadinessCheck("graduation", "needs_review", "Graduation eligibility was not assessed.")
 
 
 def _work_authorization(view: ReadinessView) -> ReadinessCheck:
@@ -232,19 +233,36 @@ def _answers(view: ReadinessView) -> ReadinessCheck:
 
 
 def _sensitive(view: ReadinessView) -> ReadinessCheck:
-    labels = [
-        item.label or item.field_id
-        for item in [*view.fields, *view.answers]
-        if item.bucket == "sensitive" and not item.existing_value
-    ]
-    if labels:
-        named = ", ".join(labels)
-        return ReadinessCheck(
-            "sensitive_questions",
-            "needs_review",
-            f"These sensitive, legal, or demographic questions are still unanswered: {named}.",
-        )
-    return ReadinessCheck("sensitive_questions", "passed", "No unanswered sensitive, legal, or demographic questions were found.")
+    required: list[str] = []
+    unknown: list[str] = []
+    for item in [*view.fields, *view.answers]:
+        if item.bucket != "sensitive" or item.existing_value:
+            continue
+        label = item.label or item.field_id
+        if item.required is True:
+            required.append(label)
+        elif item.required is None:
+            unknown.append(label)
+    if required or unknown:
+        parts: list[str] = []
+        if required:
+            parts.append(
+                "These required sensitive, legal, or demographic questions are still unanswered: "
+                + ", ".join(required)
+                + "."
+            )
+        if unknown:
+            parts.append(
+                "CareerPilot could not tell whether these sensitive questions are required: "
+                + ", ".join(unknown)
+                + "."
+            )
+        return ReadinessCheck("sensitive_questions", "needs_review", " ".join(parts))
+    return ReadinessCheck(
+        "sensitive_questions",
+        "passed",
+        "No required sensitive, legal, or demographic questions are unanswered.",
+    )
 
 
 def _challenge(view: ReadinessView) -> ReadinessCheck:

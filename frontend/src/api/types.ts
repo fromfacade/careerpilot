@@ -456,6 +456,30 @@ export interface WritingSample {
   updated_at: string;
 }
 
+export type ApplicationStatus =
+  | 'preparing'
+  | 'needs_review'
+  | 'ready_to_submit'
+  | 'submitting'
+  | 'submitted'
+  | 'submission_failed'
+  | 'confirmation_unknown';
+
+export interface TrackedApplication {
+  id: number;
+  candidate_id: number;
+  job_id: number;
+  employer: string;
+  preparation_id: number | null;
+  resume_id: number | null;
+  status: ApplicationStatus;
+  submitted_at: string | null;
+  confirmation: string | null;
+  failure_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export type PreparationState = 'preparing' | 'needs_review' | 'ready' | 'failed' | 'cancelled';
 export type PreparationAnswerOrigin = 'reused' | 'adapted' | 'generated';
 export type PreparationItemStatus = 'draft' | 'approved' | 'rejected' | 'needs_review';
@@ -540,6 +564,8 @@ export interface ApplicationPreparation {
   error_message: string;
   has_docx: boolean;
   has_pdf: boolean;
+  application_id?: number | null;
+  application_status?: string | null;
   answers: PreparationAnswer[];
   created_at: string;
   updated_at: string;
