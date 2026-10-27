@@ -17,8 +17,20 @@ class TestHtmlToText:
         assert normalize.html_to_text(None) == ""
         assert normalize.html_to_text("") == ""
 
-    def test_collapses_whitespace(self):
-        assert normalize.html_to_text("<p>a</p>\n\n<p>b</p>") == "a b"
+    def test_preserves_block_breaks(self):
+        assert normalize.html_to_text("<p>a</p>\n\n<p>b</p>") == "a\n\nb"
+
+    def test_keeps_greenhouse_headings_on_their_own_lines(self):
+        raw = (
+            "&lt;h2&gt;About Stripe&lt;/h2&gt;&lt;p&gt;Stripe is a financial "
+            "infrastructure platform.&lt;/p&gt;&lt;h2&gt;Minimum requirements&lt;/h2&gt;"
+            "&lt;ul&gt;&lt;li&gt;Experience with Python&lt;/li&gt;&lt;/ul&gt;"
+        )
+        text = normalize.html_to_text(raw)
+        assert "About Stripe\n" in text or text.startswith("About Stripe")
+        assert "Minimum requirements" in text
+        assert text.index("About Stripe") < text.index("Minimum requirements")
+        assert text.index("Minimum requirements") < text.index("Experience with Python")
 
 
 class TestNormalizeUrl:

@@ -17,6 +17,7 @@ from app.models.enums import EmploymentType, RemoteType, RoleCategory, Seniority
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
+_BLOCK_BREAK_RE = re.compile(r"<br\s*/?>|</(?:p|div|h[1-6]|li|ul|ol|tr|section|article)>", re.I)
 
 _TRACKING_PARAM_PREFIXES = ("utm_",)
 _TRACKING_PARAM_NAMES = {"gh_src", "gh_jid", "lever-source", "lever-origin", "ref", "source"}
@@ -34,9 +35,12 @@ def html_to_text(raw: str | None) -> str:
     # (e.g. "&lt;h2&gt;"). Unescape twice to handle both single- and
     # double-encoded input; a second pass on already-clean text is a no-op.
     text = html.unescape(html.unescape(text))
+    text = _BLOCK_BREAK_RE.sub("\n", text)
     text = _TAG_RE.sub(" ", text)
-    text = _WHITESPACE_RE.sub(" ", text).strip()
-    return text
+    text = re.sub(r"[^\S\n]+", " ", text)
+    text = re.sub(r" *\n *", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def normalize_url(url: str) -> str:
