@@ -119,3 +119,60 @@ def test_extract_pdf_text_rejects_empty_text_pdf():
     pdf_bytes = _build_minimal_pdf([])
     with pytest.raises(ResumeExtractionError):
         extract_text(pdf_bytes, ResumeFileFormat.PDF)
+
+
+def test_extract_pdf_preserves_complete_wrapped_bullet_source_text():
+    pdf_bytes = _build_minimal_pdf(
+        [
+            "PROJECTS",
+            "TaskFlow - Backend Job Processing",
+            "- Built a Python/FastAPI backend service with PostgreSQL persistence for asynchronous job creation, status tracking, authentication, and",
+            "background processing.",
+            "GlucoRelay - AI-Powered Safety Assistant",
+            "- Built a FastAPI backend for multilingual voice check-ins.",
+        ]
+    )
+    text = extract_text(pdf_bytes, ResumeFileFormat.PDF)
+    assert "authentication, and background processing." in text
+    assert "GlucoRelay - AI-Powered Safety Assistant" in text
+    assert "background processing. GlucoRelay" not in text
+
+
+def test_extract_pdf_rejoins_one_word_per_line_visual_stream():
+    """A PDF that draws each word on its own line (the pypdf plain-mode
+    failure) must still yield readable multi-word lines after normalize."""
+    pdf_bytes = _build_minimal_pdf(
+        [
+            "EDUCATION",
+            "University",
+            "of",
+            "California,",
+            "Santa",
+            "Cruz",
+            "B.S.",
+            "Computer",
+            "Science",
+        ]
+    )
+    text = extract_text(pdf_bytes, ResumeFileFormat.PDF)
+    assert "University of California" in text
+    nonempty = [line for line in text.splitlines() if line.strip() and line.strip() != "EDUCATION"]
+    assert nonempty
+    assert all(len(line.split()) > 1 for line in nonempty)
+
+
+def test_docx_list_items_get_a_bullet_glyph_but_plain_paragraphs_do_not():
+    document = Document()
+    document.add_paragraph("PROJECTS")
+    document.add_paragraph("Alpha Queue")
+    document.add_paragraph("Built a thing that works.", style="List Bullet")
+    document.add_paragraph("Numbered step.", style="List Number")
+    document.add_paragraph("A plain sentence, not a list item.")
+    out = io.BytesIO()
+    document.save(out)
+
+    lines = extract_text(out.getvalue(), ResumeFileFormat.DOCX).splitlines()
+    assert "• Built a thing that works." in lines
+    assert "• Numbered step." in lines
+    assert "A plain sentence, not a list item." in lines
+    assert "Alpha Queue" in lines

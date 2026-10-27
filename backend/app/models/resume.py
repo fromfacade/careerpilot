@@ -1,24 +1,26 @@
 """Resume uploads and the verified candidate fact vault (Phase 2.1).
 
-`Resume` rows are write-once: nothing in this codebase ever updates
-`original_filename`/`storage_path`/`sha256_checksum`/`file_size_bytes`/
-`file_format` after creation, and there is no PATCH/PUT/DELETE endpoint for
-a resume at all (see app/api/resumes.py). `parse_status`/`parse_error` are
-the one exception -- set exactly once, synchronously, during the upload
-request itself.
+`Resume` file bytes are write-once: nothing updates `original_filename`/
+`storage_path`/`sha256_checksum`/`file_size_bytes`/`file_format` after
+creation. There is no PATCH/PUT for those fields. `parse_status`/
+`parse_error` change on upload and on explicit reprocess. `is_primary`
+changes only when a resume is uploaded as the first file, set as primary,
+or a primary file is deleted and the user picks a replacement.
 
-`CandidateFact` rows are the generalized fact vault sketched (but not
-migrated) in docs/data-model.md Phase 1. Facts extracted from a resume
-start life as `verification_status=UNVERIFIED`; only a human action via
-`PATCH /api/candidate/facts/{id}` can move them to VERIFIED/EDITED/
-REJECTED. Nothing in this module ever marks a fact VERIFIED on its own.
+An explicit `DELETE /api/resumes/{id}` removes that file and its
+resume-specific extracted records. Verified/edited facts are detached
+(`resume_id` set null) unless the caller opts in to delete them too.
+
+`CandidateFact` rows start as `verification_status=UNVERIFIED`; only a
+human action via `PATCH /api/candidate/facts/{id}` can move them to
+VERIFIED/EDITED/REJECTED. Nothing here marks a fact VERIFIED on its own.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Text
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, Index, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -46,8 +48,20 @@ class Resume(TimestampMixin, Base):
         server_default=ResumeParseStatus.PENDING.value,
     )
     parse_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_primary: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
-    facts: Mapped[list["CandidateFact"]] = relationship(back_populates="resume", cascade="all, delete-orphan")
+    facts: Mapped[list["CandidateFact"]] = relationship(back_populates="resume", passive_deletes=True)
+
+    __table_args__ = (
+        Index(
+            "uq_resumes_one_primary_per_candidate",
+            "candidate_id",
+            unique=True,
+            postgresql_where=text("is_primary IS TRUE"),
+        ),
+    )
 
 
 class CandidateFact(TimestampMixin, Base):
@@ -55,7 +69,7 @@ class CandidateFact(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False)
-    resume_id: Mapped[int | None] = mapped_column(ForeignKey("resumes.id", ondelete="CASCADE"), nullable=True)
+    resume_id: Mapped[int | None] = mapped_column(ForeignKey("resumes.id", ondelete="SET NULL"), nullable=True)
     fact_type: Mapped[FactType] = mapped_column(pg_enum(FactType, "fact_type_enum"), nullable=False)
     fact_key: Mapped[str] = mapped_column(Text, nullable=False)
     fact_value: Mapped[dict] = mapped_column(JSONB().with_variant(JSON, "sqlite"), nullable=False, default=dict)

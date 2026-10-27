@@ -20,6 +20,7 @@ class ResumeRead(BaseModel):
     sha256_checksum: str
     parse_status: ResumeParseStatus
     parse_error: str | None
+    is_primary: bool
     created_at: datetime
 
 
@@ -31,6 +32,12 @@ class ResumeUploadResult(BaseModel):
 
     resume: ResumeRead
     facts_extracted: int
+    # Extracted records skipped because the candidate already verified/edited
+    # an identical record.
+    facts_skipped_duplicate: int = 0
+    # True when a byte-identical file was already uploaded; the existing
+    # resume is returned and nothing is parsed or inserted again.
+    already_uploaded: bool = False
 
 
 class CandidateFactRead(BaseModel):
@@ -69,3 +76,53 @@ class CandidateFactUpdate(BaseModel):
                 "it is only ever the initial state set by extraction."
             )
         return value
+
+
+class CandidateFactBulkUpdate(BaseModel):
+    """Explicit bulk review -- never invoked automatically. Same status
+    restriction as a single-fact PATCH: cannot revert to unverified."""
+
+    fact_ids: list[int] = Field(min_length=1, max_length=500)
+    verification_status: FactVerificationStatus
+
+    @field_validator("verification_status")
+    @classmethod
+    def _reject_unverified(cls, value: FactVerificationStatus) -> FactVerificationStatus:
+        if value is FactVerificationStatus.UNVERIFIED:
+            raise ValueError(
+                "verification_status cannot be set back to 'unverified' via this endpoint; "
+                "it is only ever the initial state set by extraction."
+            )
+        return value
+
+
+class ResumeDeleteRequest(BaseModel):
+    """Explicit choices for `DELETE /api/resumes/{id}`.
+
+    Default keeps independently verified/edited facts (they are detached
+    from the deleted file). `delete_verified_facts=true` is the only way
+    those reviewed facts are removed. Jobs, preferences, and saved jobs
+    are never referenced here.
+    """
+
+    delete_verified_facts: bool = False
+    replacement_resume_id: int | None = None
+
+
+class ResumeDeleteResult(BaseModel):
+    deleted_resume_id: int
+    facts_deleted: int
+    facts_preserved: int
+    primary_resume_id: int | None
+
+
+class ResumeReprocessResult(BaseModel):
+    """What `POST /api/resumes/{id}/reprocess` returns. The original file
+    is never deleted. Only UNVERIFIED facts from that resume are replaced;
+    verified / edited / rejected facts are left untouched."""
+
+    resume: ResumeRead
+    facts_extracted: int
+    facts_replaced: int
+    facts_preserved: int
+    facts_skipped_duplicate: int = 0

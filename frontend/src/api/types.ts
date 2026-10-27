@@ -251,20 +251,50 @@ export interface Resume {
   sha256_checksum: string;
   parse_status: ResumeParseStatus;
   parse_error: string | null;
+  is_primary: boolean;
   created_at: string;
 }
 
 export interface ResumeUploadResult {
   resume: Resume;
   facts_extracted: number;
+  /** Extracted records skipped because an identical one was already verified/edited. */
+  facts_skipped_duplicate: number;
+  /** True when a byte-identical file was uploaded before; nothing new was parsed. */
+  already_uploaded: boolean;
 }
 
-/** Shape varies by `fact_type`:
- * - education / work_experience / project: `{ raw_block, bullets: string[], dates_text: string | null }`
+export interface ResumeReprocessResult {
+  resume: Resume;
+  facts_extracted: number;
+  facts_replaced: number;
+  facts_preserved: number;
+  facts_skipped_duplicate: number;
+}
+
+export interface ResumeDeleteInput {
+  delete_verified_facts?: boolean;
+  replacement_resume_id?: number | null;
+}
+
+export interface ResumeDeleteResult {
+  deleted_resume_id: number;
+  facts_deleted: number;
+  facts_preserved: number;
+  primary_resume_id: number | null;
+}
+
+/** Shape varies by `fact_type`. Fields are omitted (null) when the
+ * parser could not find them -- never fabricated.
+ * - education: `{ institution, location, degree, major, gpa, dates_text, coursework, bullets, raw_block }`
+ * - work_experience: `{ employer, position, location, dates_text, bullets, unclassified_text, raw_block }`
+ * - project: `{ name, tagline, technologies, dates_text, bullets, raw_block }`
  * - skill: `{ items: string[] }`
- * - achievement / other: `{ text: string }`
- * Rendered generically in `ResumePanel` since the backend never promises
- * one fixed shape across all fact types. */
+ * - achievement: `{ organization?, text, bullets }`; other: `{ text: string }`
+ *
+ * Any type may also carry the parser's review flags (see `resume/reviewPolicy.ts`):
+ * `needs_review`, `review_reasons`, `ambiguous_fields`, and, when an updated
+ * upload conflicts with an already-reviewed record, `possible_duplicate_of`. */
 export type FactValue = Record<string, unknown>;
 
 export interface CandidateFact {
@@ -286,6 +316,11 @@ export interface CandidateFactUpdateInput {
   fact_key?: string;
   fact_value?: FactValue;
   verification_status?: Exclude<FactVerificationStatus, 'unverified'>;
+}
+
+export interface CandidateFactBulkUpdateInput {
+  fact_ids: number[];
+  verification_status: Exclude<FactVerificationStatus, 'unverified'>;
 }
 
 export interface ListCandidateFactsParams {

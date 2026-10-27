@@ -288,6 +288,121 @@ candidate profile (the only pre-existing row) untouched.
 - Milestones 2.2 (AI provider abstraction/config), 2.3 (job-specific tailoring/diffing), and 2.4
   (DOCX/PDF export, versioning, E2E tests) are entirely unstarted, as instructed.
 
+### 6.8 Parsing / verification fix (same milestone, after live resume upload)
+
+Root cause (verified against a real Google Docs PDF in `careerpilot_dev`): pypdf's default
+`"plain"` extractor emitted **one token per line** (538/538 nonempty lines were a single word,
+with a blank line between almost every word). `_split_into_blocks` then treated each blank as a
+new record, so "University of California, Santa Cruz" became separate facts
+`University` / `of` / `California,` / `Santa` / `Cruz`. All 519 stored facts were unverified
+single-token keys.
+
+Fix:
+- PDF extraction prefers `extraction_mode="layout"` and `text_normalize.normalize_extracted_text`
+  rejoins leftover one-token streams without inventing words.
+- Section parser emits one structured record per school / job / project / skill category.
+- `POST /api/resumes/{id}/reprocess` re-reads the original stored file and replaces only
+  UNVERIFIED facts (verified / edited / rejected facts and the file itself are kept).
+- Review UI: field-level edit, expand raw text, per-record verify/reject, explicit
+  "Verify selected" / "Reject selected", and a Reprocess button.
+
+Backend suite after this fix: **166 passed**. Frontend `tsc -b`, `npm run build`, and `npm run lint` clean.
+
+### 6.9 Second live-resume parser pass (same milestone)
+
+A real Google Docs PDF still merged consecutive jobs/projects, truncated wrapped
+bullets, glued skill tokens (`PythonJavaScriptTypeScriptSQLC++`), and split SHPE
+from its description. Root cause: wrap tails after a bullet reset
+`prev_was_bullet`, so the next heading was not treated as a new record; leftover
+fragments were then used as employers; glued CamelCase splitting also broke
+`FastAPI`.
+
+Fix:
+- `rejoin_wrapped_lines` attaches lowercase / date / short-period tails before
+  the section parser runs, so headings stay headings.
+- Work and project blocks split only on job headers or project titles
+  (`Org - City, ST dates` vs `Name - subtitle`). Date-only lines and month-led
+  ranges are never a new record. Missing employer/position/name is left null
+  and flagged `needs_review` — never guessed.
+- Glued skills are split only by consuming known skill names; leftover tokens
+  stay whole (`FastAPI` is not Fast + API). Categories remain separate facts
+  with `items` arrays. The review UI renders those as chips.
+- Achievements group a heading plus the bullets under it (SHPE + description).
+- Reprocess is unchanged: `POST /api/resumes/{id}/reprocess` replaces only
+  UNVERIFIED facts. The original file and verified/edited/rejected facts stay.
+
+Regression fixtures cover four consecutive projects (TaskFlow, GlucoRelay,
+Spritz, PC Build Visual Builder), two consecutive jobs, wrapped bullets, glued
+and table-style skills, and organization/activity grouping. No personal resume
+file is committed.
+
+Backend suite after this pass: **176 passed**. Frontend `tsc -b`, `npm run build`,
+and `npm run lint` (`oxlint`) clean.
+
+### 6.10 Resume deletion (same milestone)
+
+`DELETE /api/resumes/{id}` removes one uploaded file and only that file's resume-specific
+extracted records. Verified/edited facts are detached (`resume_id` set null) unless the caller
+sets `delete_verified_facts=true`. Facts from other resumes, the candidate profile, preferences,
+job listings, and saved jobs are not referenced. `is_primary` marks the current primary file;
+deleting it while others exist requires `replacement_resume_id`. Dashboard confirmation dialog
+states those rules before the request is sent.
+
+### 6.11 Third live-resume parser pass: records, section scope, duplicates (same milestone)
+
+A legitimate single-column text PDF produced 4 work records instead of 2, 1 project instead of 4,
+and 24 skill records instead of 6 categories. Four independent causes, all reproduced on the stored
+file before any change:
+
+1. **A field label was read as a section heading.** `Technologies: Python, ...` under each project
+   matched the Skills heading keyword `technologies`, so every project after the first was cut off and
+   its title, stack and bullets flowed into Skills (the 24 records).
+2. **A location+dates line was read as a job header.** `Santa Cruz, CA | September 2024 – Present`
+   became its own work record, separated from `Employer — Position` and from the bullets (4 records).
+3. **Two bullets glued on one layout line** (`• A. • B.`) were never split.
+4. **DOCX list bullets carry no glyph** (Word stores them as list formatting), so a bullet was
+   indistinguishable from a company line.
+
+Fix (parsing layer only; architecture unchanged):
+
+- `text_normalize.match_section_header`: a heading must stand alone on its line. The ambiguous label
+  `technologies` is a heading only when ALL CAPS and alone. Trailing ` :` is accepted (`SKILLS :`).
+- `entry_parser.py` (new): an explicit segmentation state machine for work and project sections. A
+  location/date-only line is metadata of the current entry, never a record. After bullets, a non-bullet
+  line starts a new entry; a completed header or blank line also starts one; sentence-fragment tails
+  rejoin the previous bullet. Title-hint words assign employer vs position; if it cannot be decided,
+  both stay `null`, the header text is kept in `unclassified_text`, and the record is flagged. A second
+  position under one employer carries the employer over, flagged for review.
+- `skill_items.py` (new): skills come only from a skills section; items must look like short noun
+  phrases (sentences become a flagged `OTHER` fact); slash names (`Linux/Unix`, `Git/GitHub`) stay whole.
+- `extractors.py`: Word list items (`numPr` or a `List ...` style) get a bullet glyph.
+- Education keeps `location`; work keeps `location`; projects split `name` / `tagline` / `technologies`.
+
+Verification and duplicates (`resume_parsing/dedupe.py`, `resume_service.py`):
+
+- Every record carries `needs_review`, `review_reasons`, `ambiguous_fields`. Nothing is auto-verified.
+- `POST /api/candidate/facts/bulk` refuses to **verify** any flagged fact (422) and is all-or-nothing.
+  Flagged facts are verified or edited one at a time (the "Verify entire record" button).
+- Uploading a byte-identical file returns the existing resume (`already_uploaded: true`); nothing is
+  re-parsed or re-inserted.
+- Extracted records identical in content to an already verified/edited record are skipped
+  (`facts_skipped_duplicate`). A same-named record with different content is kept, flagged, and linked
+  with `possible_duplicate_of`; the reviewed record is never modified. Reprocess does not resurrect a
+  record the user rejected in that resume.
+- Records stay isolated per `resume_id`: uploading or reprocessing one file never edits another file's
+  records, and deleting a resume still only affects its own unverified records.
+
+Tests: `tests/resume_fixtures.py` builds real multi-page PDFs and DOCX files (nothing binary is committed;
+the content is fictional). `test_resume_regression_layouts.py` asserts 1 education / 2 work / 4 projects /
+6 skill categories / 1 achievement on both formats and on a reordered layout, plus multiple positions at one
+employer, six date formats, missing optional fields, wrapped descriptions, and an unclassifiable header.
+Disabling the DOCX-bullet fix or restoring the old heading rule makes those tests fail.
+
+Existing stored resumes are **not** re-parsed automatically. Use "Reprocess this file" to apply the new
+parser; only unverified records are replaced.
+
+Milestone 2.2 is still not started.
+
 Status: **milestone 2.1 (backend + frontend) is implemented, tested, and live-smoke-tested.**
 Stopped here per the user's explicit instruction, pending their review and approval before
 proceeding to milestone 2.2.
