@@ -502,3 +502,12 @@ facts are never sent. Missing information is recorded on the draft. Provider fai
 do not create a row.
 
 Status: **milestone 2.2 increment 6 complete.**
+
+### 7.7 Increment 7 — knowledge base and answer library UI
+
+Dashboard panels for the canonical knowledge base (import, manual add, verify, archive,
+conflict resolution, provenance) and the answer library (create, search, approve with a
+required review step for sensitive questions, preferred flag, AI draft when configured).
+AI remains off unless `AI_ENABLED` and a key are set.
+
+Status: **milestone 2.2 increment 7 complete.**

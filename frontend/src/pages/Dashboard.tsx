@@ -5,6 +5,8 @@ import { JobSourcesPanel } from '../components/JobSourcesPanel'
 import { JobsSection } from '../components/JobsSection'
 import { PreferencesPanel } from '../components/PreferencesPanel'
 import { ProfilePanel } from '../components/ProfilePanel'
+import { AnswerLibraryPanel } from '../components/AnswerLibraryPanel'
+import { KnowledgeBasePanel } from '../components/KnowledgeBasePanel'
 import { ResumePanel } from '../components/ResumePanel'
 import { ErrorBlock } from '../components/StatusViews'
 
@@ -25,7 +27,9 @@ export function Dashboard() {
     <main className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
       <header>
         <h1 className="text-2xl font-bold text-slate-900">CareerPilot</h1>
-        <p className="text-sm text-slate-500">Phase 1 dashboard — real, persisted jobs from your configured sources.</p>
+        <p className="text-sm text-slate-500">
+          Local-first job search, verified facts, and a reusable answer library. No applications are submitted from this dashboard.
+        </p>
       </header>
 
       {backendDown && (
@@ -35,6 +39,8 @@ export function Dashboard() {
       <ProfilePanel onChanged={bump} />
       <PreferencesPanel onChanged={bump} />
       <ResumePanel />
+      <KnowledgeBasePanel />
+      <AnswerLibraryPanel />
       <JobSourcesPanel />
       <DiscoveryPanel onRunCompleted={bump} />
       <JobsSection refreshSignal={refreshSignal} />

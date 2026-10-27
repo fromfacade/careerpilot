@@ -327,3 +327,89 @@ export interface ListCandidateFactsParams {
   fact_type?: FactType;
   verification_status?: FactVerificationStatus;
 }
+
+export type CanonicalFactStatus = 'active' | 'conflict' | 'archived';
+export type CanonicalFactOrigin = 'resume_import' | 'manual_entry' | 'profile';
+
+export interface CanonicalFactSource {
+  id: number;
+  canonical_fact_id: number;
+  candidate_fact_id: number | null;
+  resume_id: number | null;
+  origin: CanonicalFactOrigin;
+  note: string | null;
+  created_at: string;
+}
+
+export interface CanonicalFact {
+  id: number;
+  candidate_id: number;
+  fact_type: FactType;
+  fact_key: string;
+  fact_value: FactValue;
+  identity_key: string;
+  status: CanonicalFactStatus;
+  verification_status: FactVerificationStatus;
+  verified_at: string | null;
+  needs_review: boolean;
+  review_reasons: unknown[];
+  conflicts_with_id: number | null;
+  archived_at: string | null;
+  sources: CanonicalFactSource[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CanonicalFactImportResult {
+  created: number;
+  linked: number;
+  conflicts: number;
+  skipped: number;
+  facts: CanonicalFact[];
+}
+
+export type AnswerCategory =
+  | 'interest'
+  | 'experience'
+  | 'skills'
+  | 'logistics'
+  | 'work_authorization'
+  | 'sponsorship'
+  | 'disability'
+  | 'veteran'
+  | 'demographic'
+  | 'criminal_history'
+  | 'legal_attestation'
+  | 'salary'
+  | 'other';
+
+export type AnswerStatus = 'draft' | 'reviewed' | 'approved';
+export type AnswerOrigin = 'manual' | 'ai_draft';
+
+export interface ApplicationAnswer {
+  id: number;
+  candidate_id: number;
+  question: string;
+  question_fingerprint: string;
+  answer_text: string;
+  category: AnswerCategory;
+  status: AnswerStatus;
+  origin: AnswerOrigin;
+  is_reusable: boolean;
+  is_preferred: boolean;
+  is_sensitive: boolean;
+  prefer_not_to_answer: boolean;
+  missing_information: unknown[];
+  generation_metadata: Record<string, unknown>;
+  fact_links: { id: number; canonical_fact_id: number | null }[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AIStatus {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  configured: boolean;
+  available: boolean;
+}

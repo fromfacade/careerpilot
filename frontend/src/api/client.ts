@@ -8,6 +8,9 @@ import type {
   ResumeReprocessResult,
   CandidateInput,
   DiscoveryRun,
+  FactType,
+  FactValue,
+  FactVerificationStatus,
   Job,
   JobSource,
   JobSourceInput,
@@ -184,4 +187,69 @@ export const api = {
         replacement_resume_id: data.replacement_resume_id ?? null,
       }),
     }),
+
+  getAIStatus: () => request<import('./types').AIStatus>('/api/ai/status'),
+  listCanonicalFacts: (params?: {
+    fact_type?: FactType;
+    status?: import('./types').CanonicalFactStatus;
+    verification_status?: FactVerificationStatus;
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.fact_type) query.set('fact_type', params.fact_type);
+    if (params?.status) query.set('status', params.status);
+    if (params?.verification_status) query.set('verification_status', params.verification_status);
+    const qs = query.toString();
+    return request<import('./types').CanonicalFact[]>(`/api/candidate/canonical-facts${qs ? `?${qs}` : ''}`);
+  },
+  createCanonicalFact: (data: { fact_type: FactType; fact_key: string; fact_value: FactValue }) =>
+    request<import('./types').CanonicalFact>('/api/candidate/canonical-facts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  importCanonicalFacts: (factIds?: number[]) =>
+    request<import('./types').CanonicalFactImportResult>('/api/candidate/canonical-facts/import', {
+      method: 'POST',
+      body: JSON.stringify({ fact_ids: factIds ?? null }),
+    }),
+  updateCanonicalFact: (
+    factId: number,
+    data: { fact_key?: string; fact_value?: FactValue; verification_status?: Exclude<FactVerificationStatus, 'unverified'> },
+  ) =>
+    request<import('./types').CanonicalFact>(`/api/candidate/canonical-facts/${factId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  archiveCanonicalFact: (factId: number) =>
+    request<import('./types').CanonicalFact>(`/api/candidate/canonical-facts/${factId}/archive`, { method: 'POST' }),
+  resolveCanonicalConflict: (factId: number, keep: 'existing' | 'incoming') =>
+    request<import('./types').CanonicalFact>(`/api/candidate/canonical-facts/${factId}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({ keep }),
+    }),
+  deleteCanonicalFact: (factId: number) =>
+    request<void>(`/api/candidate/canonical-facts/${factId}`, { method: 'DELETE' }),
+  listAnswers: (params?: { category?: string; status?: string; search?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.category) query.set('category', params.category);
+    if (params?.status) query.set('status', params.status);
+    if (params?.search) query.set('search', params.search);
+    const qs = query.toString();
+    return request<import('./types').ApplicationAnswer[]>(`/api/candidate/answers${qs ? `?${qs}` : ''}`);
+  },
+  createAnswer: (data: Record<string, unknown>) =>
+    request<import('./types').ApplicationAnswer>('/api/candidate/answers', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateAnswer: (answerId: number, data: Record<string, unknown>) =>
+    request<import('./types').ApplicationAnswer>(`/api/candidate/answers/${answerId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  generateAnswer: (data: { question: string; category: string; job_id?: number }) =>
+    request<import('./types').ApplicationAnswer>('/api/candidate/answers/generate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  deleteAnswer: (answerId: number) => request<void>(`/api/candidate/answers/${answerId}`, { method: 'DELETE' }),
 };
