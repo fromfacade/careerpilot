@@ -7,6 +7,7 @@ import { PreferencesPanel } from '../components/PreferencesPanel'
 import { ProfilePanel } from '../components/ProfilePanel'
 import { AnswerLibraryPanel } from '../components/AnswerLibraryPanel'
 import { KnowledgeBasePanel } from '../components/KnowledgeBasePanel'
+import { WritingStylePanel } from '../components/WritingStylePanel'
 import { ResumePanel } from '../components/ResumePanel'
 import { ErrorBlock } from '../components/StatusViews'
 
@@ -40,6 +41,7 @@ export function Dashboard() {
       <PreferencesPanel onChanged={bump} />
       <ResumePanel />
       <KnowledgeBasePanel />
+      <WritingStylePanel />
       <AnswerLibraryPanel />
       <JobSourcesPanel />
       <DiscoveryPanel onRunCompleted={bump} />

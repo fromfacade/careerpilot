@@ -37,6 +37,7 @@ export function AnswerLibraryPanel() {
   const [answerText, setAnswerText] = useState('')
   const [newCategory, setNewCategory] = useState<AnswerCategory>('interest')
   const [preferNot, setPreferNot] = useState(false)
+  const [compare, setCompare] = useState<{ original: ApplicationAnswer; rewrite: ApplicationAnswer } | null>(null)
 
   async function run(action: () => Promise<unknown>, ok?: string) {
     setBusy(true)
@@ -125,7 +126,7 @@ export function AnswerLibraryPanel() {
               }
               className="rounded-md bg-blue-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
             >
-              Generate AI draft
+              Generate personalized draft
             </button>
           )}
         </div>
@@ -169,6 +170,32 @@ export function AnswerLibraryPanel() {
               {answer.missing_information.length > 0 && (
                 <p className="mt-1 text-xs text-amber-800">Missing: {answer.missing_information.map(String).join(' ')}</p>
               )}
+              {answer.unsupported_claims.length > 0 && (
+                <p className="mt-1 text-xs text-amber-800">
+                  Unsupported claims: {answer.unsupported_claims.map(String).join(' ')}
+                </p>
+              )}
+              {compare && compare.rewrite.id === answer.id && (
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <div className="rounded-md border border-slate-200 p-2">
+                    <p className="text-xs font-semibold text-slate-500">Original</p>
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{compare.original.answer_text}</p>
+                  </div>
+                  <div className="rounded-md border border-blue-200 p-2">
+                    <p className="text-xs font-semibold text-slate-500">Rewrite (edit before approving)</p>
+                    <textarea
+                      defaultValue={compare.rewrite.answer_text}
+                      rows={5}
+                      className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                      onBlur={(e) => {
+                        if (e.target.value !== compare.rewrite.answer_text) {
+                          run(() => api.updateAnswer(compare.rewrite.id, { answer_text: e.target.value }))
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
               <div className="mt-2 flex flex-wrap gap-2">
                 {nextStatusAfterApproveClick(answer.category, answer.status) && (
                   <button
@@ -188,6 +215,57 @@ export function AnswerLibraryPanel() {
                 )}
                 <button type="button" disabled={busy} onClick={() => run(() => api.updateAnswer(answer.id, { is_preferred: !answer.is_preferred }))} className="rounded-md border border-slate-300 px-2 py-1 text-xs">
                   {answer.is_preferred ? 'Unmark preferred' : 'Mark preferred'}
+                </button>
+                {aiAvailable && !isSensitiveCategory(answer.category) && !answer.prefer_not_to_answer && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      run(async () => {
+                        const rewritten = await api.rewriteAnswer(answer.id)
+                        const original = answer.rewritten_from_id ? await api.getAnswer(answer.rewritten_from_id) : answer
+                        setCompare({ original, rewrite: rewritten })
+                      }, 'Created a rewritten draft. It stays unapproved.')
+                    }
+                    className="rounded-md border border-blue-300 px-2 py-1 text-xs text-blue-700"
+                  >
+                    Rewrite using my style
+                  </button>
+                )}
+                {answer.rewritten_from_id && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      run(async () => {
+                        const original = await api.getAnswer(answer.rewritten_from_id as number)
+                        setCompare({ original, rewrite: answer })
+                      })
+                    }
+                    className="rounded-md border border-slate-300 px-2 py-1 text-xs"
+                  >
+                    Compare with original
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={busy || !answer.answer_text.trim()}
+                  onClick={() =>
+                    run(
+                      () =>
+                        api.createWritingSample({
+                          title: answer.question.slice(0, 80),
+                          body: answer.answer_text,
+                          category: 'general',
+                          source_answer_id: answer.id,
+                          is_approved_style_reference: true,
+                        }),
+                      'Saved as your writing sample.',
+                    )
+                  }
+                  className="rounded-md border border-slate-300 px-2 py-1 text-xs"
+                >
+                  Save as my writing
                 </button>
                 <button type="button" disabled={busy} onClick={() => run(() => api.deleteAnswer(answer.id))} className="rounded-md border border-red-300 px-2 py-1 text-xs text-red-700">
                   Delete
