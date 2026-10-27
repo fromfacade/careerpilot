@@ -130,10 +130,10 @@ careerpilot/
 | 7 | Resume Tailoring & Versioning | **Implemented for Phase 2.3.1.** Uploaded files are resume profiles (category, approval, default). Prepare Application selects an approved original file and explains why. Tailoring is optional and never replaces the selected original. Generated PDFs are validated for extractable text. |
 | 8 | AI Provider Management | **Partial (Phase 2.2).** Common `AnswerProvider` interface, Gemini adapter (httpx), mock for tests. Disabled unless `AI_ENABLED` and a key are set. Status endpoint never returns the key. Resume parsing still has zero AI calls. |
 | 9 | Application Answer Library | **Implemented (Phase 2.2 / 2.2.1).** Manual and AI-draft answers, writing-style profile, approved writing samples as untrusted style references, grounded generation, and rewrite-without-overwrite. No form filling or submission. |
-| 10 | Form Automation Adapters | **Greenhouse fill, readiness, tracking, and explicit submission (Phase 2.5.3).** A headed Chromium window fills reviewed fields. Submit runs only after a fresh readiness check and a confirmation for that application. Success requires a receipt on the page. |
-| 11 | Submission Authorization Policy Engine | Not built. Autonomous submission stays disabled by construction — there is no submission code path in Phase 1. |
-| 12 | Application Queue & State Machine | **Partial (Phase 2.5.4).** `tracked_applications` moves through an authorized submit. `application_events` records each status change. |
-| 13 | Application Tracker | **Partial (Phase 2.5.4).** The preparation detail shows status, confirmation, submission time, history, and a correction when the outcome is unknown. |
+| 10 | Form Automation Adapters | **Greenhouse workflow (Phase 2.5.5).** Apply with CareerPilot on a job card prepares the application and fills approved fields in a headed Chromium window. Submit runs only after a fresh readiness check and a confirmation for that application. Success requires a receipt on the page. |
+| 11 | Submission Authorization Policy Engine | **One confirmed Greenhouse submit (Phase 2.5.5).** Each attempt needs a current readiness result and an explicit confirmation of that employer and job. A failed or unknown attempt cannot reuse the previous confirmation. Autonomous submission stays disabled. |
+| 12 | Application Queue & State Machine | **Partial (Phase 2.5.5).** `tracked_applications` moves through an authorized submit. `application_events` records each status change. The job-card workflow reuses one open preparation and one tracked row. |
+| 13 | Application Tracker | **Partial (Phase 2.5.5).** The job card and the preparation detail show status, confirmation, submission time, history, and a correction when the outcome is unknown. |
 | 14 | Analytics & Notifications | Not built beyond discovery-run status surfaced in the dashboard. |
 | 15 | Privacy, Security & Audit Logging | **Partial.** Structured logging, secrets via env vars/`.env` (gitignored), no PII in logs. Full audit-log table deferred. |
 
@@ -370,6 +370,10 @@ a separate confirmation for the open session. A button click is stored
 as submitted only when the employer page shows a receipt. Phase 2.5.4
 keeps an uncertain result unknown until the user records what the
 employer page showed, and that correction is stored in the status history.
+Phase 2.5.5 starts that same path from Apply with CareerPilot on the job
+card: one preparation, approved-field fill, and the existing confirmation
+before anything is sent. Tailoring stays optional. An unsupported board
+never opens a browser.
 
 The browser is a locally controlled headed Playwright window, with one
 adapter per site. The reason for that choice, and why a browser

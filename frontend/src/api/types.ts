@@ -514,6 +514,15 @@ export interface PreparationAnswer {
   updated_at: string;
 }
 
+export interface ApplicationWorkflow {
+  reused: boolean;
+  can_open_browser: boolean;
+  eligibility: string;
+  eligibility_detail: string;
+  message: string;
+  preparation: ApplicationPreparation;
+}
+
 export interface ApplicationPreparation {
   id: number;
   candidate_id: number;

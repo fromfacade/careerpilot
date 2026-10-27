@@ -13,10 +13,10 @@ import { ResumePanel } from '../components/ResumePanel'
 import { ErrorBlock } from '../components/StatusViews'
 
 export function Dashboard() {
+  // The job card starts an application. This page only remembers which one.
   const [refreshSignal, setRefreshSignal] = useState(0)
   const [backendDown, setBackendDown] = useState<string | null>(null)
   const [preparationId, setPreparationId] = useState<number | null>(null)
-  const [creatingPreparation, setCreatingPreparation] = useState(false)
 
   const bump = useCallback(() => setRefreshSignal((n) => n + 1), [])
 
@@ -50,23 +50,9 @@ export function Dashboard() {
       <DiscoveryPanel onRunCompleted={bump} />
       <JobsSection
         refreshSignal={refreshSignal}
-        onPrepare={async (jobId) => {
-          setCreatingPreparation(true)
-          try {
-            const prep = await api.createPreparation(jobId)
-            setPreparationId(prep.id)
-          } catch (err) {
-            window.alert(err instanceof Error ? err.message : 'Could not prepare that application.')
-          } finally {
-            setCreatingPreparation(false)
-          }
-        }}
+        onStarted={setPreparationId}
       />
-      <ApplicationPreparationPanel
-        selectedId={preparationId}
-        onSelected={setPreparationId}
-        creating={creatingPreparation}
-      />
+      <ApplicationPreparationPanel selectedId={preparationId} onSelected={setPreparationId} />
     </main>
   )
 }

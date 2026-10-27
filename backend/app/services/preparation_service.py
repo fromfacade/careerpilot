@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.ai.registry import get_provider
@@ -149,7 +150,14 @@ def create_or_get_preparation(db: Session, candidate: Candidate, job_id: int) ->
         design_limitation=DESIGN_LIMITATION,
     )
     db.add(row)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = get_open_preparation(db, candidate, job_id)
+        if existing is None:
+            raise ValidationError("Another request is already preparing this application.") from None
+        return existing
     db.refresh(row)
     return analyze_preparation(db, candidate, row.id)
 

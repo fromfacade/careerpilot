@@ -72,6 +72,15 @@ class PreparationCreate(BaseModel):
     job_id: int
 
 
+class ApplicationWorkflowRead(BaseModel):
+    reused: bool
+    can_open_browser: bool
+    eligibility: str
+    eligibility_detail: str
+    message: str
+    preparation: ApplicationPreparationRead
+
+
 class PreparationAnswerUpdate(BaseModel):
     answer_text: str | None = Field(default=None, max_length=20000)
     status: PreparationItemStatus | None = None

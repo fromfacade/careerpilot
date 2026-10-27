@@ -314,6 +314,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ job_id: jobId }),
     }),
+  startApplicationWorkflow: (jobId: number) =>
+    request<import('./types').ApplicationWorkflow>('/api/preparations/workflow', {
+      method: 'POST',
+      body: JSON.stringify({ job_id: jobId }),
+    }),
   getPreparation: (id: number) =>
     request<import('./types').ApplicationPreparation>(`/api/preparations/${id}`),
   cancelPreparation: (id: number) =>

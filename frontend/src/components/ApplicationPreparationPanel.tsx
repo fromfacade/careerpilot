@@ -206,7 +206,7 @@ export function ApplicationPreparationPanel({
       {list.status === 'loading' && <LoadingBlock label="Loading preparations…" />}
       {list.status === 'error' && <ErrorBlock message={list.message} onRetry={list.reload} />}
       {list.status === 'success' && list.data.length === 0 && (
-        <EmptyBlock message="No preparations yet. Use Prepare application on a job card." />
+        <EmptyBlock message="No preparations yet. Use Apply with CareerPilot on a Greenhouse job." />
       )}
       {list.status === 'success' && list.data.length > 0 && (
         <div className="mt-3 grid gap-3 lg:grid-cols-[16rem_1fr]">
@@ -617,7 +617,7 @@ function AnswerCard({
   )
 }
 
-function ApplicationStatusCard({
+export function ApplicationStatusCard({
   prep,
   applicationStatus,
   onResolved,

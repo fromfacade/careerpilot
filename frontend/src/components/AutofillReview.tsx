@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import type { ApplicationPreparation, AutofillAnswerField, AutofillPlanField, AutofillSession } from '../api/types'
 import localToken from 'virtual:careerpilot-token'
@@ -6,9 +6,13 @@ import localToken from 'virtual:careerpilot-token'
 export function AutofillReview({
   prep,
   onApplicationStatus,
+  autoStart = false,
+  hideLauncher = false,
 }: {
   prep: ApplicationPreparation
   onApplicationStatus?: (status: string) => void
+  autoStart?: boolean
+  hideLauncher?: boolean
 }) {
   const [session, setSession] = useState<AutofillSession | null>(null)
   const [included, setIncluded] = useState<Record<string, boolean>>({})
@@ -17,9 +21,16 @@ export function AutofillReview({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmed, setConfirmed] = useState(false)
+  const started = useRef(false)
   const publicUrl = prep.snapshot_apply_url || ''
   const formUrl = prep.greenhouse_apply_url || (publicUrl.includes('greenhouse.io') ? publicUrl : '')
   const note = prep.greenhouse_autofill_note || ''
+
+  function approvedIds(next: AutofillSession) {
+    const ready = next.plan?.ready.map((field) => field.field_id) ?? []
+    const answers = next.plan?.answers.matched.filter((field) => field.approval_status === 'approved').map((field) => field.field_id) ?? []
+    return [...ready, ...answers]
+  }
 
   async function openSession() {
     setBusy(true)
@@ -81,6 +92,36 @@ export function AutofillReview({
     }
   }
 
+  useEffect(() => {
+    if (!autoStart || started.current || !formUrl) return
+    started.current = true
+    void (async () => {
+      setBusy(true)
+      setError(null)
+      try {
+        const opened = await api.openAutofillSession(prep.id)
+        const included = approvedIds(opened)
+        const filled = await api.fillAutofillSession(opened.id, {
+          included_field_ids: included,
+          overwrite_field_ids: [],
+          attach_resume: Boolean(opened.plan?.resume.eligible_for_attach),
+        })
+        setSession(filled)
+        const choices: Record<string, boolean> = {}
+        included.forEach((id) => {
+          choices[id] = true
+        })
+        setIncluded(choices)
+        setAttachResume(Boolean(filled.plan?.resume.eligible_for_attach))
+        if (filled.application_status) onApplicationStatus?.(filled.application_status)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'The application form could not be prepared.')
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [autoStart, formUrl, prep.id, onApplicationStatus])
+
   async function stop() {
     if (!session) return
     setBusy(true)
@@ -100,14 +141,14 @@ export function AutofillReview({
     <div className="mt-3 rounded-md border border-slate-200 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <h4 className="text-sm font-semibold text-slate-900">Greenhouse autofill</h4>
-        {formUrl && (
+        {formUrl && (!hideLauncher || error) && (
           <button
             type="button"
             disabled={busy}
             onClick={openSession}
             className="rounded-md bg-blue-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
           >
-            Apply with CareerPilot
+            {hideLauncher ? 'Try the form again' : 'Apply with CareerPilot'}
           </button>
         )}
         {session && session.state !== 'cancelled' && session.state !== 'failed' && (
@@ -117,8 +158,11 @@ export function AutofillReview({
         )}
       </div>
       <p className="mt-1 text-xs text-slate-500">
-        Opens a visible browser and fills only the fields you approve. Sending an application requires a separate confirmation for that job.
+        Opens a visible browser and fills only approved fields. Sending an application requires a separate confirmation for that job.
       </p>
+      {autoStart && busy && !session && (
+        <p className="mt-2 text-sm text-slate-700">Opening the Greenhouse form and filling approved fields. Nothing is submitted.</p>
+      )}
       {publicUrl && <p className="mt-1 break-all text-xs text-slate-500">Posting: {publicUrl}</p>}
       {formUrl && <p className="mt-1 break-all text-xs text-slate-500">Application form: {formUrl}</p>}
       {note && <p className="mt-2 text-sm text-amber-800">{note}</p>}

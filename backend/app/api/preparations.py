@@ -1,4 +1,4 @@
-"""HTTP surface for application preparations. No submit endpoint exists."""
+"""HTTP surface for application preparations. Starting a workflow does not submit."""
 
 from __future__ import annotations
 
@@ -15,13 +15,14 @@ from app.models.enums import PreparationState
 from app.models.resume import Resume
 from app.schemas.preparation import (
     ApplicationPreparationRead,
+    ApplicationWorkflowRead,
     PreparationAnswerUpdate,
     PreparationCreate,
     PreparationResumeSelect,
     TailoredResumeUpdate,
     to_read,
 )
-from app.services import application_tracking, candidate_service, preparation_service
+from app.services import application_tracking, application_workflow, candidate_service, preparation_service
 
 router = APIRouter(prefix="/api/preparations", tags=["preparations"])
 
@@ -76,6 +77,25 @@ def create_preparation(payload: PreparationCreate, response: Response, db: Sessi
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/workflow", response_model=ApplicationWorkflowRead)
+def start_application_workflow(payload: PreparationCreate, db: Session = Depends(get_db)):
+    candidate = _require_candidate(db)
+    try:
+        started = application_workflow.begin_workflow(db, candidate, payload.job_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValidationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ApplicationWorkflowRead(
+        reused=started.reused,
+        can_open_browser=started.can_open_browser,
+        eligibility=started.eligibility,
+        eligibility_detail=started.eligibility_detail,
+        message=started.message,
+        preparation=_out(db, started.preparation),
+    )
 
 
 @router.get("/{preparation_id}", response_model=ApplicationPreparationRead)

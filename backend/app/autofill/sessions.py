@@ -395,6 +395,8 @@ def submit_session(session_id: str, *, confirm: bool, preparation_id: int, apply
         run.application_status = status
         run.state = status
         run.message = note
+        if status != "submitted":
+            run.submit_expires_at = None
         return run
     finally:
         run.submit_gate.release()
@@ -428,6 +430,7 @@ def _record_unknown(run: AutofillRun, application_id: int) -> None:
     run.state = "confirmation_unknown"
     run.message = note
     run.application_status = "confirmation_unknown"
+    run.submit_expires_at = None
 
 
 def cancel_session(session_id: str) -> AutofillRun:

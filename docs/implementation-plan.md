@@ -30,7 +30,8 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
 - **Phase 2.5.1 (complete on `feature/application-readiness`)**: application readiness. Unknown eligibility is not treated as ready.
 - **Phase 2.5.2 (complete on `feature/application-readiness`)**: persistent application tracking.
 - **Phase 2.5.3 (complete on `feature/application-readiness`)**: explicit Greenhouse submission for one confirmed application.
-- **Phase 2.5.4 (this increment)**: confirmation phrases, manual resolution, and status history.
+- **Phase 2.5.4 (complete on `feature/application-readiness`)**: confirmation phrases, manual resolution, and status history.
+- **Phase 2.5.5 (this increment)**: one Apply with CareerPilot action from a job listing. Preparation and approved-field fill start there. Submission still requires a fresh check and an explicit confirmation for that job.
 
 ## 2. Phase 1 increments (checklist)
 
@@ -923,5 +924,29 @@ status, time, a redacted summary, and whether the change came from the
 browser or from that correction. The preparation detail shows the
 current status, submission time, confirmation text, and that history.
 
-Status: **2.5.4 implemented.** Increment 2.5.5 can add the one-button
-dashboard workflow on top of these checks.
+Status: **2.5.4 implemented.**
+
+## 17. Phase 2.5.5 — End-to-end application workflow
+
+`POST /api/preparations/workflow` is the one action behind Apply with
+CareerPilot on a job card. It rejects Lever, Ashby, and any Greenhouse
+job whose form URL cannot be built, and it does not create a preparation
+in those cases. An eligible Greenhouse job reuses the open preparation
+when one exists. Otherwise it creates one, selects an approved resume
+with the existing deterministic selector, and leaves tailoring optional.
+It does not generate a new resume or change an approved file.
+
+Unknown or ineligible eligibility is shown on the card and does not by
+itself stop the browser from opening. Readiness still refuses
+`ready_to_submit`. A submitted, submitting, or confirmation-unknown
+application does not open another browser. A browser-confirmed failure
+can be reviewed again, but the previous confirmation expires and the
+user must pass a new readiness check and confirm that employer and job.
+
+The card then opens the Greenhouse session and fills only fields that
+are ready plus answers already approved. Sensitive and unanswered
+questions stay for the user. The existing review, readiness, confirmation,
+and tracking panels stay on that card. Nothing is submitted until the
+user confirms that exact application.
+
+Status: **2.5.5 implemented.** This is the last increment of Phase 2.5.
