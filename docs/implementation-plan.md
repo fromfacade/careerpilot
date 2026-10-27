@@ -761,8 +761,13 @@ Decisions:
   or unreadable extraction appear. Two pages are allowed when the last
   page has real content.
 
-Status: **complete on `feature/application-preparation`.** Phase 2.4 is
-not started.
+Bullet choice prefers a specific mechanism (measurable result, engineering
+constraint, or relevant technology used in a concrete way) over a generic
+architecture sentence. Verified GitHub and portfolio URLs are printed when
+the profile has them and are never invented.
+
+Status: **Phase 2.3 finished on `feature/application-preparation`.**
+Phase 2.4 is not started.
 
 ## 11. Proposed Phase 2.4 — browser form automation (not implemented)
 

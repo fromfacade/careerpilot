@@ -245,13 +245,88 @@ def _selection_reason(fact: CanonicalFact, target: set[str]) -> str:
     return "Included as additional verified experience."
 
 
-def strongest_bullet_indexes(bullets: list[str], target: set[str], limit: int) -> list[int]:
-    """Keep the bullets with the most job overlap and measurable impact."""
+_GENERIC_BULLET_TOKENS = frozenset(
+    {
+        "built",
+        "designed",
+        "implemented",
+        "developed",
+        "created",
+        "added",
+        "using",
+        "used",
+        "with",
+        "and",
+        "for",
+        "the",
+        "that",
+        "from",
+        "into",
+        "between",
+        "across",
+        "while",
+        "keeping",
+        "clear",
+        "split",
+        "separation",
+        "layers",
+        "layer",
+        "service",
+        "services",
+        "models",
+        "model",
+        "system",
+        "systems",
+        "application",
+        "app",
+        "backend",
+        "frontend",
+        "rest",
+        "api",
+        "apis",
+        "database",
+        "data",
+        "persistence",
+        "clean",
+        "simple",
+        "basic",
+        "various",
+    }
+)
+_GENERIC_PHRASE_RE = re.compile(
+    r"\b(clear split|clear separation|best practices|worked on|responsible for|helped with)\b",
+    re.I,
+)
+
+
+def _bullet_specificity(text: str, technologies: list[str]) -> int:
+    """Distinct mechanism words, minus a generic architecture-phrase penalty."""
+    tokens = _tokens(text) - _tokens(" ".join(technologies)) - _GENERIC_BULLET_TOKENS
+    penalty = 4 if _GENERIC_PHRASE_RE.search(ascii_safe(text)) else 0
+    return len(tokens) - penalty
+
+
+def strongest_bullet_indexes(
+    bullets: list[str],
+    target: set[str],
+    limit: int,
+    *,
+    technologies: list[str] | None = None,
+) -> list[int]:
+    """Prefer a specific mechanism over a generic stack description.
+
+    Relevant technologies and measurable results still count, but they do
+    not outrank a concrete engineering accomplishment.
+    """
+    stack = technologies or []
     ranked = sorted(
         range(len(bullets)),
         key=lambda index: (
-            -len(_tokens(bullets[index]) & target),
-            -int(bool(_IMPACT_RE.search(bullets[index]))),
+            -(
+                _bullet_specificity(bullets[index], stack) * 2
+                + len(_tokens(bullets[index]) & target) * 3
+                + int(bool(_IMPACT_RE.search(bullets[index]))) * 2
+            ),
             index,
         ),
     )
@@ -263,7 +338,12 @@ def limit_entry_bullets(row: dict, target: set[str], limit: int) -> None:
     bullets = _as_text_list(detail.get("bullets"))
     if not bullets:
         return
-    detail["included_bullet_indexes"] = strongest_bullet_indexes(bullets, target, limit)
+    detail["included_bullet_indexes"] = strongest_bullet_indexes(
+        bullets,
+        target,
+        limit,
+        technologies=_as_text_list(detail.get("technologies")),
+    )
     row["detail"] = detail
 
 
@@ -282,7 +362,12 @@ def _copy_detail(fact: CanonicalFact, target: set[str]) -> dict:
     bullets = _as_text_list(raw.get("bullets"))
     if bullets:
         limit = _PROJECT_BULLETS if fact.fact_type is FactType.PROJECT else _MAX_BULLETS
-        detail["included_bullet_indexes"] = strongest_bullet_indexes(bullets, target, limit)
+        detail["included_bullet_indexes"] = strongest_bullet_indexes(
+            bullets,
+            target,
+            limit,
+            technologies=_as_text_list(raw.get("technologies")),
+        )
         detail["bullets"] = bullets
     return detail
 
@@ -578,7 +663,7 @@ def _contact_line(header: dict) -> str:
         header.get("github_url"),
         header.get("portfolio_url"),
     ]
-    return " | ".join(ascii_safe(part) for part in parts if part)
+    return " | ".join(ascii_safe(str(part)).strip() for part in parts if part and str(part).strip())
 
 
 def _heading_for(section: str, title: str, detail: dict) -> str:

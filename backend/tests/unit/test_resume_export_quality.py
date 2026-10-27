@@ -167,6 +167,40 @@ def test_three_projects_do_not_push_skills_off_page_one(tmp_path: Path):
     assert [fact.fact_value for fact in facts] == original
 
 
+def test_specific_mechanism_outranks_generic_architecture_bullet():
+    from app.services.resume_tailor import strongest_bullet_indexes
+    from app.services.resume_tailor import _tokens
+
+    taskflow = next(fact for fact in realistic_facts() if fact.fact_key == "TaskFlow")
+    bullets = taskflow.fact_value["bullets"]
+    target = _tokens("FastAPI PostgreSQL Docker REST APIs SQL background job processing")
+    indexes = strongest_bullet_indexes(
+        bullets,
+        target,
+        2,
+        technologies=taskflow.fact_value["technologies"],
+    )
+    chosen = " ".join(bullets[index] for index in indexes)
+    assert "concurrency-safe" in chosen
+    assert "clear split" not in chosen
+
+
+def test_contact_line_uses_verified_links_only():
+    present = tailor_resume(Candidate(), realistic_facts(), BACKEND_ANALYSIS)
+    contact = " ".join(flatten_tailored_lines(present)[:2])
+    assert "github.com/alexrivera" in contact
+    assert "alexrivera.dev" in contact
+    assert "alex.rivera@example.com" in contact
+    missing = Candidate()
+    missing.github_url = None
+    missing.portfolio_url = None
+    hidden = tailor_resume(missing, realistic_facts(), BACKEND_ANALYSIS)
+    contact = " ".join(flatten_tailored_lines(hidden)[:2])
+    assert "github.com" not in contact
+    assert "alexrivera.dev" not in contact
+    assert "http" not in contact
+
+
 def test_internship_resume_keeps_three_projects_with_two_bullets(tmp_path: Path):
     facts = realistic_facts()
     original = [dict(fact.fact_value) for fact in facts]
