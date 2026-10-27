@@ -87,6 +87,7 @@ class ResumePlan:
     eligible_for_attach: bool
     review_required: bool
     reason: str
+    field_id: str | None = None
 
 
 @dataclass
@@ -143,21 +144,27 @@ def apply_materials(plan: AutofillPlan, detection: FormDetection, materials: Mat
         return
     accept = _resume_accept(detection)
     has_upload = _has_resume_upload(detection)
-    plan.resume = select_resume(materials, accept, has_upload)
+    plan.resume = select_resume(materials, accept, has_upload, _resume_field_id(detection))
     plan.answers = match_answers(detection, materials)
 
 
-def select_resume(materials: Materials, accept: str, has_upload: bool) -> ResumePlan:
+def select_resume(materials: Materials, accept: str, has_upload: bool, field_id: str | None = None) -> ResumePlan:
     if materials.link_problem:
         plan = empty_resume(materials.link_problem)
         plan.preparation_id = materials.preparation_id
+        plan.field_id = field_id
         return plan
     if materials.preparation_id is None:
-        return empty_resume("No application preparation is linked to this form, so no resume was selected.")
+        plan = empty_resume("No application preparation is linked to this form, so no resume was selected.")
+        plan.field_id = field_id
+        return plan
     tailored = materials.tailored
     if tailored is not None and tailored.status == "approved":
-        return _from_tailored(materials, accept, has_upload)
-    return _from_original(materials, accept, has_upload)
+        chosen = _from_tailored(materials, accept, has_upload)
+    else:
+        chosen = _from_original(materials, accept, has_upload)
+    chosen.field_id = field_id
+    return chosen
 
 
 def match_answers(detection: FormDetection, materials: Materials) -> AnswerPlan:
@@ -373,6 +380,13 @@ def _from_tailored(materials: Materials, accept: str, has_upload: bool) -> Resum
         review_required=True,
         reason="The approved tailored resume cannot be attached. The original file was not substituted.",
     )
+
+
+def _resume_field_id(detection: FormDetection) -> str | None:
+    for item in detection.fields:
+        if item.semantic == "resume" and item.input_type == "file":
+            return item.field_id
+    return None
 
 
 def _resume_accept(detection: FormDetection) -> str:

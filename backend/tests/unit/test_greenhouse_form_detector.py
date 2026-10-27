@@ -179,7 +179,15 @@ def test_detect_route_returns_fields_and_exposes_no_submit_path():
     result = detect_application_form(AutofillDetectRequest(url=URL, html=STANDARD))
     assert result.supported is True
     assert any(field.semantic == "resume" and field.input_type == "file" for field in result.fields)
-    assert {route.path for route in router.routes} == {"/api/autofill/detect", "/api/autofill/plan"}
+    paths = {route.path for route in router.routes}
+    assert paths == {
+        "/api/autofill/detect",
+        "/api/autofill/plan",
+        "/api/autofill/sessions",
+        "/api/autofill/sessions/{session_id}",
+        "/api/autofill/sessions/{session_id}/fill",
+        "/api/autofill/sessions/{session_id}/cancel",
+    }
     assert all("submit" not in route.path for route in router.routes)
 
 

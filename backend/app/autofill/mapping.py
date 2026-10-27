@@ -125,6 +125,8 @@ class PlanField:
     input_type: str
     label: str
     required: bool | None
+    name: str
+    element_id: str
     detection_confidence: str
     proposed_value: str | None
     proposed_replacement: str | None
@@ -190,6 +192,8 @@ def _map_field(detected: DetectedField, facts: list[FactView], profile: ProfileV
         input_type=detected.input_type,
         label=label,
         required=detected.required,
+        name=detected.name,
+        element_id=detected.element_id,
         detection_confidence=detected.confidence,
         proposed_value=None,
         proposed_replacement=None,

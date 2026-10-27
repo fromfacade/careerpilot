@@ -1,0 +1,217 @@
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from fastapi import Depends, FastAPI
+from fastapi.testclient import TestClient
+from playwright.sync_api import sync_playwright
+
+from app.api.autofill import require_browser_token
+from app.autofill.actions import SubmissionBlocked, decide_fill, refuse_submission, resume_marker, reviewed_fields
+from app.autofill.browser_fill import apply_actions, install_navigation_guard, open_application, NavigationBlocked
+from app.autofill.actions import FillAction
+from app.autofill.mapping import ProfileView, plan_autofill
+from app.autofill.materials import Materials, ResumeFileView, TailoredFileView
+from app.autofill.urls import navigation_allowed
+from app.core.local_auth import load_or_create_token
+
+URL = "https://boards.greenhouse.io/acme/jobs/12345"
+PROFILE = ProfileView(candidate_id=7, full_name="Ada Lovelace", email="ada@example.com", phone="555-0100")
+
+FORM = """
+<form id="application" onsubmit="window.__submitted = true; return false;">
+  <label for="first_name">First Name *</label>
+  <input id="first_name" name="job_application[first_name]" required>
+  <label for="email">Email *</label>
+  <input id="email" name="job_application[email]" type="email" required value="kept@example.com">
+  <label for="phone">Phone</label>
+  <input id="phone" name="job_application[phone]" type="tel">
+  <label for="why">Why are you interested in this role?</label>
+  <textarea id="why" name="why"></textarea>
+  <label for="work">Are you authorized to work in the United States?</label>
+  <select id="work" name="work"><option>Yes</option><option>No</option></select>
+  <label for="resume">Resume</label>
+  <input id="resume" name="job_application[resume]" type="file" accept=".pdf">
+  <fieldset>
+    <legend>Preferred contact</legend>
+    <label><input type="radio" name="contact_method" value="email"> Email</label>
+    <label><input type="radio" name="contact_method" value="phone"> Phone</label>
+  </fieldset>
+  <label for="school">School</label>
+  <select id="school" name="school"><option>Example State</option><option>Other</option></select>
+  <button type="submit" id="send">Submit application</button>
+</form>
+<script>window.__submitted = false;</script>
+"""
+
+
+def _materials(path):
+    path.write_bytes(b"%PDF-1.4 fictional")
+    return Materials(
+        preparation_id=9,
+        resume=ResumeFileView(4, "Backend SWE Resume", "pdf", True, False, str(path)),
+        tailored=TailoredFileView(status="draft"),
+        job_answers=[],
+        library_answers=[],
+    )
+
+
+def _decision(html, path, **kwargs):
+    plan = plan_autofill(URL, html, [], PROFILE, _materials(path))
+    reviewed = reviewed_fields(plan)
+    marker = resume_marker(plan)
+    if marker is not None:
+        reviewed[marker.field_id] = marker
+    included = kwargs.get("included", {key for key in reviewed if key != "__resume__"})
+    return plan, decide_fill(
+        reviewed,
+        plan,
+        included=included,
+        overwrite=kwargs.get("overwrite", set()),
+        attach_resume=kwargs.get("attach_resume", True),
+    )
+
+
+def test_navigation_stays_on_greenhouse_hosts():
+    assert navigation_allowed("https://boards.greenhouse.io/acme/jobs/1") is True
+    assert navigation_allowed("https://example.com/jobs/1") is False
+    assert navigation_allowed("http://boards.greenhouse.io/acme/jobs/1") is False
+    try:
+        open_application(None, "https://jobs.lever.co/acme/role")  # type: ignore[arg-type]
+        raised = False
+    except NavigationBlocked:
+        raised = True
+    assert raised is True
+
+
+def test_plan_fills_only_eligible_fields_and_blocks_submission(tmp_path):
+    plan, decision = _decision(FORM, tmp_path / "resume.pdf")
+    assert decision.stop_reason is None
+    assert {action.field_id for action in decision.actions} == {
+        "job_application[first_name]",
+        "job_application[phone]",
+    }
+    assert "job_application[email]" in decision.preserved
+    assert decision.resume_field_id == "job_application[resume]"
+    assert all(action.input_type != "submit" for action in decision.actions)
+    try:
+        refuse_submission("submit")
+        raised = False
+    except SubmissionBlocked:
+        raised = True
+    assert raised is True
+    captcha = FORM.replace("</form>", '<div class="g-recaptcha"></div></form>')
+    _captcha_plan, blocked = _decision(captcha, tmp_path / "other.pdf")
+    assert blocked.stop_reason
+    assert blocked.actions == []
+    changed = FORM.replace('for="first_name">First Name', 'for="first_name">Given name')
+    reviewed = reviewed_fields(plan)
+    live = plan_autofill(URL, changed, [], PROFILE, _materials(tmp_path / "third.pdf"))
+    stale = decide_fill(reviewed, live, included={"job_application[first_name]"}, overwrite=set(), attach_resume=False)
+    assert "job_application[first_name]" in stale.stale
+
+
+def test_browser_fills_verifies_and_does_not_submit(tmp_path):
+    resume = tmp_path / "resume.pdf"
+    resume.write_bytes(b"%PDF-1.4 fictional")
+    action = FillAction(
+        field_id="job_application[first_name]",
+        input_type="text",
+        name="job_application[first_name]",
+        element_id="first_name",
+        label="First Name",
+        value="Ada",
+        kind="contact",
+    )
+    radio = FillAction(
+        field_id="contact_method",
+        input_type="radio",
+        name="contact_method",
+        element_id="",
+        label="Preferred contact",
+        value="Email",
+        kind="contact",
+    )
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.set_content(FORM)
+        report = apply_actions(
+            page,
+            [action, radio],
+            resume_field_id="job_application[resume]",
+            resume_path=str(resume),
+            resume_name="Backend SWE Resume",
+        )
+        assert report.submitted is False
+        assert page.evaluate("() => window.__submitted") is False
+        assert page.locator("#first_name").input_value() == "Ada"
+        assert page.locator('input[name="contact_method"][value="email"]').is_checked()
+        assert report.resume_status == "attached"
+        assert str(resume.parent) not in report.resume_detail
+        page.locator("#email").fill("edited@example.com")
+        again = apply_actions(page, [], resume_field_id=None, resume_path=None, resume_name="")
+        assert page.locator("#email").input_value() == "edited@example.com"
+        assert again.submitted is False
+        missing = apply_actions(
+            page,
+            [],
+            resume_field_id="job_application[resume]",
+            resume_path=str(tmp_path / "missing.pdf"),
+            resume_name="Backend SWE Resume",
+        )
+        assert missing.resume_status == "failed"
+        cancel = threading.Event()
+        cancel.set()
+        stopped = apply_actions(page, [action], resume_field_id=None, resume_path=None, resume_name="", cancel=cancel)
+        assert stopped.stopped == "cancelled"
+        assert stopped.outcomes == []
+        browser.close()
+
+
+def test_navigation_guard_blocks_other_origins():
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = b"<html><body>local-secret-page</body></html>"
+            self.send_response(200)
+            self.send_header("content-type", "text/html")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format, *args):
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            install_navigation_guard(page)
+            failed: list[str] = []
+            page.on("requestfailed", lambda request: failed.append(request.url))
+            try:
+                page.goto(f"http://127.0.0.1:{port}/apply", timeout=3000)
+            except Exception:
+                pass
+            assert any(f"127.0.0.1:{port}" in url for url in failed)
+            browser.close()
+    finally:
+        server.shutdown()
+
+
+def test_browser_token_is_required_before_a_session_route_runs():
+    app = FastAPI()
+
+    @app.post("/api/autofill/sessions")
+    def open_session(_: None = Depends(require_browser_token)):
+        return {"opened": True}
+
+    client = TestClient(app)
+    denied = client.post("/api/autofill/sessions")
+    assert denied.status_code == 401
+    assert "ada@" not in denied.text
+    allowed = client.post("/api/autofill/sessions", headers={"X-CareerPilot-Token": load_or_create_token()})
+    assert allowed.status_code == 200

@@ -14,6 +14,32 @@ class AutofillPlanRequest(AutofillDetectRequest):
     preparation_id: int | None = None
 
 
+class AutofillSessionCreate(BaseModel):
+    preparation_id: int
+
+
+class AutofillFillRequest(BaseModel):
+    included_field_ids: list[str] = Field(default_factory=list)
+    overwrite_field_ids: list[str] = Field(default_factory=list)
+    attach_resume: bool = True
+
+
+class FieldOutcomeRead(BaseModel):
+    field_id: str
+    label: str
+    status: str
+    detail: str
+
+
+class FillReportRead(BaseModel):
+    outcomes: list[FieldOutcomeRead]
+    resume_status: str
+    resume_detail: str
+    stopped: str | None = None
+    submitted: bool
+    unresolved: list[str]
+
+
 class DetectedFieldRead(BaseModel):
     field_id: str
     semantic: str
@@ -66,6 +92,8 @@ class PlanFieldRead(BaseModel):
     input_type: str
     label: str
     required: bool | None
+    name: str = ""
+    element_id: str = ""
     detection_confidence: str
     proposed_value: str | None
     proposed_replacement: str | None
@@ -93,6 +121,7 @@ class ResumePlanRead(BaseModel):
     eligible_for_attach: bool
     review_required: bool
     reason: str
+    field_id: str | None = None
 
 
 class AnswerProposalRead(BaseModel):
@@ -136,6 +165,32 @@ class AutofillPlanRead(BaseModel):
     blockers: list[str]
     resume: ResumePlanRead
     answers: AnswerPlanRead
+
+
+class AutofillSessionRead(BaseModel):
+    id: str
+    state: str
+    preparation_id: int
+    employer: str
+    job_title: str
+    apply_url: str
+    message: str
+    plan: AutofillPlanRead | None = None
+    result: FillReportRead | None = None
+
+
+def to_session_result(run) -> AutofillSessionRead:
+    return AutofillSessionRead(
+        id=run.id,
+        state=run.state,
+        preparation_id=run.preparation_id,
+        employer=run.employer,
+        job_title=run.job_title,
+        apply_url=run.apply_url,
+        message=run.message,
+        plan=to_plan_result(run.plan) if run.plan is not None else None,
+        result=FillReportRead.model_validate(run.result, from_attributes=True) if run.result is not None else None,
+    )
 
 
 def to_plan_result(plan) -> AutofillPlanRead:

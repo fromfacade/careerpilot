@@ -28,6 +28,15 @@ class ApplyUrl:
     job_id: str | None = None
 
 
+def navigation_allowed(url: str) -> bool:
+    """True for a Greenhouse document navigation, including redirects on those hosts."""
+    parts = urlsplit((url or "").strip())
+    if parts.scheme != "https" or parts.username or parts.password or parts.port not in {None, 443}:
+        return False
+    host = (parts.hostname or "").casefold().rstrip(".")
+    return host in _GREENHOUSE_HOSTS
+
+
 def classify_apply_url(url: str) -> ApplyUrl:
     raw = (url or "").strip()
     if not raw or len(raw) > _MAX_URL_LENGTH:
