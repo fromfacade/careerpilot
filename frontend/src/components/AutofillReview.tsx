@@ -110,11 +110,19 @@ export function AutofillReview({ prep }: { prep: ApplicationPreparation }) {
           <p>
             Browser status: <span className="font-medium">{session.state.replaceAll('_', ' ')}</span>. {session.message}
           </p>
+          <p className="text-sm">
+            {fillingPaused(plan, session.state)
+              ? 'Filling is paused. An active verification challenge is on the page. Complete it in the browser, then choose Fill approved fields again. CareerPilot will not solve it.'
+              : 'Filling is permitted for the checked fields. CareerPilot will not submit the application.'}
+          </p>
           {plan && (
             <>
               <p>
-                Resume: {plan.resume.display_name || 'None'} ({plan.resume.kind}). {plan.resume.reason}
+                Selected resume: {plan.resume.display_name || 'None'} ({plan.resume.kind}). {plan.resume.reason}
               </p>
+              {!plan.resume.eligible_for_attach && (
+                <p className="text-sm text-amber-800">The selected resume will not be attached. {plan.resume.reason}</p>
+              )}
               {plan.resume.eligible_for_attach && (
                 <label className="flex items-center gap-2 text-xs">
                   <input type="checkbox" checked={attachResume} onChange={(event) => setAttachResume(event.target.checked)} />
@@ -274,8 +282,13 @@ function ReplaceChoices({
   )
 }
 
+function fillingPaused(plan: AutofillSession['plan'] | undefined, state: string): boolean {
+  const blockers = plan?.blockers ?? []
+  return state === 'needs_review' && blockers.some((item) => item === 'captcha' || item === 'mfa')
+}
+
 function PlainList({ title, rows }: { title: string; rows: string[] }) {
-  const visible = rows.filter(Boolean)
+  const visible = [...new Set(rows.filter(Boolean))]
   if (visible.length === 0) return null
   return (
     <div>

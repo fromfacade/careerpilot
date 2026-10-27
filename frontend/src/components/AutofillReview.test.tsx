@@ -147,6 +147,26 @@ describe('AutofillReview', () => {
     expect(screen.queryByRole('button', { name: 'Apply with CareerPilot' })).not.toBeInTheDocument()
   })
 
+  it('lists a missing field and an unsupported field once and says when filling is permitted', async () => {
+    vi.mocked(api.openAutofillSession).mockResolvedValue({
+      ...session,
+      plan: session.plan && {
+        ...session.plan,
+        blockers: [],
+        missing_required: [
+          session.plan.missing_required[0],
+          { ...session.plan.missing_required[0], field_id: 'phone-2' },
+        ],
+        unsupported: [session.plan.unsupported[0], { ...session.plan.unsupported[0], field_id: 'school-2' }],
+      },
+    })
+    render(<AutofillReview prep={prep} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Apply with CareerPilot' }))
+    expect(await screen.findByText(/Filling is permitted/)).toBeInTheDocument()
+    expect(screen.getAllByText('Phone')).toHaveLength(1)
+    expect(screen.getAllByText('School')).toHaveLength(1)
+  })
+
   it('stays hidden for a non-Greenhouse preparation', () => {
     const { container } = render(
       <AutofillReview

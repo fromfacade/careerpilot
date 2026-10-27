@@ -575,6 +575,7 @@ export interface AutofillPlan {
   sensitive: AutofillPlanField[];
   unsupported: AutofillPlanField[];
   preserve_existing: AutofillPlanField[];
+  blockers?: string[];
   resume: {
     status: string;
     kind: string;
