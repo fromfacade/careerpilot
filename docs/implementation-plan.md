@@ -734,6 +734,36 @@ Increments:
 Status: **milestone 2.3.1 complete on `feature/application-preparation`.**
 Not merged to `main`.
 
+## 10.1 Phase 2.3 resume export refinements
+
+Working branch: `feature/application-preparation`.
+
+The first tailored-PDF pass still overflowed onto a sparse second page,
+listed too many projects, flattened skills alphabetically, and repeated
+achievement text as a heading. These refinements stay on the presentation
+layer: canonical facts, approved profiles, and answers are unchanged.
+
+Decisions:
+
+- Internship exports target one readable page (10pt body, normal
+  margins). Extra projects or bullets are hidden, not deleted.
+- Project selection is deterministic token overlap with the job's
+  technologies and responsibilities. Two or three projects are included,
+  with a short reason. Users can include hidden rows and individual
+  bullets before approval.
+- Verified skills keep their categories (Programming Languages, Backend /
+  APIs, Frontend, Databases / Infrastructure, Tools / Platforms).
+- Achievement headings use the organization name; the description
+  appears once.
+- PDF entries keep heading + first bullet together. A mostly empty
+  second page fails validation.
+- Quality checks still block ready if labels, duplicates, empty pages,
+  or unreadable extraction appear. Two pages are allowed when the last
+  page has real content.
+
+Status: **complete on `feature/application-preparation`.** Phase 2.4 is
+not started.
+
 ## 11. Proposed Phase 2.4 — browser form automation (not implemented)
 
 Do not start this work until the plan is approved.

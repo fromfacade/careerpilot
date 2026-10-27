@@ -265,9 +265,10 @@ Qualification matching uses only verified/edited canonical facts and
 explicit profile fields. An approved resume profile is selected
 deterministically and explained. Tailoring is an explicit follow-up
 action; the selected original file is downloaded unchanged. Optional
-tailored DOCX/PDF exports are validated for extractable text. The
-original visual design is not reproduced for tailored drafts, and that
-limitation is stored on the row. Job-specific answers live on the
+tailored DOCX/PDF exports use an ATS one-page intern layout: two or
+three job-relevant projects, categorized skills, and extractable-text
+plus page-break checks. The original visual design is not reproduced
+for tailored drafts, and that limitation is stored on the row. Job-specific answers live on the
 preparation and can be regenerated without changing the selected resume.
 States (`preparing`, `needs_review`, `ready`, `failed`, `cancelled`) are
 preparation progress only. There is no submit endpoint and no
