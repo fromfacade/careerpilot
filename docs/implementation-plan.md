@@ -648,3 +648,10 @@ Increments:
 same job returns the open row. The job description is snapshotted.
 
 Status: **milestone 2.3 increment 1 complete.**
+
+### 9.2 Increment 2 — job analysis and matching
+
+Deterministic extraction of stated vs inferred requirements, then matching
+against verified facts and explicit profile fields only.
+
+Status: **milestone 2.3 increment 2 complete.**

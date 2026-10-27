@@ -11,12 +11,18 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models.candidate import Candidate
-from app.models.enums import OPEN_PREPARATION_STATES, PreparationState
+from app.models.enums import (
+    CanonicalFactStatus,
+    FactVerificationStatus,
+    OPEN_PREPARATION_STATES,
+    PreparationState,
+)
 from app.models.job import Job
 from app.models.job_source import JobSource
 from app.models.preparation import ApplicationPreparation
 from app.models.resume import Resume
-from app.services import resume_service
+from app.services import canonical_service, resume_service
+from app.services.job_analysis import analyze_job_description, match_qualifications
 
 
 DESIGN_LIMITATION = (
@@ -100,7 +106,7 @@ def create_or_get_preparation(db: Session, candidate: Candidate, job_id: int) ->
     db.add(row)
     db.commit()
     db.refresh(row)
-    return get_preparation_or_404(db, candidate, row.id)
+    return analyze_preparation(db, candidate, row.id)
 
 
 def cancel_preparation(db: Session, candidate: Candidate, preparation_id: int) -> ApplicationPreparation:
@@ -108,6 +114,31 @@ def cancel_preparation(db: Session, candidate: Candidate, preparation_id: int) -
     if row.state is PreparationState.CANCELLED:
         return row
     row.state = PreparationState.CANCELLED
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def _verified_facts(db: Session, candidate: Candidate):
+    return [
+        fact
+        for fact in canonical_service.list_canonical_facts(
+            db, candidate, status=CanonicalFactStatus.ACTIVE
+        )
+        if fact.verification_status in {FactVerificationStatus.VERIFIED, FactVerificationStatus.EDITED}
+        and not fact.needs_review
+    ]
+
+
+def analyze_preparation(db: Session, candidate: Candidate, preparation_id: int) -> ApplicationPreparation:
+    row = get_preparation_or_404(db, candidate, preparation_id)
+    job = db.get(Job, row.job_id) if row.job_id else None
+    row.analysis = analyze_job_description(row.snapshot_description, job)
+    row.match_report = match_qualifications(row.analysis, _verified_facts(db, candidate), candidate)
+    if not row.snapshot_description.strip():
+        return mark_failed(db, row, "This job has no description to analyze.")
+    row.state = PreparationState.NEEDS_REVIEW
+    row.error_message = ""
     db.commit()
     db.refresh(row)
     return row

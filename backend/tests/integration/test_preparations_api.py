@@ -58,12 +58,14 @@ def test_prepare_snapshots_job_and_is_idempotent(client, db_session):
     first = client.post("/api/preparations", json={"job_id": job.id})
     assert first.status_code == 201, first.text
     body = first.json()
-    assert body["state"] == "preparing"
+    assert body["state"] == "needs_review"
     assert body["snapshot_job_title"] == "Backend Engineer"
     assert body["snapshot_employer"] == "Acme Prep"
     assert "FastAPI" in body["snapshot_description"]
     assert body["snapshot_apply_url"] == "https://example.com/apply"
     assert "submit" not in body
+    assert body["analysis"]["technologies"]
+    assert "matched" in body["match_report"]
 
     job.title = "Changed After Snapshot"
     job.description_text = "This later edit must not appear in the snapshot."
@@ -88,7 +90,7 @@ def test_cancel_allows_a_new_preparation(client, db_session):
     assert created.status_code == 201
     assert created.json()["id"] != first.json()["id"]
     listing = client.get("/api/preparations")
-    assert {row["state"] for row in listing.json()} == {"cancelled", "preparing"}
+    assert {row["state"] for row in listing.json()} == {"cancelled", "needs_review"}
 
 
 def test_missing_job_or_empty_description_is_rejected(client, db_session):
