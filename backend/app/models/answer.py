@@ -54,6 +54,12 @@ class ApplicationAnswer(TimestampMixin, Base):
     generation_metadata: Mapped[dict] = mapped_column(
         JSONB().with_variant(JSON, "sqlite"), nullable=False, default=dict
     )
+    rewritten_from_id: Mapped[int | None] = mapped_column(
+        ForeignKey("application_answers.id", ondelete="SET NULL"), nullable=True
+    )
+    unsupported_claims: Mapped[list] = mapped_column(
+        JSONB().with_variant(JSON, "sqlite"), nullable=False, default=list
+    )
 
     fact_links: Mapped[list["ApplicationAnswerFact"]] = relationship(
         back_populates="answer", cascade="all, delete-orphan", passive_deletes=True

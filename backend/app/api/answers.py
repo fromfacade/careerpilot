@@ -80,6 +80,31 @@ def generate_answer(payload: GenerateAnswerRequest, db: Session = Depends(get_db
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except AIProviderError as exc:
+        status = {
+            "rate_limited": 429,
+            "model_unavailable": 422,
+            "invalid_key": 503,
+            "not_configured": 503,
+            "disabled": 503,
+            "timeout": 503,
+            "upstream": 503,
+        }.get(exc.kind, 503)
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+
+@router.post("/{answer_id}/rewrite", response_model=ApplicationAnswerRead, status_code=201)
+def rewrite_answer(answer_id: int, db: Session = Depends(get_db)):
+    """Create a new styled draft. The original row is never changed."""
+    candidate = _require_candidate(db)
+    try:
+        return generation_service.rewrite_draft(
+            db, candidate, answer_id, settings=get_settings()
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AIProviderError as exc:
         status = 429 if exc.kind == "rate_limited" else 503
         raise HTTPException(status_code=status, detail=str(exc)) from exc
 

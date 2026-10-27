@@ -401,7 +401,46 @@ export interface ApplicationAnswer {
   prefer_not_to_answer: boolean;
   missing_information: unknown[];
   generation_metadata: Record<string, unknown>;
+  rewritten_from_id: number | null;
+  unsupported_claims: unknown[];
   fact_links: { id: number; canonical_fact_id: number | null }[];
+  created_at: string;
+  updated_at: string;
+}
+
+export type WritingTone = 'professional' | 'conversational' | 'formal' | 'professional_conversational';
+export type WritingFormality = 'low' | 'medium' | 'high';
+export type WritingLength = 'short' | 'short_medium' | 'medium' | 'long';
+export type WritingComplexity = 'simple' | 'moderate' | 'varied';
+export type WritingTechnicalDetail = 'low' | 'moderate' | 'specific' | 'high';
+export type WritingVocabulary = 'straightforward' | 'technical' | 'mixed';
+export type WritingSampleCategory = 'technical_experience' | 'motivation' | 'general' | 'other';
+export type WritingSampleOrigin = 'user_written' | 'adopted_from_answer';
+
+export interface WritingStyleProfile {
+  id: number;
+  candidate_id: number;
+  tone: WritingTone;
+  formality: WritingFormality;
+  preferred_length: WritingLength;
+  sentence_complexity: WritingComplexity;
+  technical_detail: WritingTechnicalDetail;
+  vocabulary: WritingVocabulary;
+  phrases_to_avoid: string[];
+  additional_instructions: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WritingSample {
+  id: number;
+  candidate_id: number;
+  title: string;
+  body: string;
+  category: WritingSampleCategory;
+  origin: WritingSampleOrigin;
+  is_approved_style_reference: boolean;
+  source_answer_id: number | null;
   created_at: string;
   updated_at: string;
 }

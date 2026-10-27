@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.ai.gemini import GeminiAnswerProvider
+from app.ai.gemini import GeminiAnswerProvider, GeminiModelInfo, normalize_model_id, prefer_generate_model
 from app.ai.registry import get_provider, provider_status
 from app.ai.types import GenerationRequest
 from app.core.config import Settings
@@ -20,7 +20,7 @@ def _request() -> GenerationRequest:
         style_block="",
         temperature=0.2,
         max_output_tokens=100,
-        model="gemini-2.0-flash",
+        model="gemini-3.5-flash-lite",
     )
 
 
@@ -90,3 +90,75 @@ def test_gemini_rejects_empty_candidates():
     with pytest.raises(AIProviderError) as exc:
         provider.generate(_request())
     assert exc.value.kind == "upstream"
+
+
+def test_gemini_distinguishes_model_key_rate_limit_and_server_errors():
+    secret = "super-secret-key"
+
+    def unavailable(url, json=None, headers=None, timeout=None):
+        return httpx.Response(404, text=f"models/missing not found key={secret}")
+
+    def invalid(url, json=None, headers=None, timeout=None):
+        return httpx.Response(403, json={"error": {"message": "API key not valid"}})
+
+    def server(url, json=None, headers=None, timeout=None):
+        return httpx.Response(500, json={"error": {"message": "internal"}})
+
+    cases = (
+        (unavailable, "model_unavailable"),
+        (invalid, "invalid_key"),
+        (server, "upstream"),
+    )
+    for handler, kind in cases:
+        provider = GeminiAnswerProvider(api_key=secret, max_retries=1, http_post=handler)
+        with pytest.raises(AIProviderError) as exc:
+            provider.generate(_request())
+        assert exc.value.kind == kind
+        assert secret not in str(exc.value)
+        assert secret not in exc.value.args[0]
+
+
+def test_gemini_lists_generate_content_models_without_exposing_the_key():
+    def fake_get(url, headers=None, params=None, timeout=None):
+        assert "key=" not in url
+        assert headers["x-goog-api-key"] == "test-key"
+        assert "models" in url
+        return httpx.Response(
+            200,
+            json={
+                "models": [
+                    {
+                        "name": "models/gemini-2.0-flash",
+                        "supportedGenerationMethods": ["generateContent"],
+                    },
+                    {
+                        "name": "models/gemini-3.5-flash-lite",
+                        "supportedGenerationMethods": ["generateContent", "countTokens"],
+                    },
+                    {
+                        "name": "models/gemini-embedding-001",
+                        "supportedGenerationMethods": ["embedContent"],
+                    },
+                ]
+            },
+        )
+
+    provider = GeminiAnswerProvider(api_key="test-key", http_get=fake_get)
+    models = provider.list_models()
+    assert [item.name for item in models] == [
+        "gemini-2.0-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-embedding-001",
+    ]
+    assert [item.supports_generate_content for item in models] == [True, True, False]
+    assert prefer_generate_model(models, "gemini-2.5-flash") == "gemini-3.5-flash-lite"
+
+
+def test_normalize_and_prefer_model_helpers():
+    assert normalize_model_id("models/gemini-3.8-flash") == "gemini-3.8-flash"
+    models = [
+        GeminiModelInfo("gemini-3.8-flash", True, ("generateContent",)),
+        GeminiModelInfo("gemini-embedding-001", False, ("embedContent",)),
+    ]
+    assert prefer_generate_model(models, "models/gemini-3.8-flash") == "gemini-3.8-flash"
+    assert prefer_generate_model(models, "missing") == "gemini-3.8-flash"

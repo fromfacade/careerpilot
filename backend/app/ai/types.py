@@ -15,6 +15,8 @@ class GenerationRequest:
     temperature: float
     max_output_tokens: int
     model: str
+    style_guidance: str = ""
+    writing_samples_block: str = ""
 
 
 @dataclass

@@ -279,6 +279,64 @@ class AnswerOrigin(str, enum.Enum):
     AI_DRAFT = "ai_draft"
 
 
+class WritingTone(str, enum.Enum):
+    PROFESSIONAL = "professional"
+    CONVERSATIONAL = "conversational"
+    FORMAL = "formal"
+    PROFESSIONAL_CONVERSATIONAL = "professional_conversational"
+
+
+class WritingFormality(str, enum.Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class WritingLength(str, enum.Enum):
+    SHORT = "short"
+    SHORT_MEDIUM = "short_medium"
+    MEDIUM = "medium"
+    LONG = "long"
+
+
+class WritingComplexity(str, enum.Enum):
+    SIMPLE = "simple"
+    MODERATE = "moderate"
+    VARIED = "varied"
+
+
+class WritingTechnicalDetail(str, enum.Enum):
+    LOW = "low"
+    MODERATE = "moderate"
+    SPECIFIC = "specific"
+    HIGH = "high"
+
+
+class WritingVocabulary(str, enum.Enum):
+    STRAIGHTFORWARD = "straightforward"
+    TECHNICAL = "technical"
+    MIXED = "mixed"
+
+
+class WritingSampleCategory(str, enum.Enum):
+    TECHNICAL_EXPERIENCE = "technical_experience"
+    MOTIVATION = "motivation"
+    GENERAL = "general"
+    OTHER = "other"
+
+
+class WritingSampleOrigin(str, enum.Enum):
+    """Samples are never auto-tagged as authentic user writing.
+
+    `user_written` is typed in by the candidate. `adopted_from_answer` is an
+    explicit choice to treat a revised answer as their own sample. There is
+    no AI origin — an AI draft cannot become a sample without that action.
+    """
+
+    USER_WRITTEN = "user_written"
+    ADOPTED_FROM_ANSWER = "adopted_from_answer"
+
+
 SENSITIVE_ANSWER_CATEGORIES = frozenset(
     {
         AnswerCategory.WORK_AUTHORIZATION,

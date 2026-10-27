@@ -33,6 +33,8 @@ class ApplicationAnswerRead(BaseModel):
     prefer_not_to_answer: bool
     missing_information: list
     generation_metadata: dict
+    rewritten_from_id: int | None = None
+    unsupported_claims: list = Field(default_factory=list)
     fact_links: list[ApplicationAnswerFactRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime

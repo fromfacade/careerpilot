@@ -252,4 +252,32 @@ export const api = {
       body: JSON.stringify(data),
     }),
   deleteAnswer: (answerId: number) => request<void>(`/api/candidate/answers/${answerId}`, { method: 'DELETE' }),
+  getAnswer: (answerId: number) => request<import('./types').ApplicationAnswer>(`/api/candidate/answers/${answerId}`),
+  rewriteAnswer: (answerId: number) =>
+    request<import('./types').ApplicationAnswer>(`/api/candidate/answers/${answerId}/rewrite`, { method: 'POST' }),
+  getWritingStyle: () => request<import('./types').WritingStyleProfile>('/api/candidate/writing-style'),
+  updateWritingStyle: (data: Partial<import('./types').WritingStyleProfile>) =>
+    request<import('./types').WritingStyleProfile>('/api/candidate/writing-style', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  listWritingSamples: (params?: { category?: string; approved_only?: boolean }) => {
+    const query = new URLSearchParams();
+    if (params?.category) query.set('category', params.category);
+    if (params?.approved_only) query.set('approved_only', 'true');
+    const qs = query.toString();
+    return request<import('./types').WritingSample[]>(`/api/candidate/writing-samples${qs ? `?${qs}` : ''}`);
+  },
+  createWritingSample: (data: Record<string, unknown>) =>
+    request<import('./types').WritingSample>('/api/candidate/writing-samples', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateWritingSample: (sampleId: number, data: Record<string, unknown>) =>
+    request<import('./types').WritingSample>(`/api/candidate/writing-samples/${sampleId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  deleteWritingSample: (sampleId: number) =>
+    request<void>(`/api/candidate/writing-samples/${sampleId}`, { method: 'DELETE' }),
 };

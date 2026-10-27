@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     ai_enabled: bool = Field(default=False, description="Master switch. Off by default.")
     ai_provider: str = Field(default="gemini", description="gemini | mock")
     gemini_api_key: str = Field(default="", description="Server-side only. Never sent to the frontend.")
-    ai_model: str = Field(default="gemini-2.0-flash")
+    ai_model: str = Field(default="gemini-3.5-flash-lite")
     ai_temperature: float = Field(default=0.4)
     ai_timeout_seconds: float = Field(default=20.0)
     ai_max_output_tokens: int = Field(default=800)
