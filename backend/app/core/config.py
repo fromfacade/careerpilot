@@ -47,6 +47,10 @@ class Settings(BaseSettings):
         description="Directory (relative to the backend process cwd, or absolute) where "
         "uploaded resume files are written. Never committed -- see .gitignore.",
     )
+    preparation_storage_dir: str = Field(
+        default="storage/preparations",
+        description="Generated tailored resume files. Never committed.",
+    )
     resume_max_upload_mb: float = Field(
         default=10.0, description="Reject uploads larger than this before writing to disk."
     )

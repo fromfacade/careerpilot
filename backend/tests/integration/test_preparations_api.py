@@ -66,6 +66,8 @@ def test_prepare_snapshots_job_and_is_idempotent(client, db_session):
     assert "submit" not in body
     assert body["analysis"]["technologies"]
     assert "matched" in body["match_report"]
+    assert "header" in body["tailored_resume"]
+    assert body["design_limitation"]
 
     job.title = "Changed After Snapshot"
     job.description_text = "This later edit must not appear in the snapshot."

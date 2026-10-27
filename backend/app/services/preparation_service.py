@@ -9,6 +9,9 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from pathlib import Path
+
+from app.core.config import get_settings
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models.candidate import Candidate
 from app.models.enums import (
@@ -23,6 +26,8 @@ from app.models.preparation import ApplicationPreparation
 from app.models.resume import Resume
 from app.services import canonical_service, resume_service
 from app.services.job_analysis import analyze_job_description, match_qualifications
+from app.services.resume_export import export_docx, export_pdf
+from app.services.resume_tailor import tailor_resume
 
 
 DESIGN_LIMITATION = (
@@ -134,14 +139,42 @@ def analyze_preparation(db: Session, candidate: Candidate, preparation_id: int) 
     row = get_preparation_or_404(db, candidate, preparation_id)
     job = db.get(Job, row.job_id) if row.job_id else None
     row.analysis = analyze_job_description(row.snapshot_description, job)
-    row.match_report = match_qualifications(row.analysis, _verified_facts(db, candidate), candidate)
+    facts = _verified_facts(db, candidate)
+    row.match_report = match_qualifications(row.analysis, facts, candidate)
     if not row.snapshot_description.strip():
         return mark_failed(db, row, "This job has no description to analyze.")
+    row.tailored_resume = tailor_resume(candidate, facts, row.analysis)
+    _export_tailored_files(row)
     row.state = PreparationState.NEEDS_REVIEW
     row.error_message = ""
     db.commit()
     db.refresh(row)
     return row
+
+
+def _export_tailored_files(row: ApplicationPreparation) -> None:
+    settings = get_settings()
+    folder = Path(settings.preparation_storage_dir) / str(row.id)
+    try:
+        row.docx_path = str(export_docx(row.tailored_resume, folder / "tailored.docx"))
+        row.pdf_path = str(export_pdf(row.tailored_resume, folder / "tailored.pdf"))
+    except Exception as exc:  # export must not erase analysis or invent facts
+        row.error_message = f"Tailored resume files could not be generated: {exc}"
+
+
+def update_tailored_resume(db: Session, candidate: Candidate, preparation_id: int, payload) -> ApplicationPreparation:
+    row = get_preparation_or_404(db, candidate, preparation_id)
+    if payload.tailored_resume is not None:
+        allowed = set(row.tailored_resume.get("source_fact_ids") or [])
+        incoming_ids = set(payload.tailored_resume.get("source_fact_ids") or allowed)
+        if incoming_ids - allowed:
+            raise ValidationError("A tailored resume cannot add facts that were not already verified.")
+        row.tailored_resume = payload.tailored_resume
+        _export_tailored_files(row)
+    if payload.status is not None:
+        row.tailored_resume_status = payload.status
+    mark_ready_if_approved(db, row)
+    return get_preparation_or_404(db, candidate, row.id)
 
 
 def mark_needs_review(db: Session, row: ApplicationPreparation) -> ApplicationPreparation:

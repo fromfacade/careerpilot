@@ -1,0 +1,63 @@
+from pathlib import Path
+
+from app.models.enums import FactType
+from app.services.resume_export import export_docx, export_pdf
+from app.services.resume_tailor import flatten_tailored_lines, tailor_resume
+from pypdf import PdfReader
+from docx import Document
+
+
+class _Fact:
+    def __init__(self, id, fact_type, fact_key, fact_value):
+        self.id = id
+        self.fact_type = fact_type
+        self.fact_key = fact_key
+        self.fact_value = fact_value
+
+
+class _Candidate:
+    full_name = "Jane Doe"
+    email = "jane@example.com"
+    phone = None
+    current_location = "California"
+    school = "UCSC"
+    linkedin_url = None
+    github_url = None
+
+
+def test_tailor_reorders_relevant_projects_and_does_not_invent():
+    facts = [
+        _Fact(1, FactType.PROJECT, "Campus Site", {"name": "Campus Site", "technologies": ["HTML"]}),
+        _Fact(2, FactType.PROJECT, "Alpha Queue", {"name": "Alpha Queue", "technologies": ["FastAPI", "Redis"]}),
+        _Fact(3, FactType.SKILL, "Languages", {"items": ["Python"]}),
+    ]
+    analysis = {
+        "summary": "Backend engineer using FastAPI",
+        "technologies": [{"text": "fastapi", "evidence": "stated"}],
+        "required": [{"text": "Python", "evidence": "stated"}],
+    }
+    tailored = tailor_resume(_Candidate(), facts, analysis)
+    assert [row["title"] for row in tailored["projects"]][0] == "Alpha Queue"
+    blob = str(tailored)
+    assert "NASA" not in blob
+    assert "Alpha Queue" in blob
+    assert tailored["source_fact_ids"] == [1, 2, 3]
+
+
+def test_export_preserves_text_order(tmp_path: Path):
+    document = {
+        "header": {"full_name": "Jane Doe", "email": "jane@example.com"},
+        "education": [{"title": "UCSC", "detail": {"school": "UCSC"}}],
+        "projects": [{"title": "Alpha Queue", "detail": {"name": "Alpha Queue", "bullets": ["Queued jobs."]}}],
+        "work_experience": [],
+        "skills": [],
+        "achievements": [],
+    }
+    docx_path = export_docx(document, tmp_path / "t.docx")
+    pdf_path = export_pdf(document, tmp_path / "t.pdf")
+    docx_text = "\n".join(p.text for p in Document(docx_path).paragraphs)
+    pdf_text = "\n".join(page.extract_text() or "" for page in PdfReader(str(pdf_path)).pages)
+    for text in (docx_text, pdf_text):
+        assert text.index("Jane Doe") < text.index("Education") < text.index("UCSC")
+        assert text.index("Projects") < text.index("Alpha Queue")
+    assert flatten_tailored_lines(document)[0] == "Jane Doe"

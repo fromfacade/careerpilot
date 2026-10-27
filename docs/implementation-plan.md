@@ -655,3 +655,15 @@ Deterministic extraction of stated vs inferred requirements, then matching
 against verified facts and explicit profile fields only.
 
 Status: **milestone 2.3 increment 2 complete.**
+
+### 9.3 Increment 3 — resume tailoring
+
+Reorder verified education, work, projects, and skills by job relevance.
+Original resume bytes are never written.
+
+### 9.4 Increment 4 — PDF/DOCX export
+
+ATS-friendly CareerPilot layout. The original visual design is explicitly
+not reproduced.
+
+Status: **milestone 2.3 increments 3–4 complete.**
