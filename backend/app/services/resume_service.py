@@ -33,7 +33,14 @@ from app.core.exceptions import (
     ValidationError,
 )
 from app.models.candidate import Candidate
-from app.models.enums import FactSource, FactType, FactVerificationStatus, ResumeFileFormat, ResumeParseStatus
+from app.models.enums import (
+    FactSource,
+    FactType,
+    FactVerificationStatus,
+    ResumeCategory,
+    ResumeFileFormat,
+    ResumeParseStatus,
+)
 from app.models.resume import CandidateFact, Resume
 from app.resume_parsing.dedupe import partition_extracted
 from app.resume_parsing.extractors import extract_text
@@ -130,6 +137,11 @@ def upload_resume(
         sha256_checksum=checksum,
         parse_status=ResumeParseStatus.PENDING,
         is_primary=existing is None,
+        profile_name=Path(filename).stem or filename,
+        category=ResumeCategory.CUSTOM,
+        is_approved=False,
+        is_archived=False,
+        focus_areas=[],
     )
     db.add(resume)
     db.flush()  # assign resume.id so CandidateFact rows below can reference it
@@ -424,6 +436,35 @@ def set_primary_resume(db: Session, candidate: Candidate, resume_id: int) -> Res
     db.commit()
     db.refresh(resume)
     return resume
+
+
+def update_resume_profile(db: Session, candidate: Candidate, resume_id: int, payload) -> Resume:
+    resume = get_resume_or_404(db, candidate, resume_id)
+    if payload.profile_name is not None:
+        resume.profile_name = payload.profile_name.strip()
+    if payload.profile_description is not None:
+        resume.profile_description = payload.profile_description.strip()
+    if payload.category is not None:
+        resume.category = payload.category
+    if payload.is_approved is not None:
+        resume.is_approved = payload.is_approved
+    if payload.is_archived is not None:
+        resume.is_archived = payload.is_archived
+    if payload.focus_areas is not None:
+        resume.focus_areas = [str(item).strip() for item in payload.focus_areas if str(item).strip()]
+    if payload.is_primary is True:
+        return set_primary_resume(db, candidate, resume_id)
+    db.commit()
+    db.refresh(resume)
+    return resume
+
+
+def list_approved_resumes(db: Session, candidate: Candidate) -> list[Resume]:
+    return [
+        row
+        for row in list_resumes(db, candidate)
+        if row.is_approved and not row.is_archived
+    ]
 
 
 def delete_resume(

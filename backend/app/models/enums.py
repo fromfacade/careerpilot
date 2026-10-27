@@ -173,6 +173,21 @@ class ResumeFileFormat(str, enum.Enum):
     DOCX = "docx"
 
 
+class ResumeCategory(str, enum.Enum):
+    GENERAL_SWE = "general_swe"
+    BACKEND = "backend"
+    FULLSTACK = "fullstack"
+    AI_ML = "ai_ml"
+    CUSTOM = "custom"
+
+
+class ResumeSelectionSource(str, enum.Enum):
+    AUTOMATIC = "automatic"
+    MANUAL = "manual"
+    FALLBACK_DEFAULT = "fallback_default"
+    NONE = "none"
+
+
 class ResumeParseStatus(str, enum.Enum):
     """`failed` means text extraction itself raised (corrupt/unreadable
     file) — zero facts are created, but the original upload is still

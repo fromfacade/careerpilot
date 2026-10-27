@@ -238,13 +238,16 @@ def test_rejected_facts_are_kept_not_deleted(client, isolated_resume_settings):
     assert any(f["id"] == fact_id and f["verification_status"] == "rejected" for f in all_facts)
 
 
-def test_resume_has_no_generic_update_endpoint(client, isolated_resume_settings):
-    """File metadata is immutable: there is no PATCH/PUT for a resume."""
+def test_resume_file_fields_cannot_be_changed(client, isolated_resume_settings):
+    """Profile metadata can be patched; original file fields cannot."""
     _make_candidate(client)
     files = {"file": ("resume.pdf", _build_minimal_pdf(_SAMPLE_RESUME_TEXT), "application/pdf")}
     resume_id = client.post("/api/resumes", files=files).json()["resume"]["id"]
 
-    assert client.patch(f"/api/resumes/{resume_id}", json={"original_filename": "hacked.pdf"}).status_code == 405
+    patched = client.patch(f"/api/resumes/{resume_id}", json={"original_filename": "hacked.pdf", "profile_name": "Backend SWE"})
+    assert patched.status_code == 200
+    assert patched.json()["original_filename"] == "resume.pdf"
+    assert patched.json()["profile_name"] == "Backend SWE"
     assert client.put(f"/api/resumes/{resume_id}", json={"original_filename": "hacked.pdf"}).status_code == 405
 
 
@@ -552,3 +555,39 @@ def test_delete_resume_does_not_affect_jobs_preferences_or_saved_jobs(client, is
     saved_list = client.get("/api/jobs", params={"state": "saved"}).json()
     assert len(saved_list) == 1
     assert saved_list[0]["id"] == job_id
+
+
+def test_resume_profile_can_be_named_approved_and_archived(client, isolated_resume_settings):
+    _make_candidate(client)
+    files = {"file": ("resume.pdf", _build_minimal_pdf(_SAMPLE_RESUME_TEXT), "application/pdf")}
+    created = client.post("/api/resumes", files=files).json()["resume"]
+    assert created["is_approved"] is False
+    assert created["is_archived"] is False
+    assert created["profile_name"] == "resume"
+    assert created["category"] == "custom"
+
+    updated = client.patch(
+        f"/api/resumes/{created['id']}",
+        json={
+            "profile_name": "Backend SWE Resume",
+            "profile_description": "FastAPI and PostgreSQL projects.",
+            "category": "backend",
+            "is_approved": True,
+            "focus_areas": ["FastAPI", "PostgreSQL", "TaskFlow"],
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    body = updated.json()
+    assert body["profile_name"] == "Backend SWE Resume"
+    assert body["category"] == "backend"
+    assert body["is_approved"] is True
+    assert body["focus_areas"] == ["FastAPI", "PostgreSQL", "TaskFlow"]
+    assert body["original_filename"] == "resume.pdf"
+
+    archived = client.patch(f"/api/resumes/{created['id']}", json={"is_archived": True})
+    assert archived.status_code == 200
+    assert archived.json()["is_archived"] is True
+
+    download = client.get(f"/api/resumes/{created['id']}/file")
+    assert download.status_code == 200
+    assert download.content[:4] == b"%PDF"

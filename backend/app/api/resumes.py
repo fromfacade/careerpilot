@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -23,6 +24,7 @@ from app.schemas.resume import (
     CandidateFactUpdate,
     ResumeDeleteRequest,
     ResumeDeleteResult,
+    ResumeProfileUpdate,
     ResumeRead,
     ResumeReprocessResult,
     ResumeUploadResult,
@@ -111,6 +113,29 @@ def reprocess_resume(resume_id: int, db: Session = Depends(get_db)):
         facts_preserved=outcome.facts_preserved,
         facts_skipped_duplicate=outcome.facts_skipped_duplicate,
     )
+
+
+@resumes_router.get("/{resume_id}/file")
+def download_resume_file(resume_id: int, db: Session = Depends(get_db)):
+    candidate = _require_candidate(db)
+    try:
+        resume = resume_service.get_resume_or_404(db, candidate, resume_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    path = Path(resume.storage_path)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="The original resume file is not on disk.")
+    media = "application/pdf" if resume.file_format.value == "pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return FileResponse(path, media_type=media, filename=resume.original_filename)
+
+
+@resumes_router.patch("/{resume_id}", response_model=ResumeRead)
+def update_resume_profile(resume_id: int, payload: ResumeProfileUpdate, db: Session = Depends(get_db)):
+    candidate = _require_candidate(db)
+    try:
+        return resume_service.update_resume_profile(db, candidate, resume_id, payload)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @resumes_router.post("/{resume_id}/primary", response_model=ResumeRead)

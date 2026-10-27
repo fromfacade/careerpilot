@@ -700,3 +700,26 @@ exists. Tailored resume preview and exports render structured fields and
 bullets instead of serialized JSON. Interest drafts receive employer context
 and verified experience; unknown skills are not claimed and cannot be
 approved empty.
+
+## 10. Phase 2.3.1 — resume profiles and export reliability
+
+Working branch: `feature/application-preparation`.
+
+Decisions:
+
+- Profile metadata lives on `resumes`. File bytes stay write-once.
+  Existing primary rows are approved as the default profile so current
+  uploads stay usable. New uploads stay unapproved until review.
+- Prepare Application analyzes the JD, selects an approved profile,
+  and drafts answers. It does not tailor a resume unless requested.
+- Selection is deterministic: category + token overlap with the
+  posting and that resume's extracted facts / focus areas. Ties use
+  the approved default, then newest. No approved profile → review.
+- Regenerating answers does not change the selected resume.
+- Optional tailoring writes separate files and cannot silently replace
+  the selected original.
+- PDF empty-page bug: fpdf2 `multi_cell` left the cursor at the right
+  edge, so later lines overflowed off-page. Exports are validated by
+  extracted text before download.
+
+Increments: profiles, selection, optional tailoring, export fix, UI, docs.

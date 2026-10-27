@@ -26,7 +26,14 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 from app.models.base import TimestampMixin, pg_enum
-from app.models.enums import FactSource, FactType, FactVerificationStatus, ResumeFileFormat, ResumeParseStatus
+from app.models.enums import (
+    FactSource,
+    FactType,
+    FactVerificationStatus,
+    ResumeCategory,
+    ResumeFileFormat,
+    ResumeParseStatus,
+)
 
 
 class Resume(TimestampMixin, Base):
@@ -51,6 +58,17 @@ class Resume(TimestampMixin, Base):
     is_primary: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    profile_name: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    profile_description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    category: Mapped[ResumeCategory] = mapped_column(
+        pg_enum(ResumeCategory, "resume_category_enum"),
+        nullable=False,
+        default=ResumeCategory.CUSTOM,
+        server_default=ResumeCategory.CUSTOM.value,
+    )
+    is_approved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    focus_areas: Mapped[list] = mapped_column(JSONB().with_variant(JSON, "sqlite"), nullable=False, default=list)
 
     facts: Mapped[list["CandidateFact"]] = relationship(back_populates="resume", passive_deletes=True)
 
