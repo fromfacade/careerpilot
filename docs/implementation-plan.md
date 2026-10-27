@@ -766,8 +766,8 @@ constraint, or relevant technology used in a concrete way) over a generic
 architecture sentence. Verified GitHub and portfolio URLs are printed when
 the profile has them and are never invented.
 
-Status: **Phase 2.3 is on `main`.** Phase 2.4.1 is complete on
-`feature/greenhouse-autofill`. Increments 2.4.2–2.4.5 are not started.
+Status: **Phase 2.3 is on `main`.** Phases 2.4.1 and 2.4.2 are complete
+on `feature/greenhouse-autofill`. Increments 2.4.3–2.4.5 are not started.
 
 ## 11. Phase 2.4 proposal (superseded by §12)
 
@@ -814,9 +814,10 @@ Tradeoffs accepted:
 1. **2.4.1 Greenhouse detection (this increment).** Classify
    Greenhouse job URLs, reject other and suspicious URLs, and map
    fields from caller-supplied HTML. No browser, no fill, no submit.
-2. **2.4.2 Personal information.** Map detected fields to existing
-   canonical facts. Review before apply. No invented values and no
-   silent overwrite.
+2. **2.4.2 Personal information.** Map detected fields to verified
+   canonical facts, then to the single candidate profile when no fact
+   claims that field. The result is a review plan. No invented values,
+   no silent overwrite, and no browser.
 3. **2.4.3 Resume and approved answers.** Attach the selected approved
    resume only, and reuse approved answers. Sensitive questions stay
    unfilled.
@@ -825,6 +826,7 @@ Tradeoffs accepted:
 5. **2.4.5 Sessions and reliability.** Track preparation state, stop
    immediately, and test recovery with local fixtures.
 
-Status: **2.4.1 implemented.** `POST /api/autofill/detect` returns the
-field schema and does not fill or submit. Increments 2.4.2–2.4.5 are
-not started. Playwright is not installed.
+Status: **2.4.2 implemented.** `POST /api/autofill/plan` returns a
+review plan from verified canonical facts and the candidate profile.
+It does not fill, attach a resume, or submit. Increments 2.4.3–2.4.5
+are not started. Playwright is not installed.

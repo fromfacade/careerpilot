@@ -110,6 +110,7 @@ class DetectedField:
     name: str = ""
     element_id: str = ""
     confidence: str = "low"
+    current_value: str | None = None
 
 
 @dataclass
@@ -243,6 +244,7 @@ def _to_fields(controls: list[Node], ids: dict[str, Node], root: Node) -> list[D
                 name=primary.get("name"),
                 element_id=primary.get("id"),
                 confidence=confidence,
+                current_value=_current_value(members, ids, root),
             )
         )
     return fields
@@ -368,6 +370,28 @@ def _required(node: Node, label: str) -> bool:
     if node.has("required") or node.get("aria-required").casefold() == "true":
         return True
     return "*" in label or bool(re.search(r"\(required\)", label, flags=re.I))
+
+
+def _current_value(members: list[Node], ids: dict[str, Node], root: Node) -> str | None:
+    """Read a value the page already has. File paths are ignored."""
+    primary = members[0]
+    if _input_type(primary) == "file":
+        return None
+    if primary.tag == "textarea":
+        return text_of(primary).strip() or None
+    if primary.tag == "select":
+        selected = [text_of(node) for node in walk(primary) if node.tag == "option" and node.has("selected")]
+        return selected[0].strip() if selected and selected[0].strip() else None
+    if _input_type(primary) in {"radio", "checkbox"}:
+        chosen = []
+        for member in members:
+            if not member.has("checked"):
+                continue
+            label, _source = _label_for(member, ids, root)
+            chosen.append(label or member.get("value").strip())
+        chosen = [item for item in chosen if item]
+        return ", ".join(chosen) or None
+    return primary.get("value").strip() or None
 
 
 def _options(members: list[Node], ids: dict[str, Node], root: Node) -> list[str]:

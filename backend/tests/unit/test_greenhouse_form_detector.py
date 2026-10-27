@@ -179,7 +179,8 @@ def test_detect_route_returns_fields_and_exposes_no_submit_path():
     result = detect_application_form(AutofillDetectRequest(url=URL, html=STANDARD))
     assert result.supported is True
     assert any(field.semantic == "resume" and field.input_type == "file" for field in result.fields)
-    assert {route.path for route in router.routes} == {"/api/autofill/detect"}
+    assert {route.path for route in router.routes} == {"/api/autofill/detect", "/api/autofill/plan"}
+    assert all("submit" not in route.path for route in router.routes)
 
 
 def test_unsupported_url_does_not_return_fillable_fields():

@@ -130,7 +130,7 @@ careerpilot/
 | 7 | Resume Tailoring & Versioning | **Implemented for Phase 2.3.1.** Uploaded files are resume profiles (category, approval, default). Prepare Application selects an approved original file and explains why. Tailoring is optional and never replaces the selected original. Generated PDFs are validated for extractable text. |
 | 8 | AI Provider Management | **Partial (Phase 2.2).** Common `AnswerProvider` interface, Gemini adapter (httpx), mock for tests. Disabled unless `AI_ENABLED` and a key are set. Status endpoint never returns the key. Resume parsing still has zero AI calls. |
 | 9 | Application Answer Library | **Implemented (Phase 2.2 / 2.2.1).** Manual and AI-draft answers, writing-style profile, approved writing samples as untrusted style references, grounded generation, and rewrite-without-overwrite. No form filling or submission. |
-| 10 | Form Automation Adapters | **Detection only (Phase 2.4.1).** `POST /api/autofill/detect` classifies an allow-listed Greenhouse URL and maps fields in caller-supplied HTML. It does not open a browser, fill fields, attach files, or submit. Lever and Ashby URLs are recognized and rejected. |
+| 10 | Form Automation Adapters | **Detection and review plans (Phase 2.4.2).** `POST /api/autofill/detect` classifies an allow-listed Greenhouse URL and maps fields in caller-supplied HTML. `POST /api/autofill/plan` proposes contact values from verified canonical facts and the single candidate profile. Neither route opens a browser, fills fields, attaches files, or submits. Lever and Ashby URLs are recognized and rejected. |
 | 11 | Submission Authorization Policy Engine | Not built. Autonomous submission stays disabled by construction — there is no submission code path in Phase 1. |
 | 12 | Application Queue & State Machine | Not built. |
 | 13 | Application Tracker | Not built. |
@@ -348,9 +348,10 @@ These are listed so that Phase 1 code does not have to be reworked later:
 Phase 2.3 implemented offline application preparation: JD analysis,
 qualification matching, tailored resume export, and job-specific draft
 answers for review. Phase 2.4.1 adds Greenhouse URL classification and
-form-field detection only. Opening a browser, filling fields, uploading
-a resume, and any submission remain unimplemented. This section is the
-spec for that later work.
+form-field detection. Phase 2.4.2 adds a reviewable contact-mapping
+plan. Opening a browser, filling fields, uploading a resume, and any
+submission remain unimplemented. This section is the spec for that
+later work.
 
 The fill increments will use a locally controlled headed Playwright
 browser, with one adapter per site. The reason for that choice, and why
