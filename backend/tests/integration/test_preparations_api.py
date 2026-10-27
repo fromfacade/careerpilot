@@ -156,7 +156,97 @@ def test_prepare_survives_ai_failure(client, db_session, monkeypatch):
     assert created.json()["analysis"]["summary"]
     assert created.json()["tailored_resume"]["header"]
     assert created.json()["answers"]
-    assert all("500" in " ".join(item["missing_information"]) or item["origin"] == "reused" or item["is_sensitive"] for item in created.json()["answers"])
+    assert all(
+        "500" in " ".join(item["missing_information"])
+        or "verified knowledge base" in " ".join(item["missing_information"])
+        or item["origin"] == "reused"
+        or item["is_sensitive"]
+        for item in created.json()["answers"]
+    )
+
+
+STRIPE_JD = """
+About Stripe Stripe is a financial infrastructure platform for businesses. Millions of companies from startups to Fortune 500s use Stripe to accept payments. Our internal stack includes Python, React, and Ruby used to process payments.
+What you’ll do Work with senior engineers to design and implement backend services.
+Minimum requirements Currently pursuing a BA/BS in Computer Science or a related field. Experience with at least one of Python, Java, or JavaScript.
+Preferred qualifications Familiarity with Go.
+Benefits Inclusive healthcare coverage and paid time off.
+"""
+
+
+def _verified_project(client, name="Alpha Queue"):
+    created = client.post(
+        "/api/candidate/canonical-facts",
+        json={
+            "fact_type": "project",
+            "fact_key": name,
+            "fact_value": {"name": name, "technologies": ["FastAPI", "Python"], "bullets": ["Queued jobs."]},
+        },
+    )
+    assert created.status_code == 201
+    client.patch(
+        f"/api/candidate/canonical-facts/{created.json()['id']}",
+        json={"verification_status": "verified"},
+    )
+
+
+def test_stripe_preparation_keeps_marketing_out_of_matches(client, db_session):
+    _candidate(client)
+    _verified_project(client)
+    job = _job(db_session, description=STRIPE_JD)
+    created = client.post("/api/preparations", json={"job_id": job.id})
+    assert created.status_code == 201, created.text
+    body = created.json()
+    required = " ".join(item["text"] for item in body["analysis"]["required"]).lower()
+    matched = " ".join(item["text"] for item in body["match_report"]["matched"]).lower()
+    assert body["analysis"]["required"]
+    assert "computer science" in required or "python" in required
+    assert "fortune 500" not in required
+    assert "fortune 500" not in matched
+    assert "financial infrastructure" not in matched
+    go = [item for item in body["match_report"]["uncertain"] if "go" in item["text"].lower()]
+    assert go
+    assert not any("go" in item["text"].lower() for item in body["match_report"]["missing"])
+
+
+def test_interest_drafts_receive_employer_context_and_experience(client, db_session, monkeypatch):
+    provider = MockAnswerProvider("I built Alpha Queue and want to work on backend services.")
+    monkeypatch.setattr("app.services.preparation_service.get_provider", lambda settings=None: provider)
+    _candidate(client)
+    _verified_project(client)
+    job = _job(db_session, description=STRIPE_JD)
+    created = client.post("/api/preparations", json={"job_id": job.id})
+    assert created.status_code == 201, created.text
+    interest_calls = [call for call in provider.calls if "interested" in call.question.lower() or "work for" in call.question.lower()]
+    assert interest_calls
+    block = interest_calls[0].facts_block
+    assert "Alpha Queue" in block
+    assert "Stripe" in block or "Acme Prep" in block
+    assert "backend services" in block.lower()
+    assert "do not invent" in interest_calls[0].system_instruction.lower()
+
+
+def test_unknown_skill_answer_needs_user_input_and_blocks_ready(client, db_session):
+    _candidate(client)
+    job = _job(db_session, description=STRIPE_JD)
+    created = client.post("/api/preparations", json={"job_id": job.id})
+    assert created.status_code == 201, created.text
+    prep = created.json()
+    skill = next(item for item in prep["answers"] if "experience with" in item["question"].lower())
+    assert skill["answer_text"] == ""
+    assert skill["status"] == "needs_review"
+    assert any("not in your verified knowledge base" in note for note in skill["missing_information"])
+    blocked = client.patch(
+        f"/api/preparations/{prep['id']}/answers/{skill['id']}",
+        json={"status": "approved"},
+    )
+    assert blocked.status_code == 422
+    edited = client.patch(
+        f"/api/preparations/{prep['id']}/answers/{skill['id']}",
+        json={"answer_text": "I have coursework in JavaScript, not production work.", "status": "approved"},
+    )
+    assert edited.status_code == 200
+    assert edited.json()["state"] != "ready"
 
 
 def test_missing_job_or_empty_description_is_rejected(client, db_session):

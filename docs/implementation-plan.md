@@ -690,3 +690,13 @@ submission remain out of scope.
 
 Status: **milestone 2.3 complete on `feature/application-preparation`.**
 Not merged to `main`.
+
+### 9.8 Quality fixes
+
+JD analysis now splits company / responsibilities / requirements / preferred /
+benefits, including flattened Greenhouse listings such as Stripe. Matching
+treats unsupported requirements as unknown unless a verified contradiction
+exists. Tailored resume preview and exports render structured fields and
+bullets instead of serialized JSON. Interest drafts receive employer context
+and verified experience; unknown skills are not claimed and cannot be
+approved empty.

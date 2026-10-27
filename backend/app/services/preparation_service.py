@@ -6,6 +6,7 @@ an application or opens an employer form.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from sqlalchemy import select
@@ -20,6 +21,7 @@ from app.models.enums import (
     AnswerCategory,
     AnswerStatus,
     CanonicalFactStatus,
+    FactType,
     FactVerificationStatus,
     OPEN_PREPARATION_STATES,
     PreparationAnswerOrigin,
@@ -39,10 +41,19 @@ from app.services.generation_service import (
     plan_draft,
     wrap_untrusted_sample,
 )
-from app.services.job_analysis import analyze_job_description, match_qualifications
+from app.services.job_analysis import analyze_job_description, employer_context, match_qualifications
 from app.services.resume_export import export_docx, export_pdf
 from app.services.resume_tailor import tailor_resume
 from app.services.writing_style_service import format_profile_guidance
+
+_SKILL_QUESTION_RE = re.compile(r"experience with (.+?)\??$", re.I)
+_INTEREST_RULES = """
+This is an interest question.
+- Connect a verified project or job from the facts to a stated responsibility of this role.
+- Mention only employer information listed in the employer block.
+- Do not invent a personal history with the company, products you have not used, or motivations you were not told.
+- If you cannot make a verified connection, describe interest in the stated work of the role without claiming prior involvement.
+"""
 
 
 DESIGN_LIMITATION = (
@@ -208,8 +219,40 @@ def _question_set(row: ApplicationPreparation) -> list[tuple[str, AnswerCategory
     return questions
 
 
+def _fact_mentions(facts, skill: str) -> bool:
+    blob = " ".join(f"{fact.fact_key} {fact.fact_value}".casefold() for fact in facts)
+    tokens = set(re.findall(r"[a-z0-9+#.]{2,}", skill.casefold()))
+    if skill.casefold() in blob:
+        return True
+    return bool(tokens) and tokens <= set(re.findall(r"[a-z0-9+#.]{2,}", blob))
+
+
+def _unknown_skill(question: str, facts) -> str | None:
+    match = _SKILL_QUESTION_RE.search((question or "").strip())
+    if not match:
+        return None
+    skill = match.group(1).strip()
+    if _fact_mentions(facts, skill):
+        return None
+    return skill
+
+
+def _with_experience_facts(selected, facts):
+    extra = [fact for fact in facts if fact.fact_type in {FactType.PROJECT, FactType.WORK_EXPERIENCE}]
+    seen = {fact.id for fact in selected}
+    merged = list(selected)
+    for fact in extra:
+        if fact.id not in seen:
+            merged.append(fact)
+            seen.add(fact.id)
+        if len(merged) >= 8:
+            break
+    return merged
+
+
 def fill_preparation_answers(db: Session, candidate: Candidate, row: ApplicationPreparation, provider=None) -> None:
     """Write preparation answers only. Never updates the answer library."""
+    facts = _verified_facts(db, candidate)
     for item in list(row.answers):
         if item.status is not PreparationItemStatus.APPROVED:
             db.delete(item)
@@ -233,6 +276,22 @@ def fill_preparation_answers(db: Session, candidate: Candidate, row: Application
                 )
             )
             continue
+        unknown_skill = _unknown_skill(question, facts)
+        if unknown_skill:
+            row.answers.append(
+                ApplicationPreparationAnswer(
+                    question=question,
+                    answer_text="",
+                    category=category,
+                    origin=PreparationAnswerOrigin.GENERATED,
+                    status=PreparationItemStatus.NEEDS_REVIEW,
+                    missing_information=[
+                        f"{unknown_skill} is not in your verified knowledge base. "
+                        "Add what you actually know before approving. CareerPilot will not claim you have or lack it."
+                    ],
+                )
+            )
+            continue
         reused = by_fp.get(question_fingerprint(question))
         if reused is not None:
             row.answers.append(
@@ -249,14 +308,21 @@ def fill_preparation_answers(db: Session, candidate: Candidate, row: Application
             continue
         try:
             plan = plan_draft(db, candidate, question=question, category=category, job_id=row.job_id)
-            facts_block = "\n".join(_format_fact(f) for f in plan.facts) or "(none)"
-            if plan.job_block:
-                facts_block = f"{facts_block}\n\nEmployer information (not a personal fact): {row.snapshot_employer}. {row.snapshot_description[:800]}"
+            used_facts = list(plan.facts)
+            if category is AnswerCategory.INTEREST:
+                used_facts = _with_experience_facts(used_facts, facts)
+            facts_block = "\n".join(_format_fact(f) for f in used_facts) or "(none)"
+            context = employer_context(row.analysis or {}, row.snapshot_employer, row.snapshot_job_title)
+            if context:
+                facts_block = (
+                    f"{facts_block}\n\nEmployer information (not a personal fact; do not treat as a qualification):\n{context}"
+                )
             resolved = provider or get_provider(settings)
+            instruction = _SYSTEM + (_INTEREST_RULES if category is AnswerCategory.INTEREST else "")
             result = resolved.generate(
                 GenerationRequest(
                     question=question,
-                    system_instruction=_SYSTEM,
+                    system_instruction=instruction,
                     facts_block=facts_block,
                     style_block="\n\n".join(f"Q: {a.question}\nA: {a.answer_text}" for a in plan.style_answers) or "(none)",
                     style_guidance=format_profile_guidance(plan.style_profile),
@@ -274,7 +340,7 @@ def fill_preparation_answers(db: Session, candidate: Candidate, row: Application
                     category=category,
                     origin=PreparationAnswerOrigin.GENERATED,
                     status=PreparationItemStatus.DRAFT,
-                    canonical_fact_ids=[f.id for f in plan.facts],
+                    canonical_fact_ids=[f.id for f in used_facts],
                     unsupported_claims=claims,
                     missing_information=plan.missing_information,
                 )
@@ -306,10 +372,18 @@ def update_preparation_answer(
         raise NotFoundError(f"No preparation answer with id={answer_id}.")
     if status is PreparationItemStatus.APPROVED and item.is_sensitive and item.status is not PreparationItemStatus.NEEDS_REVIEW:
         raise ValidationError("Sensitive preparation answers must stay in needs_review until you edit and confirm them.")
-    if item.is_sensitive and status is PreparationItemStatus.APPROVED and not (answer_text or item.answer_text).strip():
+    next_text = item.answer_text if answer_text is None else answer_text
+    if item.is_sensitive and status is PreparationItemStatus.APPROVED and not (next_text or "").strip():
         raise ValidationError("A sensitive answer cannot be approved empty.")
+    if status is PreparationItemStatus.APPROVED and item.missing_information and not (next_text or "").strip():
+        raise ValidationError("This answer depends on an unknown qualification. Add what you actually know before approving.")
+    if status is PreparationItemStatus.APPROVED and item.unsupported_claims and answer_text is None:
+        raise ValidationError("This draft still has unsupported claims. Edit it before approving.")
     if answer_text is not None:
         item.answer_text = answer_text
+        if answer_text.strip():
+            item.unsupported_claims = []
+            item.missing_information = []
     if status is not None:
         item.status = status
     mark_ready_if_approved(db, row)
@@ -335,7 +409,12 @@ def mark_failed(db: Session, row: ApplicationPreparation, message: str) -> Appli
 def mark_ready_if_approved(db: Session, row: ApplicationPreparation) -> ApplicationPreparation:
     answers = row.answers
     resume_ok = row.tailored_resume_status.value == "approved" if row.tailored_resume else False
-    answers_ok = bool(answers) and all(item.status.value == "approved" for item in answers)
+    answers_ok = bool(answers) and all(
+        item.status is PreparationItemStatus.APPROVED
+        and not item.unsupported_claims
+        and not (item.missing_information and not (item.answer_text or "").strip())
+        for item in answers
+    )
     if resume_ok and answers_ok:
         row.state = PreparationState.READY
     else:
