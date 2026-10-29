@@ -109,6 +109,45 @@ export interface Preferences {
   roles: RolePreference[];
 }
 
+export interface AutoApplyResume {
+  id: number;
+  profile_name: string;
+  is_approved: boolean;
+}
+
+export interface AutoApplySettings {
+  mode: 'review' | 'auto_apply';
+  enabled: boolean;
+  acknowledged: boolean;
+  active: boolean;
+  inactive_reason: string | null;
+  provider: 'greenhouse';
+  job_categories: RoleCategory[];
+  employment_types: EmploymentType[];
+  locations: string[];
+  min_match_score: number;
+  max_per_day: number;
+  max_per_session: number;
+  resumes: AutoApplyResume[];
+  expires_at: string | null;
+  explanation: string;
+  automatic_submission: false;
+}
+
+export interface AutoApplyUpdate {
+  enabled: boolean;
+  acknowledge: boolean;
+  provider: 'greenhouse';
+  job_categories: RoleCategory[];
+  employment_types: EmploymentType[];
+  locations: string[];
+  min_match_score: number;
+  max_per_day: number;
+  max_per_session: number;
+  resume_ids: number[];
+  expires_at: string | null;
+}
+
 export interface JobSource {
   id: number;
   employer_id: number;

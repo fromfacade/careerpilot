@@ -131,7 +131,7 @@ careerpilot/
 | 8 | AI Provider Management | **Partial (Phase 2.2).** Common `AnswerProvider` interface, Gemini adapter (httpx), mock for tests. Disabled unless `AI_ENABLED` and a key are set. Status endpoint never returns the key. Resume parsing still has zero AI calls. |
 | 9 | Application Answer Library | **Implemented (Phase 2.2 / 2.2.1).** Manual and AI-draft answers, writing-style profile, approved writing samples as untrusted style references, grounded generation, and rewrite-without-overwrite. No form filling or submission. |
 | 10 | Form Automation Adapters | **Greenhouse workflow (Phase 2.5.5).** Apply with CareerPilot on a job card prepares the application and fills approved fields in a headed Chromium window. Submit runs only after a fresh readiness check and a confirmation for that application. Success requires a receipt on the page. |
-| 11 | Submission Authorization Policy Engine | **One confirmed Greenhouse submit (Phase 2.5.5).** Each attempt needs a current readiness result and an explicit confirmation of that employer and job. A failed or unknown attempt cannot reuse the previous confirmation. Autonomous submission stays disabled. |
+| 11 | Submission Authorization Policy Engine | **One confirmed Greenhouse submit (Phase 2.5.5), plus an opt-in Auto-Apply grant (Phase 3.4.1).** Each Review Mode attempt still needs a current readiness result and an explicit confirmation of that employer and job. Auto-Apply is off until the user acknowledges it and sets a Greenhouse-only scope, limits, approved resumes, and an expiration time. Saving that grant does not submit, and it does not move a tracked application to `submitting` or `submitted`. |
 | 12 | Application Queue & State Machine | **Partial (Phase 2.5.5).** `tracked_applications` moves through an authorized submit. `application_events` records each status change. The job-card workflow reuses one open preparation and one tracked row. |
 | 13 | Application Tracker | **Partial (Phase 2.5.5).** The job card and the preparation detail show status, confirmation, submission time, history, and a correction when the outcome is unknown. |
 | 14 | Analytics & Notifications | Not built beyond discovery-run status surfaced in the dashboard. |
@@ -374,6 +374,20 @@ Phase 2.5.5 starts that same path from Apply with CareerPilot on the job
 card: one preparation, approved-field fill, and the existing confirmation
 before anything is sent. Tailoring stays optional. An unsupported board
 never opens a browser.
+
+Phase 3.4.1 stores a separate Auto-Apply grant on
+`auto_apply_authorizations`. It is not a job-search preference. The
+grant is off by default, Greenhouse-only, and active only after an
+explicit acknowledgement, a future expiration time, and a scope of
+categories, employment types, locations, a minimum match score, daily
+and session limits, and approved resume profiles. An empty scope
+authorizes nothing. Disabling the grant or letting it expire blocks a
+future automatic submission. The decision function can say a fictional
+job would be inside that grant, but this increment never calls the
+existing submit path and never changes `tracked_applications`. CAPTCHA,
+MFA, unknown eligibility, an unapproved resume or answer, a required
+sensitive question, and an already submitted or unconfirmed application
+stay outside the grant.
 
 The browser is a locally controlled headed Playwright window, with one
 adapter per site. The reason for that choice, and why a browser

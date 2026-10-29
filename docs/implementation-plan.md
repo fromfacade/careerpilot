@@ -31,7 +31,8 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
 - **Phase 2.5.2 (complete on `feature/application-readiness`)**: persistent application tracking.
 - **Phase 2.5.3 (complete on `feature/application-readiness`)**: explicit Greenhouse submission for one confirmed application.
 - **Phase 2.5.4 (complete on `feature/application-readiness`)**: confirmation phrases, manual resolution, and status history.
-- **Phase 2.5.5 (this increment)**: one Apply with CareerPilot action from a job listing. Preparation and approved-field fill start there. Submission still requires a fresh check and an explicit confirmation for that job.
+- **Phase 2.5.5 (complete on `feature/application-readiness`)**: one Apply with CareerPilot action from a job listing. Preparation and approved-field fill start there. Submission still requires a fresh check and an explicit confirmation for that job.
+- **Phase 3.4.1 (this increment)**: optional Auto-Apply authorization. The user can opt in to a Greenhouse-only scope, limits, approved resumes, and an expiration time. Review Mode stays the default. This increment does not submit automatically.
 
 ## 2. Phase 1 increments (checklist)
 
@@ -950,3 +951,43 @@ and tracking panels stay on that card. Nothing is submitted until the
 user confirms that exact application.
 
 Status: **2.5.5 implemented.** This is the last increment of Phase 2.5.
+
+## 18. Phase 3.4.1 — Auto-Apply authorization and configuration
+
+Auto-Apply is a second mode beside Review Mode. Review Mode is unchanged:
+a Greenhouse application is still sent only after the user confirms that
+job. Auto-Apply is stored on `auto_apply_authorizations`, one row per
+candidate, and it is separate from discovery preferences so a search
+filter cannot become permission to submit.
+
+The grant is disabled until the user checks an acknowledgement of this
+sentence: "Auto-Apply allows CareerPilot to submit eligible, complete
+applications automatically within your configured limits." Enabling also
+requires an expiration time in the future. The user can turn it off at
+any time. An expired grant is inactive even if the enabled flag is still
+set. The authorized board is Greenhouse. Lever, Ashby, and any later
+board are rejected and are not added automatically.
+
+The configurable scope is job categories, employment types, location
+labels, a minimum match score, a daily limit, a session limit, and
+approved resume profiles. An empty list authorizes nothing. A location
+matches only when the text is the same, aside from letter case. `Remote`
+authorizes a remote job. Limits count existing `tracked_applications`
+rows that are already `submitting` or `submitted`. They do not create a
+second tracker.
+
+`decide()` returns whether a job would be inside the grant. It refuses
+unknown or ineligible eligibility, a failed readiness check, an
+unapproved resume, an unapproved answer, a required sensitive or legal
+question, an active CAPTCHA or MFA challenge, a duplicate or unresolved
+submission, a job outside the scope, an unsupported board, a reached
+limit, and a revoked or expired grant. `submits` is always false. No
+route in this increment calls the existing submit path, and saving the
+grant does not move a tracked application.
+
+The dashboard Auto-Apply section shows the current mode, whether the
+grant is active, the scope, the limits, the approved resumes, the
+expiration, and the enable or disable control.
+
+Status: **3.4.1 implemented.** Automatic submission is the next increment,
+not this one.

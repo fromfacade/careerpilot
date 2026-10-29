@@ -18,6 +18,8 @@ import type {
   ListCandidateFactsParams,
   ListJobsParams,
   ListJobsResult,
+  AutoApplySettings,
+  AutoApplyUpdate,
   Preferences,
   Resume,
   ResumeUploadResult,
@@ -83,6 +85,10 @@ export const api = {
   getPreferences: () => request<Preferences>('/api/candidate/preferences'),
   updatePreferences: (data: Preferences) =>
     request<Preferences>('/api/candidate/preferences', { method: 'PUT', body: JSON.stringify(data) }),
+
+  getAutoApply: () => request<AutoApplySettings>('/api/candidate/auto-apply'),
+  updateAutoApply: (data: AutoApplyUpdate) =>
+    request<AutoApplySettings>('/api/candidate/auto-apply', { method: 'PUT', body: JSON.stringify(data) }),
 
   listJobSources: () => request<JobSource[]>('/api/job-sources'),
   createJobSource: (data: JobSourceInput) =>
