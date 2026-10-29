@@ -364,6 +364,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  refreshAutofillSession: (sessionId: string) =>
+    request<import('./types').AutofillSession>(`/api/autofill/sessions/${sessionId}/refresh`, { method: 'POST' }),
+  regenerateAutofillDraft: (sessionId: string, fieldId: string) =>
+    request<import('./types').AutofillSession>(`/api/autofill/sessions/${sessionId}/drafts/regenerate`, {
+      method: 'POST',
+      body: JSON.stringify({ field_id: fieldId }),
+    }),
   cancelAutofillSession: (sessionId: string) =>
     request<import('./types').AutofillSession>(`/api/autofill/sessions/${sessionId}/cancel`, { method: 'POST' }),
   submitAutofillSession: (

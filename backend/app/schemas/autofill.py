@@ -24,6 +24,10 @@ class AutofillFillRequest(BaseModel):
     attach_resume: bool = True
 
 
+class AutofillDraftRequest(BaseModel):
+    field_id: str = Field(min_length=1, max_length=200)
+
+
 class AutofillSubmitRequest(BaseModel):
     confirm: bool = False
     preparation_id: int
@@ -58,6 +62,7 @@ class DetectedFieldRead(BaseModel):
     confidence: str
     current_value: str | None = None
     accept: str = ""
+    question_kind: str = ""
 
 
 class AutofillDetectResult(BaseModel):
@@ -110,6 +115,7 @@ class PlanFieldRead(BaseModel):
     review_required: bool
     eligible_for_fill: bool
     uncertainty: str | None
+    match_note: str = ""
     provenance: list[ProvenanceRead]
     alternatives: list[AlternativeRead]
 
@@ -146,6 +152,8 @@ class AnswerProposalRead(BaseModel):
     eligible_for_fill: bool
     review_required: bool
     uncertainty: str | None
+    explanation: str = ""
+    supporting_facts: list[str] = Field(default_factory=list)
 
 
 class AnswerPlanRead(BaseModel):
@@ -185,6 +193,15 @@ class ReadinessRead(BaseModel):
     checks: list[ReadinessCheckRead]
 
 
+class CompletionRead(BaseModel):
+    total: int
+    autofilled: int
+    already_completed: int
+    manual: int
+    required_unanswered: int
+    percent: int
+
+
 class AutofillSessionRead(BaseModel):
     id: str
     state: str
@@ -196,12 +213,15 @@ class AutofillSessionRead(BaseModel):
     plan: AutofillPlanRead | None = None
     result: FillReportRead | None = None
     readiness: ReadinessRead | None = None
+    completion: CompletionRead | None = None
     application_status: str | None = None
 
 
 def to_session_result(run) -> AutofillSessionRead:
+    from app.autofill.completion import completion_for
     from app.autofill.readiness import readiness_for_run
 
+    completion = completion_for(run.plan, run.result) if run.plan is not None else None
     return AutofillSessionRead(
         id=run.id,
         state=run.state,
@@ -213,6 +233,7 @@ def to_session_result(run) -> AutofillSessionRead:
         plan=to_plan_result(run.plan) if run.plan is not None else None,
         result=FillReportRead.model_validate(run.result, from_attributes=True) if run.result is not None else None,
         readiness=ReadinessRead.model_validate(readiness_for_run(run), from_attributes=True),
+        completion=CompletionRead.model_validate(completion, from_attributes=True) if completion is not None else None,
         application_status=run.application_status or None,
     )
 

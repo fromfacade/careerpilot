@@ -32,7 +32,14 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
 - **Phase 2.5.3 (complete on `feature/application-readiness`)**: explicit Greenhouse submission for one confirmed application.
 - **Phase 2.5.4 (complete on `feature/application-readiness`)**: confirmation phrases, manual resolution, and status history.
 - **Phase 2.5.5 (complete on `feature/application-readiness`)**: one Apply with CareerPilot action from a job listing. Preparation and approved-field fill start there. Submission still requires a fresh check and an explicit confirmation for that job.
-- **Phase 3.4.1 (this increment)**: optional Auto-Apply authorization. The user can opt in to a Greenhouse-only scope, limits, approved resumes, and an expiration time. Review Mode stays the default. This increment does not submit automatically.
+- **Phase 3.1 (complete on `feature/greenhouse-completion`)**: Greenhouse question completion. Apply prepares, fills, reviews, and tracks an application. A draft is filled only after approval. School and degree options can match one equivalent verified value. Submission still requires an explicit confirmation.
+- **Phase 3.1.1 (complete on `feature/greenhouse-completion`)**: Greenhouse question classification. Common questions receive a `question_kind`. Verified school, degree, major, and link fields still use the existing fact path. Other kinds are not invented.
+- **Phase 3.1.2 (complete on `feature/greenhouse-completion`)**: context-aware reuse of approved answers. Equivalent wording can match. A different employer, role, or technology does not autofill. Drafts are not promoted.
+- **Phase 3.1.3 (complete on `feature/greenhouse-completion`)**: draft an answer only when matching finds nothing. The draft stays unapproved until the user edits, approves, rejects, or regenerates it. Approval can fill that one field. Sensitive questions stay manual.
+- **Phase 3.1.4 (complete on `feature/greenhouse-completion`)**: common Greenhouse controls keep their question when the markup changes. Listed choices and verified follow-up fields can be filled. Unmatched controls stay for review.
+- **Phase 3.1.5 (complete on `feature/greenhouse-completion`)**: common searchable dropdowns fill from one exact verified fact or approved answer. The review screen leads with what still needs attention and a completion count. Submission stays explicit.
+- **Phase 3.1.6 (complete on `feature/greenhouse-completion`)**: a verified school or degree can match one equivalent employer option. The stored fact stays unchanged. Ambiguous and nearby names stay for review.
+- **Phase 3.4.1 (complete on `feature/auto-apply`)**: optional Auto-Apply authorization. The user can opt in to a Greenhouse-only scope, limits, approved resumes, and an expiration time. Review Mode stays the default. This increment does not submit automatically.
 
 ## 2. Phase 1 increments (checklist)
 
@@ -952,42 +959,72 @@ user confirms that exact application.
 
 Status: **2.5.5 implemented.** This is the last increment of Phase 2.5.
 
-## 18. Phase 3.4.1 — Auto-Apply authorization and configuration
+## 18. Phase 3.1 — Greenhouse question completion
 
-Auto-Apply is a second mode beside Review Mode. Review Mode is unchanged:
-a Greenhouse application is still sent only after the user confirms that
-job. Auto-Apply is stored on `auto_apply_authorizations`, one row per
-candidate, and it is separate from discovery preferences so a search
-filter cannot become permission to submit.
+Status: **Phase 3.1 complete** on `feature/greenhouse-completion`.
 
-The grant is disabled until the user checks an acknowledgement of this
-sentence: "Auto-Apply allows CareerPilot to submit eligible, complete
-applications automatically within your configured limits." Enabling also
-requires an expiration time in the future. The user can turn it off at
-any time. An expired grant is inactive even if the enabled flag is still
-set. The authorized board is Greenhouse. Lever, Ashby, and any later
-board are rejected and are not added automatically.
+Apply with CareerPilot prepares one Greenhouse application, fills supported fields, and leaves the rest for review on the job card. Questions are classified, approved answers are reused when the employer, role, and technology still fit, and an open-ended draft is filled only after the user approves it. Dropdowns, radios, checkboxes, and searchable lists are filled when one listed choice matches. A verified school or degree can match an equivalent employer option, and the stored fact is not rewritten. Completion counts verified fills separately from values already on the form. CAPTCHA, MFA, sensitive questions, and a second submission stay blocked. Nothing is submitted without the existing confirmation for that job.
 
-The configurable scope is job categories, employment types, location
-labels, a minimum match score, a daily limit, a session limit, and
-approved resume profiles. An empty list authorizes nothing. A location
-matches only when the text is the same, aside from letter case. `Remote`
-authorizes a remote job. Limits count existing `tracked_applications`
-rows that are already `submitting` or `submitted`. They do not create a
-second tracker.
+Working branch: `feature/greenhouse-completion`.
 
-`decide()` returns whether a job would be inside the grant. It refuses
-unknown or ineligible eligibility, a failed readiness check, an
-unapproved resume, an unapproved answer, a required sensitive or legal
-question, an active CAPTCHA or MFA challenge, a duplicate or unresolved
-submission, a job outside the scope, an unsupported board, a reached
-limit, and a revoked or expired grant. `submits` is always false. No
-route in this increment calls the existing submit path, and saving the
-grant does not move a tracked application.
+### 3.1.1 Question classification
 
-The dashboard Auto-Apply section shows the current mode, whether the
-grant is active, the scope, the limits, the approved resumes, the
-expiration, and the enable or disable control.
+Detection names common Greenhouse questions with `question_kind`: graduation date, GPA, start date, relocation, school, degree, major, current employer, experience, GitHub, portfolio, and written prompts. School, degree, major, GitHub, and portfolio still use verified facts, and only an exact listed choice is filled. Graduation date, GPA, start date, relocation, employer, and experience are not filled from facts. Sensitive and consent questions stay manual.
 
-Status: **3.4.1 implemented.** Automatic submission is the next increment,
-not this one.
+Status: **3.1.1 implemented.**
+
+### 3.1.2 Context-aware answer matching
+
+The planner still reads the approved answer library and job-specific preparation answers. It does not call Gemini and does not create drafts.
+
+A question is compared by kind and intent, not by shared words alone. Wording such as “this role” and “this position,” or two Python-experience prompts, can be an `equivalent_match`. The same question text is an `exact_match`. A related prompt whose employer, role, technology, or qualifier differs is an `uncertain_match` and stays for review. A different meaning is `no_match` and is not proposed.
+
+Automatic reuse requires one approved answer, a high-confidence label, compatible employer and role, the same technology when a technology is named, and no second approved answer that also fits. Job-specific exact and equivalent answers outrank the library. One preferred library answer can still break a tie between exact copies of the same question. A library answer for a start date, graduation date, or GPA is review-only, because that value may be out of date. An answer approved on this preparation can still fill those fields. Drafts are ignored. Work authorization, sponsorship, disability, demographics, legal declarations, and consent stay manual.
+
+The review plan shows the match type, the explanation, whether autofill is permitted, and whether review is required.
+
+Status: **3.1.2 implemented.**
+
+### 3.1.3 Draft generation and approval
+
+When matching returns `no_match` for an open-ended written question, CareerPilot asks the existing Gemini path for one draft. The draft uses the preparation's employer, role, and job description, the candidate's verified facts, and the existing writing-style profile. It is saved on the preparation as unapproved, with the fact ids and the style profile id. Opening the same page again reuses that draft. A new draft is requested only when the user asks, or when the saved application snapshot changes.
+
+An approved answer, an uncertain match, and a sensitive question do not get a draft. GPA, graduation date, and start date are not sent to the model; a missing value is flagged for the user. A draft is not filled. After the user approves it, the plan is refreshed and only that answer can be filled. A value already on the form is left in place unless the user approves replacing it. Nothing is submitted.
+
+If the model is unavailable, the question is marked for review and the failure is not retried until the user asks. Claims that are not in the verified facts must be edited before approval. After approval, the answer joins the library used by context-aware matching.
+
+Status: **3.1.3 implemented.**
+
+### 3.1.4 Form-control reliability
+
+A reviewed question stays with its control when the element id or name changes, as long as the label and meaning still identify one field. Two fields with the same question are left for review. Native dropdowns, radio groups, checkbox groups, and multi-selects are filled only with choices that exactly match an approved answer or a verified fact. Searchable school, degree, and major fields can be typed and accepted when the opened list shows that exact value. A verified field that was hidden until another answer is selected is filled on the next pass. The selection is read back before it counts as filled. Sensitive questions, CAPTCHA, and MFA still stop the fill. Nothing is submitted.
+
+Status: **3.1.4 implemented.** Other employer sites are not part of this increment.
+
+### 3.1.5 Application completion
+
+Common searchable questions can be filled when one listed choice matches a verified fact or an approved answer. Graduation year uses a verified education end date. Engineering specialization uses a verified major. Preferred office uses the verified location only when the option text is the same. Employment type, experience categories, and availability use an approved answer, and only when the choice is listed. A reusable library answer for availability or graduation stays for review. A similar option is not selected. A custom question that appears after another answer stays for review.
+
+The review screen shows how many applicable fields were filled automatically, how many were already complete, how many need attention, and how many required fields are still unanswered. Completed fields can be expanded. Drafts, sensitive questions, unsupported controls, and ambiguous choices stay visible. Approving a draft refills that question and refreshes readiness on the same session. Apply with CareerPilot still prepares, fills, and tracks from the job card. Nothing is submitted without the existing confirmation.
+
+Status: **3.1.5 implemented.** Automatic submission is not part of this increment.
+
+### 3.1.6 Structured field normalization
+
+A verified school or degree can match an employer option that uses another spelling of the same value. University punctuation and a closed set of campus names are treated as the same school only when one option remains. UC Santa Cruz does not match another UC campus. B.S. matches Bachelor of Science when the question asks for the degree type, and Bachelor's Degree when it asks for the level. It does not match Bachelor of Arts. Computer Science does not match Computer Engineering. Two equivalent options stay for review. The stored fact is not rewritten. The review note names the verified value and the option that was selected.
+
+Status: **3.1.6 implemented.**
+
+## 19. Phase 3.4.1 — Auto-Apply authorization and configuration
+
+Auto-Apply is a second mode beside Review Mode. Review Mode uses the Phase 3.1 Greenhouse completion path and is unchanged: a Greenhouse application is still sent only after the user confirms that job. Auto-Apply is stored on `auto_apply_authorizations`, one row per candidate, and it is separate from discovery preferences so a search filter cannot become permission to submit.
+
+The grant is disabled until the user checks an acknowledgement of this sentence: "Auto-Apply allows CareerPilot to submit eligible, complete applications automatically within your configured limits." Enabling also requires an expiration time in the future. The user can turn it off at any time. An expired grant is inactive even if the enabled flag is still set. The authorized board is Greenhouse. Lever, Ashby, and any later board are rejected and are not added automatically.
+
+The configurable scope is job categories, employment types, location labels, a minimum match score, a daily limit, a session limit, and approved resume profiles. An empty list authorizes nothing. A location matches only when the text is the same, aside from letter case. `Remote` authorizes a remote job. Limits count existing `tracked_applications` rows that are already `submitting` or `submitted`. They do not create a second tracker.
+
+`decide()` returns whether a job would be inside the grant. It uses the same readiness result as Review Mode, including the Phase 3.1 question, answer, and control checks. It refuses unknown or ineligible eligibility, a failed readiness check, an unapproved resume, an unapproved answer, a required sensitive or legal question, an active CAPTCHA or MFA challenge, a duplicate or unresolved submission, a job outside the scope, an unsupported board, a reached limit, and a revoked or expired grant. `submits` is always false. No route in this increment calls the existing submit path, and saving the grant does not move a tracked application.
+
+The dashboard Auto-Apply section shows the current mode, whether the grant is active, the scope, the limits, the approved resumes, the expiration, and the enable or disable control.
+
+Status: **3.4.1 implemented.** Automatic submission is not part of this increment.

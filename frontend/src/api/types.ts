@@ -643,6 +643,7 @@ export interface AutofillPlanField {
   required: boolean | null;
   uncertainty: string | null;
   source_kind: string | null;
+  match_note?: string;
 }
 
 export interface AutofillAnswerField {
@@ -653,8 +654,14 @@ export interface AutofillAnswerField {
   proposed_replacement: string | null;
   existing_value: string | null;
   source: string | null;
+  source_id?: number | null;
   approval_status: string | null;
   uncertainty: string | null;
+  match_kind?: string;
+  explanation?: string;
+  supporting_facts?: string[];
+  eligible_for_fill?: boolean;
+  review_required?: boolean;
 }
 
 export interface AutofillPlan {
@@ -699,6 +706,15 @@ export interface ReadinessCheck {
   detail: string;
 }
 
+export interface CompletionMetrics {
+  total: number;
+  autofilled: number;
+  already_completed: number;
+  manual: number;
+  required_unanswered: number;
+  percent: number;
+}
+
 export interface AutofillSession {
   id: string;
   state: string;
@@ -713,6 +729,7 @@ export interface AutofillSession {
     status: string;
     checks: ReadinessCheck[];
   } | null;
+  completion?: CompletionMetrics | null;
   application_status?: string | null;
 }
 
