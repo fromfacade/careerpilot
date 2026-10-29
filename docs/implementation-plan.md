@@ -37,6 +37,7 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
 - **Phase 3.1.3 (complete on `feature/greenhouse-completion`)**: draft an answer only when matching finds nothing. The draft stays unapproved until the user edits, approves, rejects, or regenerates it. Approval can fill that one field. Sensitive questions stay manual.
 - **Phase 3.1.4 (complete on `feature/greenhouse-completion`)**: common Greenhouse controls keep their question when the markup changes. Listed choices and verified follow-up fields can be filled. Unmatched controls stay for review.
 - **Phase 3.1.5 (complete on `feature/greenhouse-completion`)**: common searchable dropdowns fill from one exact verified fact or approved answer. The review screen leads with what still needs attention and a completion count. Submission stays explicit.
+- **Phase 3.1.6 (complete on `feature/greenhouse-completion`)**: a verified school or degree can match one equivalent employer option. The stored fact stays unchanged. Ambiguous and nearby names stay for review.
 
 ## 2. Phase 1 increments (checklist)
 
@@ -1001,3 +1002,9 @@ Common searchable questions can be filled when one listed choice matches a verif
 The review screen shows how many applicable fields were filled automatically, how many were already complete, how many need attention, and how many required fields are still unanswered. Completed fields can be expanded. Drafts, sensitive questions, unsupported controls, and ambiguous choices stay visible. Approving a draft refills that question and refreshes readiness on the same session. Apply with CareerPilot still prepares, fills, and tracks from the job card. Nothing is submitted without the existing confirmation.
 
 Status: **3.1.5 implemented.** Automatic submission is not part of this increment.
+
+### 3.1.6 Structured field normalization
+
+A verified school or degree can match an employer option that uses another spelling of the same value. University punctuation and a closed set of campus names are treated as the same school only when one option remains. UC Santa Cruz does not match another UC campus. B.S. matches Bachelor of Science when the question asks for the degree type, and Bachelor's Degree when it asks for the level. It does not match Bachelor of Arts. Computer Science does not match Computer Engineering. Two equivalent options stay for review. The stored fact is not rewritten. The review note names the verified value and the option that was selected.
+
+Status: **3.1.6 implemented.**

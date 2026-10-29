@@ -390,6 +390,9 @@ cannot be matched is left for review. Phase 3.1.5 fills common searchable
 dropdowns from one exact verified fact or approved answer, and the review
 screen counts completed fields separately from the questions that still
 need attention. Submission still requires an explicit confirmation.
+Phase 3.1.6 matches a verified school or degree to one equivalent employer
+option. The stored fact is left unchanged, and more than one match stays
+for review.
 
 The browser is a locally controlled headed Playwright window, with one
 adapter per site. The reason for that choice, and why a browser

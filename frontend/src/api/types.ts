@@ -604,6 +604,7 @@ export interface AutofillPlanField {
   required: boolean | null;
   uncertainty: string | null;
   source_kind: string | null;
+  match_note?: string;
 }
 
 export interface AutofillAnswerField {

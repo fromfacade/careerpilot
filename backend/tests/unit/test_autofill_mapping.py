@@ -426,9 +426,9 @@ def test_classified_questions_reuse_verified_facts_and_do_not_invent_the_rest():
     assert ready["school"].proposed_value == "Example State University"
     assert ready["major"].proposed_value == "Computer Science"
     assert ready["github"].proposed_value == "https://github.com/ada"
-    degree = _by_id(plan.clarification)["degree"]
-    assert degree.proposed_value is None
-    assert "exactly matches" in (degree.uncertainty or "")
+    assert ready["degree"].proposed_value == "Bachelor's"
+    assert "matches your verified degree: B.S. Computer Science" in ready["degree"].match_note
+    assert education.fact_value["degree"] == "B.S. Computer Science"
     blocked = ["graduation", "gpa", "start", "move", "employer", "experience"]
     for field_id in blocked:
         item = _by_id(plan.unsupported)[field_id]

@@ -615,6 +615,50 @@ def test_browser_selects_one_exact_searchable_choice_and_leaves_a_near_match():
         browser.close()
 
 
+def test_browser_selects_a_normalized_school_and_checks_the_employer_option():
+    html = """
+    <form id="application" onsubmit="window.__submitted = true; return false;">
+      <div class="select">
+        <label for="school">School</label>
+        <input id="school" role="combobox" aria-controls="school-list" aria-label="School">
+        <div id="school-value" class="select__single-value"></div>
+      </div>
+      <ul id="school-list" role="listbox" hidden>
+        <li role="option">University of California - Berkeley</li>
+        <li role="option">University of California - Santa Cruz</li>
+      </ul>
+      <button type="submit">Submit application</button>
+    </form>
+    <script>
+      window.__submitted = false;
+      const input = document.getElementById("school");
+      const list = document.getElementById("school-list");
+      input.addEventListener("input", () => { list.hidden = false; });
+      list.addEventListener("click", (event) => {
+        const option = event.target.closest("[role=option]");
+        if (!option) return;
+        document.getElementById("school-value").textContent = option.textContent;
+        input.value = option.textContent;
+        list.hidden = true;
+      });
+    </script>
+    """
+    verified = "University of California, Santa Cruz"
+    action = FillAction("school", "combobox", "school", "school", "School", verified, "contact")
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.set_content(html)
+        report = apply_actions(page, [action], resume_field_id=None, resume_path=None, resume_name="")
+        assert report.submitted is False
+        assert page.evaluate("() => window.__submitted") is False
+        assert report.outcomes[0].status == "filled"
+        assert "University of California - Santa Cruz" in report.outcomes[0].detail
+        assert page.locator("#school-value").inner_text() == "University of California - Santa Cruz"
+        assert verified == "University of California, Santa Cruz"
+        browser.close()
+
+
 def test_browser_token_is_required_before_a_session_route_runs():
     app = FastAPI()
 

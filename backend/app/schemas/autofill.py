@@ -115,6 +115,7 @@ class PlanFieldRead(BaseModel):
     review_required: bool
     eligible_for_fill: bool
     uncertainty: str | None
+    match_note: str = ""
     provenance: list[ProvenanceRead]
     alternatives: list[AlternativeRead]
 

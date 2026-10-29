@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from app.autofill.greenhouse import DetectedField, detect_application
 from app.autofill.materials import AnswerPlan, Materials, ResumePlan, apply_materials, empty_resume
+from app.autofill.normalize import match_choice
 
 _PERSONAL = frozenset(
     {"first_name", "last_name", "email", "phone", "location", "linkedin", "github", "portfolio"}
@@ -145,6 +146,7 @@ class PlanField:
     review_required: bool
     eligible_for_fill: bool
     uncertainty: str | None
+    match_note: str = ""
     provenance: list[Provenance] = field(default_factory=list)
     alternatives: list[Alternative] = field(default_factory=list)
 
@@ -307,6 +309,7 @@ def _map_field(detected: DetectedField, facts: list[FactView], profile: ProfileV
         review_required=True,
         eligible_for_fill=False,
         uncertainty=None,
+        match_note="",
     )
     if detected.semantic == "sensitive" or _consent(label):
         item.semantic = "sensitive"
@@ -332,7 +335,7 @@ def _map_field(detected: DetectedField, facts: list[FactView], profile: ProfileV
     if detected.semantic == "phone_country":
         proposal = _phone_country_proposal(facts, profile, detected.options)
     elif detected.semantic in _EDUCATION:
-        proposal = _education_proposal(detected.semantic, facts, profile, detected.options)
+        proposal = _education_proposal(detected.semantic, facts, profile, detected.options, detected.label)
     else:
         proposal = _proposal(detected.semantic, facts, profile)
         if detected.semantic == "location" and not searchable:
@@ -377,6 +380,7 @@ def _map_field(detected: DetectedField, facts: list[FactView], profile: ProfileV
         and not item.alternatives
     )
     item.review_required = not item.eligible_for_fill
+    item.match_note = proposal.note if item.eligible_for_fill else ""
     return item
 
 
@@ -419,6 +423,7 @@ class _Proposal:
     kind: str | None = None
     fact_id: int | None = None
     uncertainty: str | None = None
+    note: str = ""
     provenance: list[Provenance] = field(default_factory=list)
     alternatives: list[Alternative] = field(default_factory=list)
 
@@ -492,7 +497,7 @@ def _country_name(facts: list[FactView], profile: ProfileView) -> _Proposal:
     return _Proposal(uncertainty="No verified country is available. Add a country to your candidate profile.")
 
 
-def _education_proposal(semantic: str, facts: list[FactView], profile: ProfileView, options: list[str]) -> _Proposal:
+def _education_proposal(semantic: str, facts: list[FactView], profile: ProfileView, options: list[str], label: str = "") -> _Proposal:
     key = {"school": "institution", "degree": "degree", "discipline": "major"}[semantic]
     usable: list[tuple[str, FactView]] = []
     held = False
@@ -541,11 +546,12 @@ def _education_proposal(semantic: str, facts: list[FactView], profile: ProfileVi
             kind="profile",
             provenance=[Provenance(kind="profile", profile_field=attr, candidate_id=profile.candidate_id)],
         )
-    if options:
-        chosen_option = _exact_option(proposal.value or "", options)
-        if chosen_option is None:
-            return _Proposal(uncertainty=f"No listed choice exactly matches the verified {_reason_name(semantic)}.")
-        proposal.value = chosen_option
+    if options and proposal.value:
+        found = match_choice(semantic, proposal.value, options, label)
+        if found.option is None:
+            return _Proposal(uncertainty=found.explanation)
+        proposal.value = found.option
+        proposal.note = found.explanation
     return proposal
 
 

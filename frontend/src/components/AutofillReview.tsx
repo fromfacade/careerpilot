@@ -298,6 +298,7 @@ export function AutofillReview({
                       label: field.label,
                       value: field.proposed_value,
                       source: field.source_kind,
+                      note: field.match_note,
                     }))}
                     included={included}
                     onToggle={(id, on) => setIncluded((current) => ({ ...current, [id]: on }))}
@@ -390,7 +391,11 @@ export function AutofillReview({
 function completedRows(session: AutofillSession) {
   return (session.result?.outcomes || [])
     .filter((item) => item.status === 'filled' || item.status === 'preserved')
-    .map((item) => `${item.label}: ${item.status === 'preserved' ? 'already complete' : 'filled automatically'}`)
+    .map((item) => {
+      if (item.status === 'preserved') return `${item.label}: already complete`
+      if (item.detail && item.detail !== 'Verified.') return `${item.label}: ${item.detail}`
+      return `${item.label}: filled automatically`
+    })
 }
 
 function CompletionSummary({ metrics }: { metrics: CompletionMetrics }) {
@@ -469,7 +474,7 @@ function FieldChoices({
   onToggle,
 }: {
   title: string
-  fields: { id: string; label: string; value: string | null; source: string | null }[]
+  fields: { id: string; label: string; value: string | null; source: string | null; note?: string }[]
   included: Record<string, boolean>
   onToggle: (id: string, on: boolean) => void
 }) {
@@ -485,6 +490,7 @@ function FieldChoices({
               <span>
                 {field.label}: {field.value}
                 {field.source ? <span className="text-xs text-slate-500"> ({field.source})</span> : null}
+                {field.note ? <span className="block text-xs text-slate-500">{field.note}</span> : null}
               </span>
             </label>
           </li>

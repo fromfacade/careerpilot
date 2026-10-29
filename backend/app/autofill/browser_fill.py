@@ -21,6 +21,7 @@ from app.autofill.mapping import (
     match_listed_country,
     match_listed_location,
 )
+from app.autofill.normalize import match_choice, structured_kind
 from app.autofill.materials import _upload_name
 from app.autofill.urls import classify_apply_url, navigation_allowed
 
@@ -269,7 +270,7 @@ def _fill_combobox(page: Page, locator, action: FillAction) -> FieldOutcome:
             return FieldOutcome(action.field_id, action.label, "failed", "The selected choice did not stay on the form.")
     except Exception:
         return FieldOutcome(action.field_id, action.label, "failed", "The dropdown could not be filled.")
-    return FieldOutcome(action.field_id, action.label, "filled", "Verified.")
+    return FieldOutcome(action.field_id, action.label, "filled", _filled_detail(action, chosen))
 
 
 def _search_text(action: FillAction) -> str:
@@ -307,6 +308,9 @@ def _choose_option(action: FillAction, options: list[str]) -> str | None:
         return match_listed_location(action.value, options)
     if _is_country(action):
         return match_listed_country(action.value, options)
+    kind = structured_kind(action.label)
+    if kind:
+        return match_choice(kind, action.value, options, action.label).option
     matches = [option for option in options if option.strip().casefold() == action.value.strip().casefold()]
     return matches[0] if len(matches) == 1 else None
 
@@ -318,7 +322,18 @@ def _no_match_reason(action: FillAction, options: list[str]) -> str:
         return "More than one country uses this phone prefix, so none was selected."
     if _is_country(action):
         return "No listed choice exactly matches the verified country."
+    kind = structured_kind(action.label)
+    if kind:
+        return match_choice(kind, action.value, options, action.label).explanation
     return "No listed choice exactly matches the verified value."
+
+
+def _filled_detail(action: FillAction, chosen: str) -> str:
+    kind = structured_kind(action.label)
+    if not kind:
+        return "Verified."
+    found = match_choice(kind, action.value, [chosen], action.label)
+    return found.explanation or "Verified."
 
 
 def _combobox_verified(page: Page, locator, action: FillAction, chosen: str) -> bool:
