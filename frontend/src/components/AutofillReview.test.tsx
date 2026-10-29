@@ -71,6 +71,10 @@ const session: AutofillSession = {
           source: 'job_specific',
           approval_status: 'approved',
           uncertainty: null,
+          match_kind: 'exact_match',
+          explanation: 'Approved answer reused because this application already has an approved answer for this question.',
+          eligible_for_fill: true,
+          review_required: false,
         },
       ],
       missing: [],
@@ -107,6 +111,9 @@ describe('AutofillReview', () => {
     expect(screen.getByText(/Backend SWE Resume/)).toBeInTheDocument()
     expect(screen.getByText(/ada@example.com/)).toBeInTheDocument()
     expect(screen.getByText(/I enjoy building small tools/)).toBeInTheDocument()
+    expect(screen.getByText(/Exact match/)).toBeInTheDocument()
+    expect(screen.getByText(/Approved answer reused because this application already has an approved answer/)).toBeInTheDocument()
+    expect(screen.getByText(/Autofill permitted/)).toBeInTheDocument()
     expect(screen.getByText(/Phone: No verified value is available/)).toBeInTheDocument()
     expect(screen.getByText(/Work authorization:/)).toBeInTheDocument()
     expect(screen.getByText(/School:/)).toBeInTheDocument()

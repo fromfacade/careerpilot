@@ -373,7 +373,12 @@ employer page showed, and that correction is stored in the status history.
 Phase 2.5.5 starts that same path from Apply with CareerPilot on the job
 card: one preparation, approved-field fill, and the existing confirmation
 before anything is sent. Tailoring stays optional. An unsupported board
-never opens a browser.
+never opens a browser. Phase 3.1.1 classifies common Greenhouse questions
+without inventing dates, GPA, or experience. Phase 3.1.2 reuses an approved
+answer only when the question meaning, employer, role, and technology still
+fit. Equivalent wording can match. A different employer or technology does
+not autofill. Uncertain matches and time-sensitive library answers stay for
+review. Drafts are not promoted, and sensitive questions stay manual.
 
 The browser is a locally controlled headed Playwright window, with one
 adapter per site. The reason for that choice, and why a browser

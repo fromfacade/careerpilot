@@ -458,7 +458,8 @@ def test_classified_questions_reuse_verified_facts_and_do_not_invent_the_rest():
         source="library",
     )
     reused = plan_autofill(URL, QUESTIONS, [education], profile, Materials(library_answers=[approved]))
-    matched = next(item for item in reused.answers.matched if item.field_id == "gpa")
-    assert matched.proposed_text == "3.4"
-    assert matched.approval_status == "approved"
-    assert matched.eligible_for_fill is True
+    reviewed = next(item for item in reused.answers.ambiguous if item.field_id == "gpa")
+    assert reviewed.proposed_text == "3.4"
+    assert reviewed.match_kind == "uncertain_match"
+    assert reviewed.eligible_for_fill is False
+    assert "GPA" in reviewed.explanation

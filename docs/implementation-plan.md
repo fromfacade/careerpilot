@@ -31,7 +31,9 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
 - **Phase 2.5.2 (complete on `feature/application-readiness`)**: persistent application tracking.
 - **Phase 2.5.3 (complete on `feature/application-readiness`)**: explicit Greenhouse submission for one confirmed application.
 - **Phase 2.5.4 (complete on `feature/application-readiness`)**: confirmation phrases, manual resolution, and status history.
-- **Phase 2.5.5 (this increment)**: one Apply with CareerPilot action from a job listing. Preparation and approved-field fill start there. Submission still requires a fresh check and an explicit confirmation for that job.
+- **Phase 2.5.5 (complete on `main`)**: one Apply with CareerPilot action from a job listing. Preparation and approved-field fill start there. Submission still requires a fresh check and an explicit confirmation for that job.
+- **Phase 3.1.1 (complete on `feature/greenhouse-completion`)**: Greenhouse question classification. Common questions receive a `question_kind`. Verified school, degree, major, and link fields still use the existing fact path. Other kinds are not invented.
+- **Phase 3.1.2 (this increment)**: context-aware reuse of approved answers. Equivalent wording can match. A different employer, role, or technology does not autofill. Drafts are not promoted.
 
 ## 2. Phase 1 increments (checklist)
 
@@ -950,3 +952,25 @@ and tracking panels stay on that card. Nothing is submitted until the
 user confirms that exact application.
 
 Status: **2.5.5 implemented.** This is the last increment of Phase 2.5.
+
+## 18. Phase 3.1 — Greenhouse question completion
+
+Working branch: `feature/greenhouse-completion`.
+
+### 3.1.1 Question classification
+
+Detection names common Greenhouse questions with `question_kind`: graduation date, GPA, start date, relocation, school, degree, major, current employer, experience, GitHub, portfolio, and written prompts. School, degree, major, GitHub, and portfolio still use verified facts, and only an exact listed choice is filled. Graduation date, GPA, start date, relocation, employer, and experience are not filled from facts. Sensitive and consent questions stay manual.
+
+Status: **3.1.1 implemented.**
+
+### 3.1.2 Context-aware answer matching
+
+The planner still reads the approved answer library and job-specific preparation answers. It does not call Gemini and does not create drafts.
+
+A question is compared by kind and intent, not by shared words alone. Wording such as “this role” and “this position,” or two Python-experience prompts, can be an `equivalent_match`. The same question text is an `exact_match`. A related prompt whose employer, role, technology, or qualifier differs is an `uncertain_match` and stays for review. A different meaning is `no_match` and is not proposed.
+
+Automatic reuse requires one approved answer, a high-confidence label, compatible employer and role, the same technology when a technology is named, and no second approved answer that also fits. Job-specific exact and equivalent answers outrank the library. One preferred library answer can still break a tie between exact copies of the same question. A library answer for a start date, graduation date, or GPA is review-only, because that value may be out of date. An answer approved on this preparation can still fill those fields. Drafts are ignored. Work authorization, sponsorship, disability, demographics, legal declarations, and consent stay manual.
+
+The review plan shows the match type, the explanation, whether autofill is permitted, and whether review is required.
+
+Status: **3.1.2 implemented.** Draft generation is not part of this increment.

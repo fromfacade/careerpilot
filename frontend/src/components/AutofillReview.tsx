@@ -404,7 +404,7 @@ function AnswerChoices({
       title={title}
       fields={fields.map((field) => ({
         id: field.field_id,
-        label: field.label,
+        label: answerHeading(field),
         value: field.proposed_text,
         source: field.approval_status,
       }))}
@@ -448,8 +448,27 @@ function fieldReason(field: AutofillPlanField): string {
   return `${field.label}: ${field.uncertainty || 'This field was not filled.'}`
 }
 
+function answerHeading(field: AutofillAnswerField): string {
+  const permission =
+    field.eligible_for_fill === true ? 'Autofill permitted.' : field.eligible_for_fill === false ? 'Manual review required.' : ''
+  return [field.label, matchLabel(field.match_kind), field.explanation || '', permission].filter(Boolean).join(' ')
+}
+
+function matchLabel(kind: string | undefined): string {
+  const labels: Record<string, string> = {
+    exact_match: 'Exact match.',
+    equivalent_match: 'Equivalent match.',
+    uncertain_match: 'Uncertain match.',
+    no_match: 'No match.',
+  }
+  return kind ? labels[kind] || '' : ''
+}
+
 function answerReason(field: AutofillAnswerField): string {
-  return `${field.label}: ${field.uncertainty || 'No approved answer was entered.'}`
+  const reason = field.explanation || field.uncertainty || 'No approved answer was entered.'
+  const permission =
+    field.eligible_for_fill === true ? 'Autofill permitted.' : field.review_required ? 'Manual review required.' : ''
+  return `${field.label}: ${matchLabel(field.match_kind)} ${reason} ${permission}`.replace(/\s+/g, ' ').trim()
 }
 
 function missingRows(plan: NonNullable<AutofillSession['plan']>): string[] {

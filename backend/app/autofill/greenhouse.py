@@ -285,6 +285,14 @@ class FormDetection:
     job_id: str | None = None
 
 
+def question_kind_for(label: str) -> str:
+    """Classify a question from its text. Sensitive and consent prompts stay sensitive."""
+    normalized = _normalize_label(label)
+    if normalized and (_sensitive(normalized) or _consent_label(normalized)):
+        return "sensitive"
+    return _question_kind(label, normalized)
+
+
 def detect_application(url: str, html: str = "") -> FormDetection:
     decision = classify_apply_url(url)
     if not decision.supported:

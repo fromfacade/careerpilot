@@ -147,6 +147,7 @@ class AnswerProposalRead(BaseModel):
     eligible_for_fill: bool
     review_required: bool
     uncertainty: str | None
+    explanation: str = ""
 
 
 class AnswerPlanRead(BaseModel):

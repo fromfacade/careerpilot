@@ -616,6 +616,10 @@ export interface AutofillAnswerField {
   source: string | null;
   approval_status: string | null;
   uncertainty: string | null;
+  match_kind?: string;
+  explanation?: string;
+  eligible_for_fill?: boolean;
+  review_required?: boolean;
 }
 
 export interface AutofillPlan {

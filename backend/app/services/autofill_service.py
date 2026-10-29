@@ -112,12 +112,15 @@ def _materials(db: Session, candidate: Candidate, url: str, preparation_id: int 
                 category=row.category.value,
                 is_sensitive=bool(row.is_sensitive),
                 source="job_specific",
+                role=preparation.snapshot_job_title,
             )
             for row in preparation.answers
         ],
         library_answers=library,
         writing_style_profile_id=style,
         link_problem=problem,
+        employer=preparation.snapshot_employer,
+        role=preparation.snapshot_job_title,
     )
 
 
