@@ -107,6 +107,9 @@ class AnswerProposal:
     uncertainty: str | None
     explanation: str = ""
     supporting_facts: list[str] = field(default_factory=list)
+    input_type: str = "textarea"
+    name: str = ""
+    element_id: str = ""
 
 
 @dataclass
@@ -202,6 +205,10 @@ def match_answers(detection: FormDetection, materials: Materials) -> AnswerPlan:
             item.question_kind,
             materials,
         )
+        proposal.input_type = item.input_type or "textarea"
+        proposal.name = item.name
+        proposal.element_id = item.element_id
+        _fit_listed_choices(proposal, item.options)
         if proposal.existing_value:
             plan.preserved.append(proposal)
         elif proposal.match_kind in {"exact_match", "equivalent_match"} and proposal.eligible_for_fill:
@@ -312,6 +319,51 @@ def _attach_saved_drafts(plan: AnswerPlan, materials: Materials) -> None:
             proposal.uncertainty = "This draft is not filled until you approve it."
         facts = ", ".join(draft.fact_labels) if draft.fact_labels else "none on file"
         proposal.explanation = f"Draft only. Supported by verified facts: {facts}."
+
+
+def _fit_listed_choices(proposal: AnswerProposal, options: list[str]) -> None:
+    """An approved answer can fill a choice control only when every value is listed."""
+    if proposal.input_type not in {"select", "radio", "checkbox", "checkboxes", "multi_select"}:
+        return
+    if not proposal.eligible_for_fill:
+        return
+    text = (proposal.proposed_text or proposal.proposed_replacement or "").strip()
+    if not text or not options:
+        proposal.eligible_for_fill = False
+        proposal.review_required = True
+        proposal.uncertainty = "This control's choices are not visible, so nothing was selected."
+        proposal.explanation = proposal.uncertainty
+        return
+    parts = _choice_parts(text, options)
+    chosen: list[str] = []
+    for part in parts:
+        match = _exact_listed(part, options)
+        if match is None:
+            proposal.eligible_for_fill = False
+            proposal.review_required = True
+            proposal.uncertainty = "No listed choice exactly matches the approved answer."
+            proposal.explanation = proposal.uncertainty
+            return
+        if match not in chosen:
+            chosen.append(match)
+    fitted = "\n".join(chosen)
+    if proposal.proposed_replacement:
+        proposal.proposed_replacement = fitted
+    else:
+        proposal.proposed_text = fitted
+
+
+def _choice_parts(text: str, options: list[str]) -> list[str]:
+    exact = _exact_listed(text, options)
+    if exact is not None:
+        return [exact]
+    parts = [part.strip() for part in re.split(r"\s*[,;\n]\s*", text) if part.strip()]
+    return parts or [text]
+
+
+def _exact_listed(value: str, options: list[str]) -> str | None:
+    matches = [option for option in options if option.strip() and option.strip().casefold() == value.strip().casefold()]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _usable(answer: AnswerView) -> bool:

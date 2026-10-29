@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 from playwright.sync_api import sync_playwright
 
-from app.autofill.actions import decide_fill, resume_marker, reviewed_fields
+from app.autofill.actions import decide_fill, revealed_actions, resume_marker, reviewed_fields
 from app.autofill.browser_fill import FillReport, NavigationBlocked, apply_actions, open_application
 from app.autofill.mapping import AutofillPlan
 from app.autofill.submission import SubmissionGate
@@ -286,10 +286,37 @@ def fill_session(session_id: str, *, included: set[str], overwrite: set[str], at
         for field_id in decision.preserved:
             report.outcomes.append(_outcome(field_id, "preserved", "The existing value was kept."))
         for field_id in decision.stale:
-            report.outcomes.append(_outcome(field_id, "stale", "The form changed since review, so this field was skipped."))
+            report.outcomes.append(
+                _outcome(
+                    field_id,
+                    "stale",
+                    decision.stale_details.get(field_id, "The form changed since review, so this field was skipped."),
+                )
+            )
         for field_id in decision.skipped:
             report.outcomes.append(_outcome(field_id, "skipped", "This field is no longer eligible."))
         still_same, still_detail = same_greenhouse_application(page.url, run.apply_url)
+        if still_same and not run.cancel.is_set():
+            revealed_html = page.content()
+            revealed = _plan_for(run, revealed_html, page.url)
+            if "captcha" not in revealed.blockers and "mfa" not in revealed.blockers:
+                follow = revealed_actions(
+                    run.reviewed,
+                    revealed,
+                    done={action.field_id for action in decision.actions},
+                )
+                if follow.actions:
+                    extra = apply_actions(
+                        page,
+                        follow.actions,
+                        resume_field_id=None,
+                        resume_path=None,
+                        resume_name="",
+                        cancel=run.cancel,
+                    )
+                    report.outcomes.extend(extra.outcomes)
+                    if extra.stopped and not report.stopped:
+                        report.stopped = extra.stopped
         run.identity_matches = still_same
         run.identity_detail = still_detail
         fresh_html = page.content()

@@ -463,6 +463,100 @@ def test_navigation_guard_blocks_other_origins():
         server.shutdown()
 
 
+def test_browser_keeps_selected_choices_and_fills_a_revealed_field(tmp_path):
+    html = """
+    <form id="application" onsubmit="window.__submitted = true; return false;">
+      <label for="school">School</label>
+      <select id="school" name="school"><option>Select</option><option>Example State University</option></select>
+      <fieldset>
+        <legend>Are you willing to relocate?</legend>
+        <label><input type="radio" name="relocate" value="yes"> Yes</label>
+        <label><input type="radio" name="relocate" value="no"> No</label>
+      </fieldset>
+      <fieldset>
+        <legend>Open to relocation</legend>
+        <label><input type="checkbox" name="cities" value="austin"> Austin</label>
+        <label><input type="checkbox" name="cities" value="remote"> Remote</label>
+      </fieldset>
+      <label for="languages">Programming languages</label>
+      <select id="languages" name="languages" multiple>
+        <option>Python</option><option>SQL</option><option>Java</option>
+      </select>
+      <div class="select">
+        <label for="team">Which team?</label>
+        <input id="team" role="combobox" aria-controls="team-list" aria-label="Which team?">
+        <div id="team-value" class="select__single-value"></div>
+      </div>
+      <ul id="team-list" role="listbox" hidden>
+        <li role="option">Payments</li>
+        <li role="option">Infra</li>
+      </ul>
+      <label for="track">Track</label>
+      <select id="track" name="track">
+        <option>Select</option>
+        <option>Backend</option>
+      </select>
+      <div id="major-wrap" hidden>
+        <label for="major">Major</label>
+        <input id="major" name="major">
+      </div>
+      <button type="submit">Submit application</button>
+    </form>
+    <script>
+      window.__submitted = false;
+      const team = document.getElementById('team');
+      team.addEventListener('input', () => { document.getElementById('team-list').hidden = false; });
+      document.getElementById('team-list').addEventListener('click', (event) => {
+        const option = event.target.closest('[role="option"]');
+        if (!option) return;
+        const text = option.textContent.trim();
+        document.getElementById('team-value').textContent = text;
+        team.value = text;
+        document.getElementById('team-list').hidden = true;
+      });
+      document.getElementById('track').addEventListener('change', () => {
+        if (document.getElementById('track').value === 'Backend') document.getElementById('major-wrap').hidden = false;
+      });
+    </script>
+    """
+    actions = [
+        FillAction("school", "select", "school", "school", "School", "Example State University", "contact"),
+        FillAction("relocate", "radio", "relocate", "", "Are you willing to relocate?", "Yes", "answer"),
+        FillAction("cities", "checkboxes", "cities", "", "Open to relocation", "Austin\nRemote", "answer"),
+        FillAction("languages", "multi_select", "languages", "languages", "Programming languages", "Python\nSQL", "answer"),
+        FillAction("team", "combobox", "team", "team", "Which team?", "Payments", "answer"),
+        FillAction("track", "select", "track", "track", "Track", "Backend", "contact"),
+    ]
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.set_content(html)
+        report = apply_actions(page, actions, resume_field_id=None, resume_path=None, resume_name="")
+        assert report.submitted is False
+        assert page.evaluate("() => window.__submitted") is False
+        assert all(item.status == "filled" for item in report.outcomes), [(item.label, item.detail) for item in report.outcomes]
+        assert page.locator("#school").input_value() == "Example State University"
+        assert page.locator('input[name="relocate"][value="yes"]').is_checked()
+        assert page.locator('input[name="cities"][value="austin"]').is_checked()
+        assert page.locator('input[name="cities"][value="remote"]').is_checked()
+        selected = page.locator("#languages").evaluate("el => [...el.selectedOptions].map(option => option.text.trim())")
+        assert selected == ["Python", "SQL"]
+        assert page.locator("#team-value").inner_text() == "Payments"
+        assert page.locator("#major-wrap").is_hidden() is False
+        follow = apply_actions(
+            page,
+            [FillAction("major", "text", "major", "major", "Major", "Computer Science", "contact")],
+            resume_field_id=None,
+            resume_path=None,
+            resume_name="",
+        )
+        assert follow.outcomes[0].status == "filled"
+        assert page.locator("#major").input_value() == "Computer Science"
+        assert page.locator("#school").input_value() == "Example State University"
+        assert page.evaluate("() => window.__submitted") is False
+        browser.close()
+
+
 def test_browser_token_is_required_before_a_session_route_runs():
     app = FastAPI()
 

@@ -405,7 +405,7 @@ def test_common_greenhouse_questions_are_classified_without_inventing_values():
     assert kinds["relocate"].input_type == "radio"
     assert kinds["relocate"].options == ["Yes", "No"]
     assert kinds["cities"].question_kind == "relocation"
-    assert kinds["cities"].input_type == "checkbox"
+    assert kinds["cities"].input_type == "checkboxes"
     assert kinds["cities"].options == ["Austin", "Remote"]
     assert kinds["school"].question_kind == "school"
     assert kinds["school"].semantic == "school"
@@ -438,7 +438,7 @@ def test_rearranged_labels_keep_the_same_question_kinds():
     assert by_name["gpa"].question_kind == "gpa"
     assert by_name["gpa"].confidence == "high"
     assert by_name["school_box"].question_kind == "school"
-    assert by_name["school_box"].input_type == "select"
+    assert by_name["school_box"].input_type == "combobox"
     assert by_name["grad"].question_kind == "graduation_date"
     assert by_name["grad"].confidence == "low"
     assert by_name["gh"].question_kind == "github"

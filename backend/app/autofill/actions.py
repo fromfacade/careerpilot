@@ -52,6 +52,7 @@ class FillDecision:
     resume_field_id: str | None = None
     preserved: list[str] = field(default_factory=list)
     stale: list[str] = field(default_factory=list)
+    stale_details: dict[str, str] = field(default_factory=dict)
     skipped: list[str] = field(default_factory=list)
     stop_reason: str | None = None
 
@@ -67,9 +68,9 @@ def reviewed_fields(plan: AutofillPlan) -> dict[str, ReviewedField]:
                 field_id=item.field_id,
                 semantic="custom_question",
                 label=item.label,
-                input_type="textarea",
-                name=item.field_id,
-                element_id=item.field_id,
+                input_type=item.input_type or "textarea",
+                name=item.name or item.field_id,
+                element_id=item.element_id or item.field_id,
                 proposed=item.proposed_text,
                 required=item.required,
                 kind="answer",
@@ -83,9 +84,9 @@ def reviewed_fields(plan: AutofillPlan) -> dict[str, ReviewedField]:
                 field_id=item.field_id,
                 semantic="custom_question",
                 label=item.label,
-                input_type="textarea",
-                name=item.field_id,
-                element_id=item.field_id,
+                input_type=item.input_type or "textarea",
+                name=item.name or item.field_id,
+                element_id=item.element_id or item.field_id,
                 proposed=item.proposed_replacement,
                 required=item.required,
                 kind="preserve",
@@ -111,9 +112,11 @@ def decide_fill(
         if current is None or current.semantic in {"sensitive", "unknown"}:
             decision.stale.append(field_id)
             continue
-        fresh = live_by_id.get(field_id)
-        if fresh is None or fresh.semantic != current.semantic or _norm(fresh.label) != _norm(current.label):
+        fresh = _same_control(current, live_by_id)
+        if fresh is None:
             decision.stale.append(field_id)
+            if _identity_count(current, live_by_id) > 1:
+                decision.stale_details[field_id] = "More than one field asks this question, so it was left for review."
             continue
         if fresh.existing and _same(fresh.existing, current.proposed):
             decision.preserved.append(field_id)
@@ -145,6 +148,41 @@ def decide_fill(
         else:
             decision.resume_field_id = live.resume.field_id
     return decision
+
+
+def revealed_actions(original: dict[str, ReviewedField], live: AutofillPlan, *, done: set[str]) -> FillDecision:
+    """Fill verified fields that were hidden until an earlier answer was selected."""
+    fresh = reviewed_fields(live)
+    known_ids = set(original)
+    known = {_identity(item) for item in original.values()}
+    included = {
+        field_id
+        for field_id, item in fresh.items()
+        if item.kind == "contact"
+        and item.semantic not in {"sensitive", "unknown"}
+        and field_id not in done
+        and field_id not in known_ids
+        and _identity(item) not in known
+    }
+    return decide_fill(fresh, live, included=included, overwrite=set(), attach_resume=False)
+
+
+def _same_control(current: ReviewedField, live_by_id: dict[str, ReviewedField]) -> ReviewedField | None:
+    fresh = live_by_id.get(current.field_id)
+    if fresh is not None and fresh.semantic == current.semantic and _norm(fresh.label) == _norm(current.label):
+        return fresh
+    matches = [item for item in live_by_id.values() if _identity(item) == _identity(current)]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _identity_count(current: ReviewedField, live_by_id: dict[str, ReviewedField]) -> int:
+    return sum(1 for item in live_by_id.values() if _identity(item) == _identity(current))
+
+
+def _identity(item: ReviewedField) -> str:
+    return f"{item.semantic}|{_norm(item.label)}"
 
 
 def resume_marker(plan: AutofillPlan) -> ReviewedField | None:
@@ -199,9 +237,9 @@ def _live_index(plan: AutofillPlan) -> dict[str, ReviewedField]:
             field_id=item.field_id,
             semantic="custom_question",
             label=item.label,
-            input_type="textarea",
-            name=item.field_id,
-            element_id=item.field_id,
+            input_type=item.input_type or "textarea",
+            name=item.name or item.field_id,
+            element_id=item.element_id or item.field_id,
             proposed=item.proposed_text or item.proposed_replacement or "",
             required=item.required,
             existing=item.existing_value,

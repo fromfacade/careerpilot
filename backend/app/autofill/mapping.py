@@ -222,8 +222,14 @@ def _map_field(detected: DetectedField, facts: list[FactView], profile: ProfileV
     if detected.input_type == "file" or detected.semantic not in _FILLABLE:
         item.uncertainty = "This control is not a supported application field."
         return item
-    searchable = detected.input_type == "combobox" and detected.semantic in {"phone_country", "location"}
-    if detected.input_type == "select" and not detected.options:
+    searchable = detected.input_type == "combobox" and detected.semantic in {
+        "phone_country",
+        "location",
+        "school",
+        "degree",
+        "discipline",
+    }
+    if detected.input_type in {"select", "multi_select"} and not detected.options:
         item.uncertainty = "This dropdown does not expose its choices, so nothing was selected."
         return item
     if detected.input_type == "combobox" and not searchable:

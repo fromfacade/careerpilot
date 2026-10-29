@@ -484,11 +484,14 @@ def _to_fields(controls: list[Node], ids: dict[str, Node], root: Node) -> list[D
             required = True
         options = _options(members, ids, root)
         field_id = primary.get("name") or primary.get("id") or f"field-{len(fields) + 1}"
+        control_type = _input_type(primary)
+        if control_type == "checkbox" and len(members) > 1:
+            control_type = "checkboxes"
         fields.append(
             DetectedField(
                 field_id=field_id,
                 semantic=semantic,
-                input_type=_input_type(primary),
+                input_type=control_type,
                 label=label,
                 required=required,
                 options=options,
@@ -555,10 +558,10 @@ def _dedupe(fields: list[DetectedField]) -> list[DetectedField]:
 def _input_type(node: Node) -> str:
     if node.tag == "textarea":
         return "textarea"
-    if node.tag == "input" and node.get("role").casefold() == "combobox":
+    if node.tag == "select":
+        return "multi_select" if node.has("multiple") else "select"
+    if node.get("role").casefold() == "combobox":
         return "combobox"
-    if node.tag == "select" or node.get("role").casefold() == "combobox":
-        return "select"
     raw = node.get("type").casefold() or "text"
     if raw in {"email", "tel", "url", "file", "checkbox", "radio", "text", "number"}:
         return raw

@@ -337,7 +337,7 @@ def test_explicit_country_is_not_guessed_from_a_shared_prefix():
     assert ready["city"].proposed_value == "Austin, TX"
     school = _by_id(plan.clarification)["school"]
     assert school.eligible_for_fill is False
-    assert "does not expose" in (school.uncertainty or "")
+    assert "No verified value" in (school.uncertainty or "")
     native = """
     <form>
       <label for="phone">Phone</label>

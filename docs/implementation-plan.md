@@ -34,7 +34,8 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
 - **Phase 2.5.5 (complete on `main`)**: one Apply with CareerPilot action from a job listing. Preparation and approved-field fill start there. Submission still requires a fresh check and an explicit confirmation for that job.
 - **Phase 3.1.1 (complete on `feature/greenhouse-completion`)**: Greenhouse question classification. Common questions receive a `question_kind`. Verified school, degree, major, and link fields still use the existing fact path. Other kinds are not invented.
 - **Phase 3.1.2 (complete on `feature/greenhouse-completion`)**: context-aware reuse of approved answers. Equivalent wording can match. A different employer, role, or technology does not autofill. Drafts are not promoted.
-- **Phase 3.1.3 (this increment)**: draft an answer only when matching finds nothing. The draft stays unapproved until the user edits, approves, rejects, or regenerates it. Approval can fill that one field. Sensitive questions stay manual.
+- **Phase 3.1.3 (complete on `feature/greenhouse-completion`)**: draft an answer only when matching finds nothing. The draft stays unapproved until the user edits, approves, rejects, or regenerates it. Approval can fill that one field. Sensitive questions stay manual.
+- **Phase 3.1.4 (complete on `feature/greenhouse-completion`)**: common Greenhouse controls keep their question when the markup changes. Listed choices and verified follow-up fields can be filled. Unmatched controls stay for review.
 
 ## 2. Phase 1 increments (checklist)
 
@@ -984,4 +985,10 @@ An approved answer, an uncertain match, and a sensitive question do not get a dr
 
 If the model is unavailable, the question is marked for review and the failure is not retried until the user asks. Claims that are not in the verified facts must be edited before approval. After approval, the answer joins the library used by context-aware matching.
 
-Status: **3.1.3 implemented.** Form controls beyond this question set are not part of this increment.
+Status: **3.1.3 implemented.**
+
+### 3.1.4 Form-control reliability
+
+A reviewed question stays with its control when the element id or name changes, as long as the label and meaning still identify one field. Two fields with the same question are left for review. Native dropdowns, radio groups, checkbox groups, and multi-selects are filled only with choices that exactly match an approved answer or a verified fact. Searchable school, degree, and major fields can be typed and accepted when the opened list shows that exact value. A verified field that was hidden until another answer is selected is filled on the next pass. The selection is read back before it counts as filled. Sensitive questions, CAPTCHA, and MFA still stop the fill. Nothing is submitted.
+
+Status: **3.1.4 implemented.** Other employer sites are not part of this increment.

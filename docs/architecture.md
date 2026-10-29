@@ -382,7 +382,11 @@ review. Drafts are not promoted, and sensitive questions stay manual.
 Phase 3.1.3 drafts an open-ended question only when matching finds nothing.
 The draft is grounded in verified facts and the current writing-style profile,
 and it is not filled until the user approves it. GPA, graduation, start date,
-and sensitive questions are never sent to the model.
+and sensitive questions are never sent to the model. Phase 3.1.4 keeps a
+question attached to its dropdown, radio, checkbox, or searchable list when
+the control is redrawn, and fills a verified follow-up that appears after
+another answer. A choice is used only when it is listed. A control that
+cannot be matched is left for review.
 
 The browser is a locally controlled headed Playwright window, with one
 adapter per site. The reason for that choice, and why a browser
