@@ -26,10 +26,12 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
 - **Phase 2.3 (this effort)**: job-specific application preparation — JD analysis,
   qualification matching, resume tailoring/export, and job-specific answer drafts.
   **Not** form automation or submission.
-- **Phase 2.4 (in progress)**: Greenhouse review and headed fill. Submission
-  authorization, the application queue, tracker, analytics, and full audit
-  logging are not started. Autonomous submission remains impossible because
-  no submission code path exists.
+- **Phase 2.4 (complete on `feature/greenhouse-autofill`)**: Greenhouse review and headed fill. The browser does not submit.
+- **Phase 2.5.1 (complete on `feature/application-readiness`)**: application readiness. Unknown eligibility is not treated as ready.
+- **Phase 2.5.2 (complete on `feature/application-readiness`)**: persistent application tracking.
+- **Phase 2.5.3 (complete on `feature/application-readiness`)**: explicit Greenhouse submission for one confirmed application.
+- **Phase 2.5.4 (complete on `feature/application-readiness`)**: confirmation phrases, manual resolution, and status history.
+- **Phase 2.5.5 (this increment)**: one Apply with CareerPilot action from a job listing. Preparation and approved-field fill start there. Submission still requires a fresh check and an explicit confirmation for that job.
 
 ## 2. Phase 1 increments (checklist)
 
@@ -847,3 +849,104 @@ manual. Approved answers fill only on an exact question match.
 Sensitive, legal, demographic, and consent questions stay unanswered.
 The browser still pauses for a visible CAPTCHA or MFA challenge and
 never clicks Submit.
+
+## 13. Phase 2.5.1 — Application readiness
+
+Before any later submission step, CareerPilot checks graduation timing,
+work authorization, required fields, the approved resume, approved
+answers, unanswered sensitive questions, an active CAPTCHA or MFA
+challenge, the open Greenhouse job, and whether the page already shows
+a submission confirmation. Any check that cannot be verified is
+`needs_review`. Unknown work authorization, sponsorship, or graduation
+timing is not treated as eligible. `ready_to_submit` means the checks
+passed. It does not click Submit, and automatic submission stays off.
+
+The live page URL is compared with the selected preparation before and
+after a fill. A different Greenhouse job is not filled and its resume
+is not attached.
+
+Status: **2.5.1 implemented.** A passing readiness result does not submit.
+Optional demographic questions do not block readiness. Required
+sensitive or legal questions stay manual. Graduation follows an explicit
+requirement in the posting; a silent internship or new-grad posting does
+not use a generic date window.
+
+## 14. Phase 2.5.2 — Application tracking
+
+`tracked_applications` stores one row per candidate and job: employer,
+preparation, selected resume, status, timestamps, and nullable
+submission time, confirmation text, and failure reason. Status changes
+go through a fixed transition table. Readiness can set `needs_review`
+or `ready_to_submit`. It cannot set `submitting` or `submitted`.
+A submitted or uncertain record is not overwritten by a later readiness
+check. Records do not store answers, credentials, or contact details.
+The preparation list shows the application status. Rows survive an API
+restart because they live in Postgres.
+
+Status: **2.5.2 implemented.**
+
+## 15. Phase 2.5.3 — Controlled submission
+
+The Greenhouse review can submit one open application after the user
+confirms that employer, job, and URL. That confirmation belongs to the
+open browser session, lasts ten minutes after the application becomes
+ready, and is not reused for another preparation. Immediately before the click,
+CareerPilot re-reads the page, recomputes readiness, and checks the job,
+the resume, required fields, CAPTCHA or MFA, and whether the page already
+shows a submission. A failed check returns the record to `needs_review`
+and does not click.
+
+When the checks pass, the record moves from `ready_to_submit` to
+`submitting` under a row lock. A second request cannot enter
+`submitting`. The browser clicks only a single control labeled Submit,
+Submit application, or Submit your application. `submitted` is stored
+only when the page shows a receipt. A stated employer error is
+`submission_failed`. Anything else, including a redirect or a timeout
+without that text, is `confirmation_unknown` and is not retried.
+
+Status: **2.5.3 implemented.**
+
+## 16. Phase 2.5.4 — Confirmation, recovery, and duplicates
+
+Receipt detection accepts several Greenhouse confirmation phrases in the
+visible page text. A click, a redirect, an HTTP status, or a page that
+contains both a receipt and an error stays `confirmation_unknown`.
+
+The dashboard can record that the user saw a receipt or saw that the
+application was not received. The correction requires a confirmation and
+a short note, applies to that tracked application only, and does not
+submit again. A received correction is terminal. A not-received correction
+stays blocked until a browser session opened after that correction passes
+readiness and the user confirms submission again.
+
+`application_events` stores each status change: previous status, new
+status, time, a redacted summary, and whether the change came from the
+browser or from that correction. The preparation detail shows the
+current status, submission time, confirmation text, and that history.
+
+Status: **2.5.4 implemented.**
+
+## 17. Phase 2.5.5 — End-to-end application workflow
+
+`POST /api/preparations/workflow` is the one action behind Apply with
+CareerPilot on a job card. It rejects Lever, Ashby, and any Greenhouse
+job whose form URL cannot be built, and it does not create a preparation
+in those cases. An eligible Greenhouse job reuses the open preparation
+when one exists. Otherwise it creates one, selects an approved resume
+with the existing deterministic selector, and leaves tailoring optional.
+It does not generate a new resume or change an approved file.
+
+Unknown or ineligible eligibility is shown on the card and does not by
+itself stop the browser from opening. Readiness still refuses
+`ready_to_submit`. A submitted, submitting, or confirmation-unknown
+application does not open another browser. A browser-confirmed failure
+can be reviewed again, but the previous confirmation expires and the
+user must pass a new readiness check and confirm that employer and job.
+
+The card then opens the Greenhouse session and fills only fields that
+are ready plus answers already approved. Sensitive and unanswered
+questions stay for the user. The existing review, readiness, confirmation,
+and tracking panels stay on that card. Nothing is submitted until the
+user confirms that exact application.
+
+Status: **2.5.5 implemented.** This is the last increment of Phase 2.5.

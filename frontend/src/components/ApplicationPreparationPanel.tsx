@@ -1,11 +1,43 @@
 import { useState } from 'react'
 import { api } from '../api/client'
-import type { ApplicationPreparation, PreparationAnswer } from '../api/types'
+import type { ApplicationPreparation, PreparationAnswer, TrackedApplication } from '../api/types'
+import localToken from 'virtual:careerpilot-token'
 import { useFetch } from '../hooks/useFetch'
 import { resumeBullets, resumeHeading, resumeSubline } from '../preparation/resumePreview'
 import { AutofillReview } from './AutofillReview'
 import { Badge } from './Badge'
 import { EmptyBlock, ErrorBlock, LoadingBlock } from './StatusViews'
+
+function applicationLabel(status: string): string {
+  const labels: Record<string, string> = {
+    preparing: 'Preparing',
+    needs_review: 'Needs review',
+    ready_to_submit: 'Ready for submission',
+    submitting: 'Submitting',
+    submitted: 'Successfully submitted',
+    submission_failed: 'Submission failed',
+    confirmation_unknown: 'Confirmation unknown',
+  }
+  return labels[status] || status.replaceAll('_', ' ')
+}
+
+function applicationNextStep(status: string): string | null {
+  if (status === 'submission_failed') {
+    return 'The employer did not confirm receipt. Review the message, fix the form, and confirm again only if you still want to send it.'
+  }
+  if (status === 'confirmation_unknown') {
+    return 'CareerPilot cannot verify whether the employer received this application. Check the employer page, then record what you saw. CareerPilot will not retry.'
+  }
+  if (status === 'submitted') return 'The employer confirmed this application was received.'
+  return null
+}
+
+function applicationTone(status: string): 'green' | 'red' | 'amber' | 'blue' {
+  if (status === 'submitted') return 'blue'
+  if (status === 'ready_to_submit') return 'green'
+  if (status === 'submission_failed') return 'red'
+  return 'amber'
+}
 
 function items(value: unknown): { text: string; reason?: string }[] {
   return Array.isArray(value) ? (value as { text: string; reason?: string }[]) : []
@@ -133,6 +165,7 @@ export function ApplicationPreparationPanel({
   const list = useFetch(() => api.listPreparations(), [selectedId])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [liveStatus, setLiveStatus] = useState<{ id: number; status: string } | null>(null)
   const selected =
     list.status === 'success' ? list.data.find((row) => row.id === selectedId) ?? list.data[0] ?? null : null
 
@@ -157,8 +190,8 @@ export function ApplicationPreparationPanel({
         Application preparation
       </h2>
       <p className="mt-1 text-sm text-slate-500">
-        Job-specific resumes and answers for review. CareerPilot does not submit applications from
-        this screen.
+        Job-specific resumes and answers for review. A Greenhouse application is sent only after you
+        confirm that specific job.
       </p>
       {creating && (
         <p className="mt-2 text-sm text-slate-700" role="status">
@@ -173,7 +206,7 @@ export function ApplicationPreparationPanel({
       {list.status === 'loading' && <LoadingBlock label="Loading preparations…" />}
       {list.status === 'error' && <ErrorBlock message={list.message} onRetry={list.reload} />}
       {list.status === 'success' && list.data.length === 0 && (
-        <EmptyBlock message="No preparations yet. Use Prepare application on a job card." />
+        <EmptyBlock message="No preparations yet. Use Apply with CareerPilot on a Greenhouse job." />
       )}
       {list.status === 'success' && list.data.length > 0 && (
         <div className="mt-3 grid gap-3 lg:grid-cols-[16rem_1fr]">
@@ -192,28 +225,50 @@ export function ApplicationPreparationPanel({
                   {row.greenhouse_apply_url && (
                     <span className="mt-1 block text-xs font-medium text-blue-700">Greenhouse autofill</span>
                   )}
-                  <Badge tone={row.state === 'ready' ? 'green' : row.state === 'failed' ? 'red' : 'amber'}>
-                    {row.state.replace('_', ' ')}
-                  </Badge>
+                  <span className="mt-1 flex flex-wrap gap-1">
+                    <Badge tone={row.state === 'ready' ? 'green' : row.state === 'failed' ? 'red' : 'amber'}>
+                      {row.state.replaceAll('_', ' ')}
+                    </Badge>
+                    {shownStatus(row, liveStatus) && (
+                      <Badge tone={applicationTone(shownStatus(row, liveStatus)!)}>{applicationLabel(shownStatus(row, liveStatus)!)}</Badge>
+                    )}
+                  </span>
                 </button>
               </li>
             ))}
           </ul>
-          {selected && <PreparationDetail prep={selected} busy={busy} run={run} />}
+          {selected && (
+            <PreparationDetail
+              prep={selected}
+              busy={busy}
+              run={run}
+              applicationStatus={shownStatus(selected, liveStatus)}
+              onApplicationStatus={(status) => setLiveStatus({ id: selected.id, status })}
+            />
+          )}
         </div>
       )}
     </section>
   )
 }
 
+function shownStatus(prep: ApplicationPreparation, live: { id: number; status: string } | null) {
+  if (live?.id === prep.id) return live.status
+  return prep.application_status
+}
+
 function PreparationDetail({
   prep,
   busy,
   run,
+  applicationStatus,
+  onApplicationStatus,
 }: {
   prep: ApplicationPreparation
   busy: boolean
   run: (action: () => Promise<unknown>, ok?: string) => Promise<unknown>
+  applicationStatus?: string | null
+  onApplicationStatus: (status: string) => void
 }) {
   const matched = items(prep.match_report.matched)
   const missing = items(prep.match_report.missing)
@@ -225,6 +280,7 @@ function PreparationDetail({
         <h3 className="text-base font-semibold text-slate-900">
           {prep.snapshot_job_title} · {prep.snapshot_employer}
         </h3>
+        <ApplicationStatusCard prep={prep} applicationStatus={applicationStatus} onResolved={onApplicationStatus} />
         <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{prep.analysis.summary}</p>
         <div className="mt-3 rounded-md border border-slate-200 p-3">
           <p className="text-sm font-semibold text-slate-900">
@@ -252,7 +308,7 @@ function PreparationDetail({
           </div>
         </div>
         {prep.has_tailored_resume && prep.design_limitation && <p className="mt-2 text-xs text-amber-800">{prep.design_limitation}</p>}
-        <AutofillReview prep={prep} />
+        <AutofillReview prep={prep} onApplicationStatus={onApplicationStatus} />
         {prep.error_message && <p className="mt-1 text-xs text-red-700">{prep.error_message}</p>}
         <details className="mt-2">
           <summary className="cursor-pointer text-xs font-medium text-blue-700">Original job description</summary>
@@ -558,5 +614,110 @@ function AnswerCard({
         </button>
       </div>
     </article>
+  )
+}
+
+export function ApplicationStatusCard({
+  prep,
+  applicationStatus,
+  onResolved,
+}: {
+  prep: ApplicationPreparation
+  applicationStatus?: string | null
+  onResolved: (status: string) => void
+}) {
+  const [note, setNote] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const record = useFetch(
+    () => (prep.application_id ? api.getApplication(prep.application_id) : Promise.resolve(null)),
+    [prep.application_id, applicationStatus],
+  )
+  if (!applicationStatus && !prep.application_id) return null
+  const tracked: TrackedApplication | null = record.status === 'success' ? record.data : null
+  const status = tracked?.status || applicationStatus
+  if (!status) return null
+  const submittedAt = tracked?.submitted_at ? new Date(tracked.submitted_at).toLocaleString() : null
+  const canResolve = status === 'confirmation_unknown' && Boolean(prep.application_id)
+  const noteReady = note.trim().length >= 8
+  const correctionReady = Boolean(localToken) && confirmed && noteReady && !busy
+
+  async function resolve(received: boolean) {
+    if (!prep.application_id || !correctionReady) return
+    setBusy(true)
+    setError(null)
+    try {
+      const next = await api.resolveApplication(prep.application_id, {
+        confirm: true,
+        received,
+        note: note.trim(),
+      })
+      onResolved(next.status)
+      setConfirmed(false)
+      setNote('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The correction was not saved.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-1 space-y-2 text-sm text-slate-700">
+      <p>Application status: {applicationLabel(status)}.</p>
+      {applicationNextStep(status) && <p>{applicationNextStep(status)}</p>}
+      {submittedAt && <p>Submitted: {submittedAt}.</p>}
+      {tracked?.confirmation && <p>Confirmation: {tracked.confirmation}</p>}
+      {tracked?.failure_reason && tracked.failure_reason !== tracked.confirmation && <p>What happened: {tracked.failure_reason}</p>}
+      {tracked?.resubmit_after && status === 'submission_failed' && (
+        <p>Open a new browser session, let CareerPilot check readiness, and confirm again before sending this application.</p>
+      )}
+      {tracked && (
+        <div>
+          <p className="font-medium text-slate-900">Status history</p>
+          {tracked.events.length === 0 ? (
+            <p className="text-xs text-slate-500">No status changes yet.</p>
+          ) : (
+            <ul className="mt-1 list-disc pl-5 text-xs">
+              {tracked.events.map((event) => (
+                <li key={event.id}>
+                  {new Date(event.created_at).toLocaleString()}: {applicationLabel(event.previous_status)} to {applicationLabel(event.new_status)} ({event.source === 'manual' ? 'Your correction' : 'Browser'}). {event.reason || ''}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {canResolve && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+          <p className="font-medium">CareerPilot cannot verify this outcome.</p>
+          <p className="mt-1">This correction applies only to {prep.snapshot_job_title} at {prep.snapshot_employer}. It does not send the application again.</p>
+          <label className="mt-2 block">
+            What did you see on the employer page?
+            <textarea
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              rows={2}
+              className="mt-1 w-full rounded-md border border-amber-300 px-2 py-1 text-sm text-slate-900"
+            />
+          </label>
+          <label className="mt-2 flex items-start gap-2">
+            <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
+            <span>I confirm this correction for {prep.snapshot_job_title} at {prep.snapshot_employer} only.</span>
+          </label>
+          {!localToken && <p className="mt-2">The local API token is not loaded. Restart the frontend dev server after the API has created it.</p>}
+          {error && <p className="mt-2 text-red-700">{error}</p>}
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" disabled={!correctionReady} onClick={() => resolve(true)} className="rounded-md bg-slate-900 px-2 py-1 font-medium text-white disabled:opacity-50">
+              Confirmed received
+            </button>
+            <button type="button" disabled={!correctionReady} onClick={() => resolve(false)} className="rounded-md border border-amber-800 px-2 py-1 font-medium disabled:opacity-50">
+              Confirmed not received
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

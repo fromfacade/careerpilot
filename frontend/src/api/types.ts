@@ -456,6 +456,44 @@ export interface WritingSample {
   updated_at: string;
 }
 
+export type ApplicationStatus =
+  | 'preparing'
+  | 'needs_review'
+  | 'ready_to_submit'
+  | 'submitting'
+  | 'submitted'
+  | 'submission_failed'
+  | 'confirmation_unknown';
+
+export type ApplicationEventSource = 'browser' | 'manual';
+
+export interface ApplicationEvent {
+  id: number;
+  application_id: number;
+  previous_status: ApplicationStatus;
+  new_status: ApplicationStatus;
+  reason: string | null;
+  source: ApplicationEventSource;
+  created_at: string;
+}
+
+export interface TrackedApplication {
+  id: number;
+  candidate_id: number;
+  job_id: number;
+  employer: string;
+  preparation_id: number | null;
+  resume_id: number | null;
+  status: ApplicationStatus;
+  submitted_at: string | null;
+  confirmation: string | null;
+  failure_reason: string | null;
+  resubmit_after: string | null;
+  created_at: string;
+  updated_at: string;
+  events: ApplicationEvent[];
+}
+
 export type PreparationState = 'preparing' | 'needs_review' | 'ready' | 'failed' | 'cancelled';
 export type PreparationAnswerOrigin = 'reused' | 'adapted' | 'generated';
 export type PreparationItemStatus = 'draft' | 'approved' | 'rejected' | 'needs_review';
@@ -474,6 +512,15 @@ export interface PreparationAnswer {
   missing_information: unknown[];
   created_at: string;
   updated_at: string;
+}
+
+export interface ApplicationWorkflow {
+  reused: boolean;
+  can_open_browser: boolean;
+  eligibility: string;
+  eligibility_detail: string;
+  message: string;
+  preparation: ApplicationPreparation;
 }
 
 export interface ApplicationPreparation {
@@ -540,6 +587,8 @@ export interface ApplicationPreparation {
   error_message: string;
   has_docx: boolean;
   has_pdf: boolean;
+  application_id?: number | null;
+  application_status?: string | null;
   answers: PreparationAnswer[];
   created_at: string;
   updated_at: string;
@@ -605,6 +654,12 @@ export interface AutofillFillResult {
   unresolved: string[];
 }
 
+export interface ReadinessCheck {
+  code: string;
+  status: string;
+  detail: string;
+}
+
 export interface AutofillSession {
   id: string;
   state: string;
@@ -615,6 +670,11 @@ export interface AutofillSession {
   message: string;
   plan: AutofillPlan | null;
   result: AutofillFillResult | null;
+  readiness?: {
+    status: string;
+    checks: ReadinessCheck[];
+  } | null;
+  application_status?: string | null;
 }
 
 export interface AIStatus {

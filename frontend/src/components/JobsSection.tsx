@@ -146,10 +146,10 @@ function CheckboxGroup<T extends string>({
 
 export function JobsSection({
   refreshSignal,
-  onPrepare,
+  onStarted,
 }: {
   refreshSignal: number
-  onPrepare: (jobId: number) => void | Promise<void>
+  onStarted: (preparationId: number) => void
 }) {
   const [view, setView] = useState<JobView>('recommended')
   const [sort, setSort] = useState<JobSort>('score_desc')
@@ -411,16 +411,7 @@ export function JobsSection({
                   onSave={() => updateState(job.id, 'saved')}
                   onDismiss={() => updateState(job.id, 'dismissed')}
                   onUnsave={() => updateState(job.id, 'new')}
-                  onPrepare={() => {
-                    void (async () => {
-                      setBusyJobId(job.id)
-                      try {
-                        await onPrepare(job.id)
-                      } finally {
-                        setBusyJobId(null)
-                      }
-                    })()
-                  }}
+                  onStarted={onStarted}
                 />
               ))}
             </ul>

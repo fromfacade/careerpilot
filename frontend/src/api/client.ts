@@ -299,10 +299,23 @@ export const api = {
     }),
   deleteWritingSample: (sampleId: number) =>
     request<void>(`/api/candidate/writing-samples/${sampleId}`, { method: 'DELETE' }),
+  listApplications: () => request<import('./types').TrackedApplication[]>('/api/applications'),
+  getApplication: (id: number) => request<import('./types').TrackedApplication>(`/api/applications/${id}`),
+  resolveApplication: (id: number, data: { confirm: boolean; received: boolean; note: string }) =>
+    request<import('./types').TrackedApplication>(`/api/applications/${id}/resolution`, {
+      method: 'POST',
+      headers: { 'X-CareerPilot-Token': localToken },
+      body: JSON.stringify(data),
+    }),
   listPreparations: () =>
     request<import('./types').ApplicationPreparation[]>('/api/preparations'),
   createPreparation: (jobId: number) =>
     request<import('./types').ApplicationPreparation>('/api/preparations', {
+      method: 'POST',
+      body: JSON.stringify({ job_id: jobId }),
+    }),
+  startApplicationWorkflow: (jobId: number) =>
+    request<import('./types').ApplicationWorkflow>('/api/preparations/workflow', {
       method: 'POST',
       body: JSON.stringify({ job_id: jobId }),
     }),
@@ -347,6 +360,14 @@ export const api = {
     }),
   cancelAutofillSession: (sessionId: string) =>
     request<import('./types').AutofillSession>(`/api/autofill/sessions/${sessionId}/cancel`, { method: 'POST' }),
+  submitAutofillSession: (
+    sessionId: string,
+    body: { confirm: boolean; preparation_id: number; apply_url: string },
+  ) =>
+    request<import('./types').AutofillSession>(`/api/autofill/sessions/${sessionId}/submit`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   downloadPreparationDocument: async (id: number, kind: 'docx' | 'pdf' | 'original' | 'selected') => {
     const response = await fetch(`${BASE_URL}/api/preparations/${id}/documents/${kind}`);
     if (!response.ok) throw new ApiError(response.status, 'Could not download the prepared document.');

@@ -375,6 +375,25 @@ class PreparationItemStatus(str, enum.Enum):
     NEEDS_REVIEW = "needs_review"
 
 
+class ApplicationStatus(str, enum.Enum):
+    """Lifecycle of one tracked application. This is not a preparation state."""
+
+    PREPARING = "preparing"
+    NEEDS_REVIEW = "needs_review"
+    READY_TO_SUBMIT = "ready_to_submit"
+    SUBMITTING = "submitting"
+    SUBMITTED = "submitted"
+    SUBMISSION_FAILED = "submission_failed"
+    CONFIRMATION_UNKNOWN = "confirmation_unknown"
+
+
+class ApplicationEventSource(str, enum.Enum):
+    """Who recorded a tracked-application status change."""
+
+    BROWSER = "browser"
+    MANUAL = "manual"
+
+
 OPEN_PREPARATION_STATES = frozenset(
     {
         PreparationState.PREPARING,

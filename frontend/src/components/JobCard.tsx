@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Job, MatchReason } from '../api/types'
+import { ApplicationWorkflow } from './ApplicationWorkflow'
 import { Badge } from './Badge'
 
 const ELIGIBILITY_TONE: Record<string, 'green' | 'red' | 'amber'> = {
@@ -60,14 +61,14 @@ export function JobCard({
   onSave,
   onDismiss,
   onUnsave,
-  onPrepare,
+  onStarted,
   busy,
 }: {
   job: Job
   onSave: () => void
   onDismiss: () => void
   onUnsave: () => void
-  onPrepare: () => void
+  onStarted: (preparationId: number) => void
   busy: boolean
 }) {
   const [showReasons, setShowReasons] = useState(false)
@@ -165,14 +166,7 @@ export function JobCard({
         >
           View original posting
         </a>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onPrepare}
-          className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          Prepare application
-        </button>
+        <ApplicationWorkflow job={job} onStarted={onStarted} />
         {job.state !== 'saved' && (
           <button
             type="button"

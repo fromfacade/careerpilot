@@ -16,6 +16,7 @@ hidden; it is expected to improve or be replaced in a later phase.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timezone
 
 from app.models.candidate import Candidate, CandidateLocationPreference, CandidatePreference, CandidateRolePreference
@@ -92,55 +93,163 @@ def _months_between(a: date, b: date) -> int:
     return (a.year - b.year) * 12 + (a.month - b.month)
 
 
+_MONTHS = {
+    "january": 1, "jan": 1, "february": 2, "feb": 2, "march": 3, "mar": 3,
+    "april": 4, "apr": 4, "may": 5, "june": 6, "jun": 6, "july": 7, "jul": 7,
+    "august": 8, "aug": 8, "september": 9, "sept": 9, "sep": 9,
+    "october": 10, "oct": 10, "november": 11, "nov": 11, "december": 12, "dec": 12,
+}
+_MONTH = (
+    r"january|february|march|april|may|june|july|august|september|sept|october|november|december|"
+    r"jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec"
+)
+_CURRENT_STUDENT = (
+    "currently enrolled",
+    "current student",
+    "current students",
+    "must be enrolled",
+    "must be a student",
+    "pursuing a degree",
+    "pursuing an undergraduate",
+    "pursuing a bachelor",
+)
+
+
+def _month_date(name: str, year: str) -> date | None:
+    month = _MONTHS.get(name.casefold())
+    if month is None:
+        return None
+    return date(int(year), month, 1)
+
+
+def _snippet(text: str, start: int, end: int) -> str:
+    raw = " ".join(text[max(0, start - 12) : end + 12].split())
+    return raw[:160]
+
+
+def _explicit_graduation(description: str) -> tuple[str, dict, str] | None:
+    """Return a posting's own graduation requirement, when the text states one."""
+    text = description or ""
+    lowered = text.casefold()
+    between = re.search(
+        rf"between\s+({_MONTH})\s+(\d{{4}})\s+and\s+({_MONTH})\s+(\d{{4}})",
+        lowered,
+    )
+    if between:
+        start = _month_date(between.group(1), between.group(2))
+        end = _month_date(between.group(3), between.group(4))
+        if start and end:
+            return "range", {"start": start, "end": end}, _snippet(text, between.start(), between.end())
+    class_of = re.search(r"class of\s+(\d{4})", lowered)
+    if class_of:
+        return "class_year", {"year": int(class_of.group(1))}, _snippet(text, class_of.start(), class_of.end())
+    dated = re.search(
+        rf"(?:graduat(?:e|ing|ion)(?:\s+date)?(?:\s+of|\s+in|\s*:)?\s+)({_MONTH})\s+(\d{{4}})",
+        lowered,
+    )
+    if dated:
+        when = _month_date(dated.group(1), dated.group(2))
+        if when:
+            return "month", {"when": when}, _snippet(text, dated.start(), dated.end())
+    last = re.search(r"(?:graduated|graduation)\s+within\s+(?:the\s+)?(?:last\s+)?(\d{1,2})\s+months", lowered)
+    if last:
+        return "past_months", {"months": int(last.group(1))}, _snippet(text, last.start(), last.end())
+    window = re.search(r"within\s+(\d{1,2})\s+months\s+of\s+graduation", lowered)
+    if window:
+        return "within_months", {"months": int(window.group(1))}, _snippet(text, window.start(), window.end())
+    for phrase in _CURRENT_STUDENT:
+        at = lowered.find(phrase)
+        if at >= 0:
+            return "current_student", {}, _snippet(text, at, at + len(phrase))
+    return None
+
+
+def _graduation_result(result: str, detail: str) -> dict:
+    return _reason("graduation_timing", result, detail)
+
+
 def _assess_graduation_timing(candidate: Candidate, job: Job, today: date) -> dict | None:
-    if job.employment_type == EmploymentType.NEW_GRAD:
-        if candidate.graduation_date is None:
-            return _reason(
-                "graduation_timing",
+    explicit = _explicit_graduation(job.description_text or "")
+    if explicit is None:
+        if job.employment_type in {EmploymentType.NEW_GRAD, EmploymentType.INTERNSHIP}:
+            return _graduation_result(
                 Eligibility.UNKNOWN.value,
-                "Candidate graduation date is not set; cannot verify new-grad eligibility window.",
+                "This posting does not state a graduation or enrollment requirement, so no generic date window was applied.",
             )
-        months_until = _months_between(candidate.graduation_date, today)
-        if months_until > 12:
-            return _reason(
-                "graduation_timing",
-                Eligibility.INELIGIBLE.value,
-                f"New-grad roles typically hire within ~12 months of graduation; candidate graduates "
-                f"{candidate.graduation_date.isoformat()} ({months_until} months from now).",
-            )
-        if months_until < -18:
-            return _reason(
-                "graduation_timing",
-                Eligibility.INELIGIBLE.value,
-                f"Candidate graduated {candidate.graduation_date.isoformat()}, outside the typical new-grad window.",
-            )
-        return _reason(
-            "graduation_timing",
-            Eligibility.ELIGIBLE.value,
-            f"Candidate's graduation date ({candidate.graduation_date.isoformat()}) falls within a typical new-grad hiring window.",
-        )
+        return None
 
-    if job.employment_type == EmploymentType.INTERNSHIP:
-        if candidate.graduation_date is None:
-            return _reason(
-                "graduation_timing",
-                Eligibility.UNKNOWN.value,
-                "Candidate graduation date is not set; cannot verify current-student status for this internship.",
-            )
-        if candidate.graduation_date < today:
-            return _reason(
-                "graduation_timing",
-                Eligibility.INELIGIBLE.value,
-                f"Candidate's graduation date ({candidate.graduation_date.isoformat()}) has already passed; "
-                "internships typically require current enrollment.",
-            )
-        return _reason(
-            "graduation_timing",
-            Eligibility.ELIGIBLE.value,
-            "Candidate appears to be a current student, consistent with this internship posting.",
+    kind, payload, quote = explicit
+    if candidate.graduation_date is None:
+        return _graduation_result(
+            Eligibility.UNKNOWN.value,
+            f'The posting says "{quote}", and the candidate graduation date is not set.',
         )
-
-    return None  # rule not applicable to this employment type
+    graduated = candidate.graduation_date
+    if kind == "current_student":
+        if graduated < today:
+            return _graduation_result(
+                Eligibility.INELIGIBLE.value,
+                f'The posting says "{quote}". The candidate graduation date ({graduated.isoformat()}) has passed.',
+            )
+        return _graduation_result(
+            Eligibility.ELIGIBLE.value,
+            f'The posting says "{quote}". The candidate graduation date ({graduated.isoformat()}) is still ahead.',
+        )
+    if kind == "class_year":
+        if graduated.year == payload["year"]:
+            return _graduation_result(
+                Eligibility.ELIGIBLE.value,
+                f'The posting says "{quote}", which matches graduation year {graduated.year}.',
+            )
+        return _graduation_result(
+            Eligibility.INELIGIBLE.value,
+            f'The posting says "{quote}", which does not match graduation year {graduated.year}.',
+        )
+    if kind == "month":
+        when = payload["when"]
+        if graduated.year == when.year and graduated.month == when.month:
+            return _graduation_result(
+                Eligibility.ELIGIBLE.value,
+                f'The posting says "{quote}", which matches {graduated.isoformat()}.',
+            )
+        return _graduation_result(
+            Eligibility.INELIGIBLE.value,
+            f'The posting says "{quote}", which does not match {graduated.isoformat()}.',
+        )
+    if kind == "range":
+        start = payload["start"]
+        end = payload["end"]
+        candidate_month = date(graduated.year, graduated.month, 1)
+        if start <= candidate_month <= end:
+            return _graduation_result(
+                Eligibility.ELIGIBLE.value,
+                f'The posting says "{quote}", which includes {graduated.isoformat()}.',
+            )
+        return _graduation_result(
+            Eligibility.INELIGIBLE.value,
+            f'The posting says "{quote}", which does not include {graduated.isoformat()}.',
+        )
+    months = payload["months"]
+    delta = _months_between(graduated, today)
+    if kind == "past_months":
+        if -months <= delta <= 0:
+            return _graduation_result(
+                Eligibility.ELIGIBLE.value,
+                f'The posting says "{quote}". The candidate graduated {graduated.isoformat()}.',
+            )
+        return _graduation_result(
+            Eligibility.INELIGIBLE.value,
+            f'The posting says "{quote}". The candidate graduation date ({graduated.isoformat()}) is outside that window.',
+        )
+    if abs(delta) <= months:
+        return _graduation_result(
+            Eligibility.ELIGIBLE.value,
+            f'The posting says "{quote}". The candidate graduation date ({graduated.isoformat()}) is inside that window.',
+        )
+    return _graduation_result(
+        Eligibility.INELIGIBLE.value,
+        f'The posting says "{quote}". The candidate graduation date ({graduated.isoformat()}) is outside that window.',
+    )
 
 
 def _relevance_reason(rule: str, result: str, detail: str) -> dict:
