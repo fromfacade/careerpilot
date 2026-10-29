@@ -58,6 +58,7 @@ class DetectedFieldRead(BaseModel):
     confidence: str
     current_value: str | None = None
     accept: str = ""
+    question_kind: str = ""
 
 
 class AutofillDetectResult(BaseModel):

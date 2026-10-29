@@ -2,6 +2,8 @@
 
 Classification uses the accessible label, autocomplete, and the control's
 name or id. CSS class names are not used to decide what a field means.
+`question_kind` names common application questions. It does not invent an
+answer or choose a value.
 """
 
 from __future__ import annotations
@@ -113,7 +115,139 @@ _SENSITIVE = (
     "pronouns",
     "criminal",
     "felony",
+    "gender identity",
+    "transgender",
+    "hispanic",
+    "latino",
+    "latina",
+    "sexual orientation",
+    "veteran status",
+    "protected veteran",
+    "disability status",
+    "self identification",
 )
+_CONSENT = (
+    "i agree",
+    "i certify",
+    "i acknowledge",
+    "i consent",
+    "terms and conditions",
+    "privacy policy",
+    "privacy notice",
+    "by checking this",
+    "electronic signature",
+    "e signature",
+    "legal declaration",
+)
+_FACT_KINDS = {
+    "school": "school",
+    "degree": "degree",
+    "major": "discipline",
+    "github": "github",
+    "portfolio": "portfolio",
+}
+_ANSWER_KINDS = frozenset(
+    {
+        "graduation_date",
+        "gpa",
+        "start_date",
+        "relocation",
+        "current_employer",
+        "experience",
+        "written_question",
+    }
+)
+_SCHOOL_EXACT = frozenset(
+    {
+        "school",
+        "current school",
+        "school name",
+        "university",
+        "current university",
+        "university name",
+        "college",
+        "college name",
+        "name of school",
+        "name of university",
+        "school attending",
+        "what school do you attend",
+        "what university do you attend",
+        "which school do you attend",
+        "which university do you attend",
+    }
+)
+_DEGREE_EXACT = frozenset(
+    {
+        "degree",
+        "highest degree",
+        "degree type",
+        "current degree",
+        "degree name",
+        "what degree are you pursuing",
+        "highest level of education",
+        "education level",
+        "high school diploma",
+    }
+)
+_MAJOR_EXACT = frozenset(
+    {
+        "major",
+        "discipline",
+        "field of study",
+        "area of study",
+        "current major",
+        "concentration",
+        "course of study",
+        "what is your major",
+    }
+)
+_GRADUATION = (
+    "graduation date",
+    "date of graduation",
+    "graduation month",
+    "graduation year",
+    "expected graduation",
+    "anticipated graduation",
+    "when do you graduate",
+    "when did you graduate",
+    "when will you graduate",
+    "grad date",
+)
+_START = (
+    "start date",
+    "earliest start",
+    "available start",
+    "availability date",
+    "date available",
+    "when can you start",
+    "when are you available",
+    "available to start",
+)
+_START_EXCLUDED = (
+    "employment start",
+    "job start",
+    "position start",
+    "previous start",
+    "start date of",
+)
+_EMPLOYER = (
+    "current employer",
+    "current company",
+    "present employer",
+    "most recent employer",
+    "most recent company",
+    "current organization",
+)
+_EXPERIENCE = (
+    "relevant experience",
+    "work experience",
+    "related experience",
+    "professional experience",
+    "years of experience",
+    "years of relevant experience",
+)
+_WRITTEN_EXACT = frozenset({"additional information", "additional comments", "anything else"})
+_WRITTEN_PREFIX = ("why ", "how ", "what ", "describe ", "tell us ", "tell me ", "explain ", "please ")
 _CAPTCHA_WIDGETS = ("g-recaptcha", "h-captcha", "cf-turnstile", "hcaptcha")
 _CAPTCHA_CHALLENGE = ("bframe", "hcaptcha.com", "challenges.cloudflare.com")
 _MFA = ("one-time code", "verification code", "multi-factor", "two-factor")
@@ -134,6 +268,7 @@ class DetectedField:
     confidence: str = "low"
     current_value: str | None = None
     accept: str = ""
+    question_kind: str = ""
 
 
 @dataclass
@@ -324,6 +459,13 @@ def _to_fields(controls: list[Node], ids: dict[str, Node], root: Node) -> list[D
             semantic, confidence = "phone_country", "high" if label_source and label_source != "placeholder" else "low"
         else:
             semantic, confidence = _classify(primary, label, label_source)
+        question_kind = _question_kind(label, _normalize_label(label))
+        if semantic == "sensitive":
+            question_kind = "sensitive"
+        elif semantic == "discipline" and not question_kind:
+            question_kind = "major"
+        elif semantic in {"school", "degree", "github", "portfolio"} and not question_kind:
+            question_kind = semantic
         if semantic in _STANDARD and semantic in seen_standard:
             semantic = "unknown"
             confidence = "low"
@@ -347,6 +489,7 @@ def _to_fields(controls: list[Node], ids: dict[str, Node], root: Node) -> list[D
                 confidence=confidence,
                 current_value=_current_value(members, ids, root),
                 accept=primary.get("accept").strip() if _input_type(primary) == "file" else "",
+                question_kind=question_kind,
             )
         )
     return _dedupe(fields)
@@ -459,29 +602,123 @@ def _label_for(node: Node, ids: dict[str, Node], root: Node) -> tuple[str, str]:
 
 def _classify(node: Node, label: str, label_source: str) -> tuple[str, str]:
     normalized = _normalize_label(label)
-    sensitive = _sensitive(normalized)
-    if sensitive:
-        return "sensitive", "high" if label_source and label_source != "placeholder" else "low"
+    confidence = "low" if not label_source or label_source == "placeholder" else "high"
+    if _sensitive(normalized) or _consent_label(normalized):
+        return "sensitive", confidence
     auto = _AUTOCOMPLETE.get(node.get("autocomplete").casefold())
     if auto:
         return auto, "high"
+    kind = _question_kind(label, normalized)
+    linked = _FACT_KINDS.get(kind)
+    if linked and not _link_username(kind, normalized):
+        return linked, confidence
     from_label = _from_label(normalized)
     if from_label:
-        return from_label, "low" if label_source == "placeholder" else "high"
+        return from_label, confidence
     from_name = _semantic_from_name(node.get("name") or node.get("id"))
     if from_name:
         return from_name, "high"
+    if kind in _ANSWER_KINDS:
+        return "custom_question", confidence
     if normalized.endswith("?") or len(normalized.split()) >= 6:
-        return "custom_question", "high" if label_source and label_source != "placeholder" else "low"
+        return "custom_question", confidence
     if "answers" in _TOKEN_RE.findall(node.get("name").casefold()):
         return "custom_question", "low"
     return "unknown", "low"
+
+
+def _question_kind(label: str, normalized: str) -> str:
+    """Name a common question. An empty result means the label is not one of them."""
+    if not normalized or _sensitive(normalized) or _consent_label(normalized):
+        return ""
+    if _matches_graduation(normalized):
+        return "graduation_date"
+    if "gpa" in set(normalized.split()) or "grade point" in normalized:
+        return "gpa"
+    if _matches_start(normalized):
+        return "start_date"
+    if "relocat" in normalized:
+        return "relocation"
+    if any(phrase in normalized for phrase in _EMPLOYER):
+        return "current_employer"
+    if _matches_experience(normalized):
+        return "experience"
+    if normalized in _MAJOR_EXACT:
+        return "major"
+    if normalized in _DEGREE_EXACT:
+        return "degree"
+    if normalized in _SCHOOL_EXACT:
+        return "school"
+    words = normalized.split()
+    wordset = set(words)
+    if _is_link_label(wordset, words, "github"):
+        return "github"
+    if _is_link_label(wordset, words, "portfolio") or _is_website_label(wordset, words):
+        return "portfolio"
+    if _is_written_prompt(label, normalized):
+        return "written_question"
+    return ""
+
+
+def _matches_graduation(normalized: str) -> bool:
+    if "graduation requirement" in normalized:
+        return False
+    if normalized in {"graduation", "grad date"}:
+        return True
+    return any(phrase in normalized for phrase in _GRADUATION)
+
+
+def _matches_start(normalized: str) -> bool:
+    if any(phrase in normalized for phrase in _START_EXCLUDED):
+        return False
+    if normalized == "availability":
+        return True
+    return any(phrase in normalized for phrase in _START)
+
+
+def _matches_experience(normalized: str) -> bool:
+    if "experience with" in normalized:
+        return False
+    return any(phrase in normalized for phrase in _EXPERIENCE)
+
+
+def _is_link_label(wordset: set[str], words: list[str], token: str) -> bool:
+    if token not in wordset or len(words) > 6:
+        return False
+    return not wordset & {"describe", "experience", "project", "built"}
+
+
+def _is_website_label(wordset: set[str], words: list[str]) -> bool:
+    if "website" not in wordset or len(words) > 4:
+        return False
+    return not wordset & {"experience", "describe", "project"}
+
+
+def _link_username(kind: str, normalized: str) -> bool:
+    if kind not in {"github", "portfolio"}:
+        return False
+    words = set(normalized.split())
+    return bool(words & {"username", "handle"})
+
+
+def _is_written_prompt(label: str, normalized: str) -> bool:
+    if "?" in label:
+        return True
+    if normalized in _WRITTEN_EXACT:
+        return True
+    return normalized.startswith(_WRITTEN_PREFIX)
+
+
+def _consent_label(normalized: str) -> bool:
+    return any(phrase in normalized for phrase in _CONSENT)
 
 
 def _from_label(normalized: str) -> str | None:
     if normalized in _LABELS:
         return _LABELS[normalized]
     words = set(normalized.split())
+    if words & {"username", "handle"} and words & {"linkedin", "github", "portfolio", "website"}:
+        return None
     if "linkedin" in words:
         return "linkedin"
     if "github" in words:
@@ -501,9 +738,10 @@ def _semantic_from_name(value: str) -> str | None:
         return "last_name"
     if "cover" in tokens and "letter" in tokens:
         return "cover_letter"
+    blocked = {"github", "portfolio", "website"} if {"username", "handle"} & set(tokens) else set()
     for token in tokens:
         mapped = _NAME_TOKENS.get(token)
-        if mapped and token not in {"first", "last", "cover"}:
+        if mapped and token not in {"first", "last", "cover"} and token not in blocked and mapped not in blocked:
             return mapped
     return None
 

@@ -329,6 +329,120 @@ def test_detect_route_returns_fields_and_one_confirmed_submit_path():
     assert sum("submit" in route.path for route in router.routes) == 1
 
 
+COMPLETION = """
+<form id="application">
+  <label for="grad">Expected graduation</label>
+  <input id="grad" name="graduation" type="text">
+  <label for="gpa">Cumulative GPA</label>
+  <input id="gpa" name="gpa" type="text">
+  <label for="start">When can you start?</label>
+  <select id="start" name="start">
+    <option>Immediately</option>
+    <option>Summer 2027</option>
+  </select>
+  <fieldset>
+    <legend>Are you willing to relocate?</legend>
+    <label><input type="radio" name="relocate" value="yes"> Yes</label>
+    <label><input type="radio" name="relocate" value="no"> No</label>
+  </fieldset>
+  <fieldset>
+    <legend>Open to relocation</legend>
+    <label><input type="checkbox" name="cities" value="austin"> Austin</label>
+    <label><input type="checkbox" name="cities" value="remote"> Remote</label>
+  </fieldset>
+  <label for="school">Current school</label>
+  <select id="school" name="school"><option>Example State University</option></select>
+  <label for="degree">Highest level of education</label>
+  <select id="degree" name="degree"><option>Bachelor's</option></select>
+  <label for="major">What is your major?</label>
+  <input id="major" name="major" type="text">
+  <label for="employer">Current employer</label>
+  <input id="employer" name="employer" type="text">
+  <label for="experience">Describe your relevant experience</label>
+  <textarea id="experience" name="experience"></textarea>
+  <label for="skill">Describe your experience with Python</label>
+  <textarea id="skill" name="skill"></textarea>
+  <label for="github">GitHub profile</label>
+  <input id="github" name="github" type="url">
+  <label for="site">Personal website</label>
+  <input id="site" name="site" type="url">
+  <label for="why">Why do you want to work at Northwind?</label>
+  <textarea id="why" name="why"></textarea>
+  <label for="date">Date</label>
+  <input id="date" name="date" type="text">
+  <label for="company">Company</label>
+  <input id="company" name="company" type="text">
+  <label for="handle">GitHub username</label>
+  <input id="handle" name="github_username" type="text">
+  <label for="sponsor">Will you require sponsorship to relocate?</label>
+  <select id="sponsor" name="sponsor"><option>Yes</option><option>No</option></select>
+</form>
+"""
+
+REARRANGED = """
+<div id="application_form">
+  <span id="gpa-label">Grade point average</span>
+  <input aria-labelledby="gpa-label" name="gpa" type="text">
+  <div role="combobox" aria-label="Current university" id="school_box"></div>
+  <textarea placeholder="Expected graduation" name="grad"></textarea>
+  <input aria-label="Link to your GitHub" name="gh" type="url">
+</div>
+"""
+
+
+def test_common_greenhouse_questions_are_classified_without_inventing_values():
+    detection = detect_application(URL, COMPLETION)
+    kinds = {field.element_id or field.name: field for field in detection.fields}
+    assert kinds["grad"].question_kind == "graduation_date"
+    assert kinds["grad"].semantic == "custom_question"
+    assert kinds["gpa"].question_kind == "gpa"
+    assert kinds["start"].question_kind == "start_date"
+    assert kinds["start"].input_type == "select"
+    assert "Immediately" in kinds["start"].options
+    assert kinds["relocate"].question_kind == "relocation"
+    assert kinds["relocate"].input_type == "radio"
+    assert kinds["relocate"].options == ["Yes", "No"]
+    assert kinds["cities"].question_kind == "relocation"
+    assert kinds["cities"].input_type == "checkbox"
+    assert kinds["cities"].options == ["Austin", "Remote"]
+    assert kinds["school"].question_kind == "school"
+    assert kinds["school"].semantic == "school"
+    assert kinds["degree"].question_kind == "degree"
+    assert kinds["degree"].semantic == "degree"
+    assert kinds["major"].question_kind == "major"
+    assert kinds["major"].semantic == "discipline"
+    assert kinds["employer"].question_kind == "current_employer"
+    assert kinds["experience"].question_kind == "experience"
+    assert kinds["skill"].question_kind == "written_question"
+    assert kinds["github"].question_kind == "github"
+    assert kinds["github"].semantic == "github"
+    assert kinds["site"].question_kind == "portfolio"
+    assert kinds["site"].semantic == "portfolio"
+    assert kinds["why"].question_kind == "written_question"
+    assert kinds["why"].semantic == "custom_question"
+    assert kinds["date"].question_kind == ""
+    assert kinds["date"].semantic == "unknown"
+    assert kinds["company"].semantic == "unknown"
+    assert kinds["handle"].question_kind == "github"
+    assert kinds["handle"].semantic == "unknown"
+    assert kinds["sponsor"].question_kind == "sensitive"
+    assert kinds["sponsor"].semantic == "sensitive"
+    assert all(field.current_value in {None, ""} for field in detection.fields)
+
+
+def test_rearranged_labels_keep_the_same_question_kinds():
+    detection = detect_application(URL, REARRANGED)
+    by_name = {field.name or field.element_id: field for field in detection.fields}
+    assert by_name["gpa"].question_kind == "gpa"
+    assert by_name["gpa"].confidence == "high"
+    assert by_name["school_box"].question_kind == "school"
+    assert by_name["school_box"].input_type == "select"
+    assert by_name["grad"].question_kind == "graduation_date"
+    assert by_name["grad"].confidence == "low"
+    assert by_name["gh"].question_kind == "github"
+    assert by_name["gh"].semantic == "github"
+
+
 def test_unsupported_url_does_not_return_fillable_fields():
     detection = detect_application("https://jobs.lever.co/acme/role", STANDARD)
     assert detection.supported is False
