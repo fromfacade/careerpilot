@@ -7,10 +7,11 @@ clicks Submit. Submission is a separate confirmation for this session only.
 from __future__ import annotations
 
 import queue
+import re
 import secrets
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from playwright.sync_api import sync_playwright
 
@@ -21,8 +22,13 @@ from app.autofill.submission import SubmissionGate
 from app.autofill.urls import classify_apply_url, same_greenhouse_application
 from app.core.db import session_scope
 from app.core.exceptions import NotFoundError, ValidationError
+from app.core.logging import get_logger, log_extra
 from app.models.candidate import Candidate
 from app.services import autofill_service, candidate_service, preparation_service
+
+logger = get_logger(__name__)
+_EMAIL = re.compile(r"\S+@\S+")
+_LONG_NUMBER = re.compile(r"\d{6,}")
 
 _LOCK = threading.Lock()
 _SESSIONS: dict[str, "AutofillRun"] = {}
@@ -62,8 +68,9 @@ class AutofillRun:
 
 
 class BrowserWorker:
-    def __init__(self, headed: bool = True):
+    def __init__(self, headed: bool = True, session_id: str = ""):
         self.headed = headed
+        self.session_id = session_id
         self.launch_error: Exception | None = None
         self.started = threading.Event()
         self._queue: queue.Queue = queue.Queue()
@@ -92,6 +99,7 @@ class BrowserWorker:
         self._thread.join(timeout=10)
 
     def _loop(self) -> None:
+        _log("browser_launch_started", session_id=self.session_id)
         try:
             playwright = sync_playwright().start()
             browser = playwright.chromium.launch(headless=not self.headed)
@@ -102,6 +110,7 @@ class BrowserWorker:
             self.started.set()
             return
         self.started.set()
+        _log("browser_launch_succeeded", session_id=self.session_id)
         try:
             while True:
                 fn, box = self._queue.get()
@@ -136,6 +145,7 @@ def start_session(preparation_id: int, *, headed: bool = True) -> AutofillRun:
             )
             _SESSIONS[run.id] = run
             owner = True
+            _log("session_created", session_id=run.id, preparation_id=preparation_id)
     if not owner:
         if not run.opened.wait(60):
             raise ValidationError("This application is still opening. CareerPilot did not start a second browser.")
@@ -153,16 +163,21 @@ def start_session(preparation_id: int, *, headed: bool = True) -> AutofillRun:
         if not form_url:
             run.state = "failed"
             run.message = note or "This preparation is not a supported Greenhouse application."
+            _log("session_failed", session_id=run.id, preparation_id=preparation_id, error_type="ValidationError", reason=run.message)
             return run
-        worker = BrowserWorker(headed=headed)
+        worker = BrowserWorker(headed=headed, session_id=run.id)
         run._worker = worker
 
         def _open(page):
+            _log("navigation_started", session_id=run.id, preparation_id=run.preparation_id)
             html = open_application(page, run.apply_url)
+            _log("navigation_succeeded", session_id=run.id, preparation_id=run.preparation_id)
             return html, page.url
 
         html, final_url = worker.call(_open, timeout=45)
+        _log("page_validation_started", session_id=run.id, preparation_id=run.preparation_id)
         matches, detail = same_greenhouse_application(final_url, run.apply_url)
+        _log("page_validation_succeeded", session_id=run.id, preparation_id=run.preparation_id, identity_matches=matches)
         run.identity_matches = matches
         run.identity_detail = detail
         plan = _plan_for(run, html, final_url)
@@ -186,6 +201,7 @@ def start_session(preparation_id: int, *, headed: bool = True) -> AutofillRun:
             run.state = "ready_to_fill"
             run.message = "Review the plan, then fill the fields you approve. CareerPilot will not submit."
         _persist_readiness(run)
+        _log("session_ready", session_id=run.id, preparation_id=run.preparation_id, state=run.state)
         return run
     except Exception as exc:
         if run.cancel.is_set():
@@ -194,6 +210,13 @@ def start_session(preparation_id: int, *, headed: bool = True) -> AutofillRun:
         else:
             run.state = "failed"
             run.message = _public_error(exc)
+            _log(
+                "session_failed",
+                session_id=run.id,
+                preparation_id=run.preparation_id,
+                error_type=type(exc).__name__,
+                reason=_safe_reason(exc),
+            )
         _close_worker(run)
         return run
     finally:
@@ -488,6 +511,7 @@ def _close_worker(run: AutofillRun) -> None:
     worker = run._worker
     run._worker = None
     if worker is not None:
+        _log("browser_cleanup", session_id=run.id, preparation_id=run.preparation_id)
         worker.close()
 
 
@@ -508,6 +532,7 @@ def _persist_readiness(run: AutofillRun) -> None:
     if not run.candidate_id or not run.preparation_id:
         return
     from app.autofill.readiness import readiness_for_run
+    from app.models.enums import ApplicationStatus
     from app.services.application_tracking import apply_readiness
 
     with session_scope() as db:
@@ -517,12 +542,12 @@ def _persist_readiness(run: AutofillRun) -> None:
             preparation_id=run.preparation_id,
             readiness=readiness_for_run(run),
         )
-    run.application_status = row.status.value
-    from datetime import datetime, timedelta, timezone
-
-    from app.models.enums import ApplicationStatus
-
-    if row.status is ApplicationStatus.READY_TO_SUBMIT:
+        # Copy the status before session_scope closes the session. Reading it
+        # afterwards raises DetachedInstanceError and the opener treats that
+        # as a browser failure.
+        status = row.status
+    run.application_status = status.value
+    if status is ApplicationStatus.READY_TO_SUBMIT:
         run.submit_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
     else:
         run.submit_expires_at = None
@@ -580,6 +605,17 @@ def _outcome(field_id: str, status: str, detail: str):
     from app.autofill.browser_fill import FieldOutcome
 
     return FieldOutcome(field_id, field_id, status, detail)
+
+
+def _log(event: str, **fields) -> None:
+    logger.info(event, extra=log_extra(**fields))
+
+
+def _safe_reason(exc: Exception) -> str:
+    text = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+    text = _EMAIL.sub("[redacted]", text)
+    text = _LONG_NUMBER.sub("[redacted]", text)
+    return text[:200]
 
 
 def _public_error(exc: Exception) -> str:
