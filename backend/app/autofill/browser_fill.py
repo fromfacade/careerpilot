@@ -21,6 +21,7 @@ from app.autofill.mapping import (
     match_listed_country,
     match_listed_location,
 )
+from app.autofill.normalize import match_choice, structured_kind
 from app.autofill.materials import _upload_name
 from app.autofill.urls import classify_apply_url, navigation_allowed
 
@@ -109,10 +110,13 @@ def _fill_one(page: Page, action: FillAction) -> FieldOutcome:
             return _fill_combobox(page, locator.first, action)
         if action.input_type == "select":
             locator.first.select_option(label=action.value)
+        elif action.input_type == "multi_select":
+            locator.first.select_option(label=_listed_values(action))
         elif action.input_type == "radio":
             _choose_grouped(page, action, "radio")
-        elif action.input_type == "checkbox":
-            _choose_grouped(page, action, "checkbox")
+        elif action.input_type in {"checkbox", "checkboxes"}:
+            for value in _listed_values(action):
+                _choose_grouped(page, action, "checkbox", value)
         elif action.input_type == "file":
             return FieldOutcome(action.field_id, action.label, "failed", "Resume files use the attachment step.")
         else:
@@ -183,11 +187,11 @@ def _locator(page: Page, action: FillAction):
     return None
 
 
-def _choose_grouped(page: Page, action: FillAction, input_type: str) -> None:
+def _choose_grouped(page: Page, action: FillAction, input_type: str, value: str | None = None) -> None:
     name = action.name or action.field_id
     group = page.locator(f'input[type="{input_type}"][name="{_escape(name)}"]')
     count = group.count()
-    wanted = action.value.strip().casefold()
+    wanted = (value if value is not None else action.value).strip().casefold()
     for index in range(count):
         item = group.nth(index)
         label = item.evaluate(
@@ -202,27 +206,42 @@ def _choose_grouped(page: Page, action: FillAction, input_type: str) -> None:
     raise LookupError(action.field_id)
 
 
+def _listed_values(action: FillAction) -> list[str]:
+    return [part.strip() for part in action.value.split("\n") if part.strip()] or [action.value.strip()]
+
+
 def _verified(page: Page, action: FillAction) -> bool:
-    if action.input_type in {"radio", "checkbox"}:
+    if action.input_type in {"radio", "checkbox", "checkboxes"}:
+        kind = "checkbox" if action.input_type == "checkboxes" else action.input_type
         name = action.name or action.field_id
-        group = page.locator(f'input[type="{action.input_type}"][name="{_escape(name)}"]:checked')
+        group = page.locator(f'input[type="{kind}"][name="{_escape(name)}"]:checked')
         if group.count() == 0:
             return False
-        label = group.first.evaluate(
-            """el => {
-                const text = el.labels && el.labels[0] ? el.labels[0].innerText : '';
-                return text || el.value || '';
-            }"""
-        )
-        return str(label).strip().casefold() == action.value.strip().casefold() or (
-            group.first.get_attribute("value") or ""
-        ).strip().casefold() == action.value.strip().casefold()
+        found = []
+        for index in range(group.count()):
+            item = group.nth(index)
+            label = item.evaluate(
+                """el => {
+                    const text = el.labels && el.labels[0] ? el.labels[0].innerText : '';
+                    return text || el.value || '';
+                }"""
+            )
+            found.append(str(label).strip().casefold())
+            raw = (item.get_attribute("value") or "").strip().casefold()
+            if raw:
+                found.append(raw)
+        wanted = [part.strip().casefold() for part in _listed_values(action)]
+        return all(part in found for part in wanted)
     locator = _locator(page, action)
     if locator is None or locator.count() == 0:
         return False
     if action.input_type == "select":
         actual = locator.first.evaluate("el => el.selectedOptions[0] ? el.selectedOptions[0].text : ''")
         return str(actual).strip().casefold() == action.value.strip().casefold()
+    if action.input_type == "multi_select":
+        actual = locator.first.evaluate("el => [...el.selectedOptions].map(option => option.text.trim())")
+        found = {str(item).strip().casefold() for item in actual}
+        return found == {part.strip().casefold() for part in _listed_values(action)}
     actual = locator.first.input_value()
     if action.input_type == "tel":
         return _phone_matches(actual, action.value)
@@ -233,9 +252,13 @@ def _fill_combobox(page: Page, locator, action: FillAction) -> FieldOutcome:
     search = _search_text(action)
     try:
         locator.click()
-        locator.fill("")
-        if search:
-            locator.press_sequentially(search, delay=20)
+        tag = locator.evaluate("el => el.tagName")
+        if tag in {"INPUT", "TEXTAREA"}:
+            locator.fill("")
+            if search:
+                locator.press_sequentially(search, delay=20)
+        elif search:
+            page.keyboard.type(search, delay=20)
         listbox = locator.get_attribute("aria-controls")
         options = page.locator(f'[id="{_escape(listbox)}"] [role="option"]') if listbox else page.locator('[role="option"]')
         texts, chosen = _wait_for_choice(page, options, action)
@@ -247,7 +270,7 @@ def _fill_combobox(page: Page, locator, action: FillAction) -> FieldOutcome:
             return FieldOutcome(action.field_id, action.label, "failed", "The selected choice did not stay on the form.")
     except Exception:
         return FieldOutcome(action.field_id, action.label, "failed", "The dropdown could not be filled.")
-    return FieldOutcome(action.field_id, action.label, "filled", "Verified.")
+    return FieldOutcome(action.field_id, action.label, "filled", _filled_detail(action, chosen))
 
 
 def _search_text(action: FillAction) -> str:
@@ -276,27 +299,50 @@ def _is_location(action: FillAction) -> bool:
     return "location" in label or "city" in label
 
 
+def _is_country(action: FillAction) -> bool:
+    return "country" in action.label.casefold() or action.value.strip().startswith("+")
+
+
 def _choose_option(action: FillAction, options: list[str]) -> str | None:
     if _is_location(action):
         return match_listed_location(action.value, options)
-    return match_listed_country(action.value, options)
+    if _is_country(action):
+        return match_listed_country(action.value, options)
+    kind = structured_kind(action.label)
+    if kind:
+        return match_choice(kind, action.value, options, action.label).option
+    matches = [option for option in options if option.strip().casefold() == action.value.strip().casefold()]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _no_match_reason(action: FillAction, options: list[str]) -> str:
     if _is_location(action):
         return explain_location_miss(action.value, options)
-    if action.value.strip().startswith("+"):
+    if _is_country(action) and action.value.strip().startswith("+"):
         return "More than one country uses this phone prefix, so none was selected."
-    return "No listed choice exactly matches the verified country."
+    if _is_country(action):
+        return "No listed choice exactly matches the verified country."
+    kind = structured_kind(action.label)
+    if kind:
+        return match_choice(kind, action.value, options, action.label).explanation
+    return "No listed choice exactly matches the verified value."
+
+
+def _filled_detail(action: FillAction, chosen: str) -> str:
+    kind = structured_kind(action.label)
+    if not kind:
+        return "Verified."
+    found = match_choice(kind, action.value, [chosen], action.label)
+    return found.explanation or "Verified."
 
 
 def _combobox_verified(page: Page, locator, action: FillAction, chosen: str) -> bool:
-    if _is_location(action):
+    if _is_location(action) or not _is_country(action):
         shown = locator.evaluate(
             """el => {
                 const root = el.closest('.select') || el.parentElement;
                 const single = root ? root.querySelector('[class*="single-value"]') : null;
-                return (single && single.textContent) || el.getAttribute('data-selected') || '';
+                return (single && single.textContent) || el.value || el.getAttribute('data-selected') || '';
             }"""
         )
         return str(shown).strip().casefold() == chosen.strip().casefold()

@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from app.autofill.greenhouse import DetectedField, detect_application
 from app.autofill.materials import AnswerPlan, Materials, ResumePlan, apply_materials, empty_resume
+from app.autofill.normalize import match_choice
 
 _PERSONAL = frozenset(
     {"first_name", "last_name", "email", "phone", "location", "linkedin", "github", "portfolio"}
@@ -145,6 +146,7 @@ class PlanField:
     review_required: bool
     eligible_for_fill: bool
     uncertainty: str | None
+    match_note: str = ""
     provenance: list[Provenance] = field(default_factory=list)
     alternatives: list[Alternative] = field(default_factory=list)
 
@@ -190,7 +192,100 @@ def plan_autofill(
         item = _map_field(detected, facts, profile)
         getattr(plan, _bucket(item)).append(item)
     apply_materials(plan, detection, materials)
+    _apply_verified_choices(plan, detection, facts, profile)
     return plan
+
+
+_CHOICE_TYPES = frozenset({"select", "combobox", "radio", "multi_select"})
+
+
+def _apply_verified_choices(plan: AutofillPlan, detection, facts: list[FactView], profile: ProfileView) -> None:
+    """Fill a listed choice from one verified fact when no approved answer applies."""
+    detected = {item.field_id: item for item in detection.fields}
+    years = _graduation_years(facts)
+    location = _verified_location(facts, profile)
+    for proposal in list(plan.answers.missing):
+        field = detected.get(proposal.field_id)
+        if field is None or proposal.match_kind != "no_match" or proposal.existing_value or proposal.proposed_text:
+            continue
+        if field.input_type not in _CHOICE_TYPES:
+            continue
+        if field.question_kind == "graduation_date":
+            _offer_verified_choice(
+                plan,
+                proposal,
+                field,
+                years,
+                "More than one verified graduation year matches this field.",
+                "No listed choice exactly matches the verified graduation year.",
+                "Verified graduation year.",
+            )
+        elif field.question_kind == "office":
+            _offer_verified_choice(
+                plan,
+                proposal,
+                field,
+                [location] if location else [],
+                "More than one verified location matches this field.",
+                "No listed choice exactly matches the verified location.",
+                "Verified location.",
+            )
+
+
+def _offer_verified_choice(plan: AutofillPlan, proposal, field: DetectedField, values: list[str], many: str, missed: str, explanation: str) -> None:
+    distinct: list[str] = []
+    for value in values:
+        if value and value not in distinct:
+            distinct.append(value)
+    if len(distinct) > 1:
+        proposal.uncertainty = many
+        proposal.explanation = many
+        return
+    if len(distinct) != 1:
+        return
+    chosen = distinct[0]
+    if field.options:
+        matched = _exact_option(chosen, field.options)
+        if matched is None:
+            proposal.uncertainty = missed
+            proposal.explanation = missed
+            return
+        chosen = matched
+    elif field.input_type != "combobox":
+        proposal.uncertainty = "This control's choices are not visible, so nothing was selected."
+        proposal.explanation = proposal.uncertainty
+        return
+    proposal.proposed_text = chosen
+    proposal.eligible_for_fill = True
+    proposal.review_required = False
+    proposal.match_kind = "exact_match"
+    proposal.uncertainty = None
+    proposal.explanation = explanation
+    proposal.source = "verified_fact"
+    plan.answers.missing.remove(proposal)
+    plan.answers.matched.append(proposal)
+
+
+def _graduation_years(facts: list[FactView]) -> list[str]:
+    found: list[str] = []
+    for fact in facts:
+        if fact.fact_type != "education" or not _usable(fact):
+            continue
+        raw = (fact.fact_value or {}).get("end_date") or (fact.fact_value or {}).get("graduation_date")
+        if not isinstance(raw, str):
+            continue
+        years = re.findall(r"\b(?:19|20)\d{2}\b", raw)
+        if len(years) != 1 or years[0] in found:
+            continue
+        found.append(years[0])
+    return found
+
+
+def _verified_location(facts: list[FactView], profile: ProfileView) -> str | None:
+    proposal = _proposal("location", facts, profile)
+    if proposal.value and proposal.confidence == "high" and not proposal.uncertainty and not proposal.alternatives:
+        return proposal.value
+    return None
 
 
 def _map_field(detected: DetectedField, facts: list[FactView], profile: ProfileView) -> PlanField:
@@ -214,6 +309,7 @@ def _map_field(detected: DetectedField, facts: list[FactView], profile: ProfileV
         review_required=True,
         eligible_for_fill=False,
         uncertainty=None,
+        match_note="",
     )
     if detected.semantic == "sensitive" or _consent(label):
         item.semantic = "sensitive"
@@ -222,8 +318,14 @@ def _map_field(detected: DetectedField, facts: list[FactView], profile: ProfileV
     if detected.input_type == "file" or detected.semantic not in _FILLABLE:
         item.uncertainty = "This control is not a supported application field."
         return item
-    searchable = detected.input_type == "combobox" and detected.semantic in {"phone_country", "location"}
-    if detected.input_type == "select" and not detected.options:
+    searchable = detected.input_type == "combobox" and detected.semantic in {
+        "phone_country",
+        "location",
+        "school",
+        "degree",
+        "discipline",
+    }
+    if detected.input_type in {"select", "multi_select"} and not detected.options:
         item.uncertainty = "This dropdown does not expose its choices, so nothing was selected."
         return item
     if detected.input_type == "combobox" and not searchable:
@@ -233,7 +335,7 @@ def _map_field(detected: DetectedField, facts: list[FactView], profile: ProfileV
     if detected.semantic == "phone_country":
         proposal = _phone_country_proposal(facts, profile, detected.options)
     elif detected.semantic in _EDUCATION:
-        proposal = _education_proposal(detected.semantic, facts, profile, detected.options)
+        proposal = _education_proposal(detected.semantic, facts, profile, detected.options, detected.label)
     else:
         proposal = _proposal(detected.semantic, facts, profile)
         if detected.semantic == "location" and not searchable:
@@ -278,6 +380,7 @@ def _map_field(detected: DetectedField, facts: list[FactView], profile: ProfileV
         and not item.alternatives
     )
     item.review_required = not item.eligible_for_fill
+    item.match_note = proposal.note if item.eligible_for_fill else ""
     return item
 
 
@@ -320,6 +423,7 @@ class _Proposal:
     kind: str | None = None
     fact_id: int | None = None
     uncertainty: str | None = None
+    note: str = ""
     provenance: list[Provenance] = field(default_factory=list)
     alternatives: list[Alternative] = field(default_factory=list)
 
@@ -393,7 +497,7 @@ def _country_name(facts: list[FactView], profile: ProfileView) -> _Proposal:
     return _Proposal(uncertainty="No verified country is available. Add a country to your candidate profile.")
 
 
-def _education_proposal(semantic: str, facts: list[FactView], profile: ProfileView, options: list[str]) -> _Proposal:
+def _education_proposal(semantic: str, facts: list[FactView], profile: ProfileView, options: list[str], label: str = "") -> _Proposal:
     key = {"school": "institution", "degree": "degree", "discipline": "major"}[semantic]
     usable: list[tuple[str, FactView]] = []
     held = False
@@ -442,11 +546,12 @@ def _education_proposal(semantic: str, facts: list[FactView], profile: ProfileVi
             kind="profile",
             provenance=[Provenance(kind="profile", profile_field=attr, candidate_id=profile.candidate_id)],
         )
-    if options:
-        chosen_option = _exact_option(proposal.value or "", options)
-        if chosen_option is None:
-            return _Proposal(uncertainty=f"No listed choice exactly matches the verified {_reason_name(semantic)}.")
-        proposal.value = chosen_option
+    if options and proposal.value:
+        found = match_choice(semantic, proposal.value, options, label)
+        if found.option is None:
+            return _Proposal(uncertainty=found.explanation)
+        proposal.value = found.option
+        proposal.note = found.explanation
     return proposal
 
 

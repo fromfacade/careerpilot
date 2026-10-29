@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
-import type { ApplicationPreparation, AutofillAnswerField, AutofillPlanField, AutofillSession } from '../api/types'
+import type { ApplicationPreparation, AutofillAnswerField, AutofillPlanField, AutofillSession, CompletionMetrics } from '../api/types'
 import localToken from 'virtual:careerpilot-token'
 import { beginAutofillOpening, releaseAutofillOpening } from './autofillOpening'
 
@@ -22,6 +22,7 @@ export function AutofillReview({
   const [busy, setBusy] = useState(autoStart)
   const [error, setError] = useState<string | null>(null)
   const [confirmed, setConfirmed] = useState(false)
+  const [draftText, setDraftText] = useState<Record<string, string>>({})
   const publicUrl = prep.snapshot_apply_url || ''
   const formUrl = prep.greenhouse_apply_url || (publicUrl.includes('greenhouse.io') ? publicUrl : '')
   const note = prep.greenhouse_autofill_note || ''
@@ -49,6 +50,57 @@ export function AutofillReview({
       setAttachResume(Boolean(next.plan?.resume.eligible_for_attach))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'The browser could not be opened.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function draftValue(field: AutofillAnswerField) {
+    return draftText[field.field_id] ?? field.proposed_text ?? ''
+  }
+
+  async function saveDraft(field: AutofillAnswerField, status: 'draft' | 'approved' | 'rejected') {
+    if (!session || field.source_id == null) return
+    setBusy(true)
+    setError(null)
+    try {
+      const text = draftValue(field)
+      await api.updatePreparationAnswer(prep.id, field.source_id, {
+        ...(text === (field.proposed_text ?? '') ? {} : { answer_text: text }),
+        status,
+      })
+      const refreshed = await api.refreshAutofillSession(session.id)
+      if (status !== 'approved') {
+        setSession(refreshed)
+        return
+      }
+      const filled = await api.fillAutofillSession(session.id, {
+        included_field_ids: [field.field_id],
+        overwrite_field_ids: [],
+        attach_resume: false,
+      })
+      setSession(filled)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The draft could not be saved.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function regenerateDraft(field: AutofillAnswerField) {
+    if (!session) return
+    setBusy(true)
+    setError(null)
+    try {
+      const next = await api.regenerateAutofillDraft(session.id, field.field_id)
+      setDraftText((current) => {
+        const copy = { ...current }
+        delete copy[field.field_id]
+        return copy
+      })
+      setSession(next)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The draft could not be regenerated.')
     } finally {
       setBusy(false)
     }
@@ -229,32 +281,55 @@ export function AutofillReview({
                   Attach this resume
                 </label>
               )}
-              <FieldChoices
-                title="Proposed fields"
-                fields={plan.ready.map((field) => ({
-                  id: field.field_id,
-                  label: field.label,
-                  value: field.proposed_value,
-                  source: field.source_kind,
-                }))}
-                included={included}
-                onToggle={(id, on) => setIncluded((current) => ({ ...current, [id]: on }))}
-              />
-              <AnswerChoices
-                title="Approved answers"
-                fields={plan.answers.matched}
-                included={included}
-                onToggle={(id, on) => setIncluded((current) => ({ ...current, [id]: on }))}
-              />
-              <ReplaceChoices
-                fields={[...plan.preserve_existing, ...plan.answers.preserved.map(asPlanField)]}
-                overwrite={overwrite}
-                onToggle={(id, on) => setOverwrite((current) => ({ ...current, [id]: on }))}
+              {session.completion && <CompletionSummary metrics={session.completion} />}
+              {completedRows(session).length > 0 && (
+                <details className="rounded-md bg-slate-50 p-2">
+                  <summary className="cursor-pointer font-medium text-slate-900">Inspect completed fields</summary>
+                  <PlainList title="Verified on the form" rows={completedRows(session)} />
+                </details>
+              )}
+              <details className="rounded-md bg-slate-50 p-2">
+                <summary className="cursor-pointer font-medium text-slate-900">Approved fields</summary>
+                <div className="mt-2 space-y-2">
+                  <FieldChoices
+                    title="Verified information"
+                    fields={plan.ready.map((field) => ({
+                      id: field.field_id,
+                      label: field.label,
+                      value: field.proposed_value,
+                      source: field.source_kind,
+                      note: field.match_note,
+                    }))}
+                    included={included}
+                    onToggle={(id, on) => setIncluded((current) => ({ ...current, [id]: on }))}
+                  />
+                  <AnswerChoices
+                    title="Approved answers"
+                    fields={plan.answers.matched}
+                    included={included}
+                    onToggle={(id, on) => setIncluded((current) => ({ ...current, [id]: on }))}
+                  />
+                  <ReplaceChoices
+                    fields={[...plan.preserve_existing, ...plan.answers.preserved.map(asPlanField)]}
+                    overwrite={overwrite}
+                    onToggle={(id, on) => setOverwrite((current) => ({ ...current, [id]: on }))}
+                  />
+                </div>
+              </details>
+              <DraftAnswers
+                fields={plan.answers.missing.filter(isSavedDraft)}
+                textFor={draftValue}
+                busy={busy}
+                onChange={(id, value) => setDraftText((current) => ({ ...current, [id]: value }))}
+                onSave={(field) => saveDraft(field, 'draft')}
+                onApprove={(field) => saveDraft(field, 'approved')}
+                onReject={(field) => saveDraft(field, 'rejected')}
+                onRegenerate={regenerateDraft}
               />
               <PlainList title="Missing candidate data" rows={missingRows(plan)} />
               <PlainList title="Not selected" rows={unmatchedRows(plan)} />
               <PlainList title="Sensitive questions" rows={[...plan.sensitive.map(fieldReason), ...plan.answers.sensitive.map(answerReason)]} />
-              <PlainList title="Unsupported form controls" rows={plan.unsupported.map(fieldReason)} />
+              <PlainList title="Unsupported form controls" rows={plan.unsupported.filter((field) => !answeredIds(plan).has(field.field_id)).map(fieldReason)} />
             </>
           )}
           {['ready_to_fill', 'filled_for_review', 'needs_review'].includes(session.state) && (
@@ -300,8 +375,7 @@ export function AutofillReview({
               <p className="font-medium text-slate-900">After filling</p>
               <p className="text-xs">Resume: {session.result.resume_status}. {session.result.resume_detail}</p>
               <p className="text-xs">Submitted by CareerPilot: {session.result.submitted ? 'yes' : 'no'}</p>
-              <PlainList title="Filled" rows={session.result.outcomes.filter((item) => item.status === 'filled').map((item) => item.label)} />
-              <PlainList title="Failed" rows={session.result.outcomes.filter((item) => item.status === 'failed' || item.status === 'stale').map((item) => `${item.label}: ${item.detail}`)} />
+              <PlainList title="Needs another look" rows={session.result.outcomes.filter((item) => item.status === 'failed' || item.status === 'stale').map((item) => `${item.label}: ${item.detail}`)} />
               <PlainList title="Unresolved required fields" rows={session.result.unresolved} />
             </div>
           )}
@@ -311,6 +385,43 @@ export function AutofillReview({
         </div>
       )}
     </div>
+  )
+}
+
+function completedRows(session: AutofillSession) {
+  return (session.result?.outcomes || [])
+    .filter((item) => item.status === 'filled' || item.status === 'preserved')
+    .map((item) => {
+      if (item.status === 'preserved') return `${item.label}: already complete`
+      if (item.detail && item.detail !== 'Verified.') return `${item.label}: ${item.detail}`
+      return `${item.label}: filled automatically`
+    })
+}
+
+function CompletionSummary({ metrics }: { metrics: CompletionMetrics }) {
+  const done = metrics.autofilled + metrics.already_completed
+  return (
+    <div className="rounded-md bg-slate-50 p-2 text-xs text-slate-700">
+      <p className="font-medium text-slate-900">
+        {metrics.total === 0 ? 'No applicable fields were found.' : `${done} of ${metrics.total} fields completed.`}
+      </p>
+      <p className="mt-1">
+        {metrics.autofilled} filled automatically. {metrics.already_completed} already complete. {metrics.manual} need attention.{' '}
+        {metrics.required_unanswered} required still unanswered. {metrics.percent}% complete.
+      </p>
+    </div>
+  )
+}
+
+function answeredIds(plan: NonNullable<AutofillSession['plan']>) {
+  return new Set(
+    [
+      ...plan.answers.matched,
+      ...plan.answers.missing,
+      ...plan.answers.ambiguous,
+      ...plan.answers.sensitive,
+      ...plan.answers.preserved,
+    ].map((field) => field.field_id),
   )
 }
 
@@ -363,7 +474,7 @@ function FieldChoices({
   onToggle,
 }: {
   title: string
-  fields: { id: string; label: string; value: string | null; source: string | null }[]
+  fields: { id: string; label: string; value: string | null; source: string | null; note?: string }[]
   included: Record<string, boolean>
   onToggle: (id: string, on: boolean) => void
 }) {
@@ -379,6 +490,7 @@ function FieldChoices({
               <span>
                 {field.label}: {field.value}
                 {field.source ? <span className="text-xs text-slate-500"> ({field.source})</span> : null}
+                {field.note ? <span className="block text-xs text-slate-500">{field.note}</span> : null}
               </span>
             </label>
           </li>
@@ -404,7 +516,7 @@ function AnswerChoices({
       title={title}
       fields={fields.map((field) => ({
         id: field.field_id,
-        label: field.label,
+        label: answerHeading(field),
         value: field.proposed_text,
         source: field.approval_status,
       }))}
@@ -448,16 +560,113 @@ function fieldReason(field: AutofillPlanField): string {
   return `${field.label}: ${field.uncertainty || 'This field was not filled.'}`
 }
 
+function answerHeading(field: AutofillAnswerField): string {
+  const permission =
+    field.eligible_for_fill === true ? 'Autofill permitted.' : field.eligible_for_fill === false ? 'Manual review required.' : ''
+  return [field.label, matchLabel(field.match_kind), field.explanation || '', permission].filter(Boolean).join(' ')
+}
+
+function matchLabel(kind: string | undefined): string {
+  const labels: Record<string, string> = {
+    exact_match: 'Exact match.',
+    equivalent_match: 'Equivalent match.',
+    uncertain_match: 'Uncertain match.',
+    no_match: 'No match.',
+  }
+  return kind ? labels[kind] || '' : ''
+}
+
 function answerReason(field: AutofillAnswerField): string {
-  return `${field.label}: ${field.uncertainty || 'No approved answer was entered.'}`
+  const reason = field.explanation || field.uncertainty || 'No approved answer was entered.'
+  const permission =
+    field.eligible_for_fill === true ? 'Autofill permitted.' : field.review_required ? 'Manual review required.' : ''
+  return `${field.label}: ${matchLabel(field.match_kind)} ${reason} ${permission}`.replace(/\s+/g, ' ').trim()
+}
+
+function isSavedDraft(field: AutofillAnswerField) {
+  return (
+    field.source_id != null &&
+    (field.approval_status === 'draft' || field.approval_status === 'needs_review' || field.approval_status === 'rejected')
+  )
 }
 
 function missingRows(plan: NonNullable<AutofillSession['plan']>): string[] {
   return [
     ...plan.missing_required.map(fieldReason),
-    ...plan.answers.missing.map(answerReason),
+    ...plan.answers.missing.filter((field) => !isSavedDraft(field)).map(answerReason),
     ...plan.clarification.filter((field) => isMissing(field.uncertainty)).map(fieldReason),
   ]
+}
+
+function DraftAnswers({
+  fields,
+  textFor,
+  busy,
+  onChange,
+  onSave,
+  onApprove,
+  onReject,
+  onRegenerate,
+}: {
+  fields: AutofillAnswerField[]
+  textFor: (field: AutofillAnswerField) => string
+  busy: boolean
+  onChange: (id: string, value: string) => void
+  onSave: (field: AutofillAnswerField) => void
+  onApprove: (field: AutofillAnswerField) => void
+  onReject: (field: AutofillAnswerField) => void
+  onRegenerate: (field: AutofillAnswerField) => void
+}) {
+  if (fields.length === 0) return null
+  return (
+    <div>
+      <p className="font-medium text-slate-900">Draft answers</p>
+      <ul className="mt-1 space-y-3">
+        {fields.map((field) => {
+          const text = textFor(field)
+          const factual = (field.uncertainty || '').includes('will not guess')
+          return (
+            <li key={field.field_id} className="rounded-md border border-slate-200 p-2">
+              <p className="font-medium text-slate-900">{field.label}</p>
+              <p className="text-xs text-slate-600">{field.explanation || field.uncertainty}</p>
+              {(field.supporting_facts || []).length > 0 && (
+                <p className="text-xs text-slate-600">Supported by verified facts: {field.supporting_facts?.join(', ')}</p>
+              )}
+              <textarea
+                aria-label={`Draft for ${field.label}`}
+                value={text}
+                onChange={(event) => onChange(field.field_id, event.target.value)}
+                className="mt-1 w-full rounded-md border border-slate-300 p-1 text-xs"
+                rows={4}
+              />
+              <p className="text-xs text-slate-500">{text.length} characters. This draft is not filled until you approve it.</p>
+              <div className="mt-1 flex flex-wrap gap-1">
+                <button type="button" disabled={busy} onClick={() => onSave(field)} className="rounded-md border border-slate-300 px-2 py-1 text-xs">
+                  Save {field.label}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || !text.trim()}
+                  onClick={() => onApprove(field)}
+                  className="rounded-md bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-50"
+                >
+                  Approve {field.label}
+                </button>
+                <button type="button" disabled={busy} onClick={() => onReject(field)} className="rounded-md border border-slate-300 px-2 py-1 text-xs">
+                  Reject {field.label}
+                </button>
+                {!factual && (
+                  <button type="button" disabled={busy} onClick={() => onRegenerate(field)} className="rounded-md border border-slate-300 px-2 py-1 text-xs">
+                    Regenerate {field.label}
+                  </button>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
 }
 
 function unmatchedRows(plan: NonNullable<AutofillSession['plan']>): string[] {

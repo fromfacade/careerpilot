@@ -18,6 +18,7 @@ from app.ai.types import GenerationRequest
 from app.autofill.urls import greenhouse_application_url
 from app.core.config import get_settings
 from app.core.exceptions import AIProviderError, NotFoundError, ValidationError
+from app.models.answer import ApplicationAnswer
 from app.models.candidate import Candidate
 from app.models.enums import (
     AnswerCategory,
@@ -352,8 +353,9 @@ def _with_experience_facts(selected, facts):
 def fill_preparation_answers(db: Session, candidate: Candidate, row: ApplicationPreparation, provider=None) -> None:
     """Write preparation answers only. Never updates the answer library."""
     facts = _verified_facts(db, candidate)
+    planned = {question for question, _category in _question_set(row)}
     for item in list(row.answers):
-        if item.status is not PreparationItemStatus.APPROVED:
+        if item.status is not PreparationItemStatus.APPROVED and item.question in planned:
             db.delete(item)
     db.flush()
     approved = answer_service.list_answers(db, candidate, status=AnswerStatus.APPROVED)
@@ -485,8 +487,39 @@ def update_preparation_answer(
             item.missing_information = []
     if status is not None:
         item.status = status
+    if status is PreparationItemStatus.APPROVED:
+        _promote_library_draft(db, candidate, item)
     mark_ready_if_approved(db, row)
     return get_preparation_or_404(db, candidate, row.id)
+
+
+def _promote_library_draft(db: Session, candidate: Candidate, item: ApplicationPreparationAnswer) -> None:
+    """An approved form draft becomes a reusable library answer for later matching."""
+    if item.source_answer_id is None or item.is_sensitive:
+        return
+    library = db.get(ApplicationAnswer, item.source_answer_id)
+    if library is None or library.candidate_id != candidate.id or library.status is AnswerStatus.APPROVED:
+        return
+    text = (item.answer_text or "").strip()
+    if not text:
+        return
+    fingerprint = question_fingerprint(item.question)
+    other = db.execute(
+        select(ApplicationAnswer).where(
+            ApplicationAnswer.candidate_id == candidate.id,
+            ApplicationAnswer.question_fingerprint == fingerprint,
+            ApplicationAnswer.answer_text == text,
+            ApplicationAnswer.id != library.id,
+        )
+    ).scalar_one_or_none()
+    target = other or library
+    if other is None:
+        library.answer_text = text
+    target.status = AnswerStatus.APPROVED
+    target.is_reusable = True
+    target.unsupported_claims = []
+    target.missing_information = []
+    item.source_answer_id = target.id
 
 
 def mark_needs_review(db: Session, row: ApplicationPreparation) -> ApplicationPreparation:
@@ -506,7 +539,8 @@ def mark_failed(db: Session, row: ApplicationPreparation, message: str) -> Appli
 
 
 def mark_ready_if_approved(db: Session, row: ApplicationPreparation) -> ApplicationPreparation:
-    answers = row.answers
+    planned = {question for question, _category in _question_set(row)}
+    answers = [item for item in row.answers if item.question in planned]
     has_tailored = bool((row.tailored_resume or {}).get("header"))
     resume_ok = row.source_resume_id is not None
     if has_tailored:

@@ -1,7 +1,8 @@
 """Choose an already selected resume and match approved answers.
 
 This module only reads. It does not generate a resume, rewrite an answer,
-call an AI provider, or attach a file to a page.
+call an AI provider, or attach a file to a page. Saved drafts are shown
+for review and are not eligible to fill.
 """
 
 from __future__ import annotations
@@ -19,17 +20,6 @@ if TYPE_CHECKING:
 from app.services.answer_service import question_fingerprint
 
 _SENSITIVE_CATEGORIES = {item.value for item in SENSITIVE_ANSWER_CATEGORIES}
-_STOP = frozenset(
-    "a an the to for of in on and or you your this that is are do did why what how with at from about me my our".split()
-)
-_SYNONYMS = {
-    "role": "position",
-    "job": "position",
-    "internship": "position",
-    "employer": "company",
-    "organization": "company",
-    "organisation": "company",
-}
 
 
 @dataclass(frozen=True)
@@ -62,6 +52,9 @@ class AnswerView:
     is_reusable: bool = True
     is_preferred: bool = False
     source: str = "library"
+    role: str = ""
+    fact_labels: tuple[str, ...] = ()
+    missing_notes: tuple[str, ...] = ()
 
 
 @dataclass
@@ -73,6 +66,9 @@ class Materials:
     library_answers: list[AnswerView] = field(default_factory=list)
     writing_style_profile_id: int | None = None
     link_problem: str | None = None
+    employer: str = ""
+    role: str = ""
+    draft_answers: list[AnswerView] = field(default_factory=list)
 
 
 @dataclass
@@ -109,6 +105,11 @@ class AnswerProposal:
     eligible_for_fill: bool
     review_required: bool
     uncertainty: str | None
+    explanation: str = ""
+    supporting_facts: list[str] = field(default_factory=list)
+    input_type: str = "textarea"
+    name: str = ""
+    element_id: str = ""
 
 
 @dataclass
@@ -195,24 +196,39 @@ def match_answers(detection: FormDetection, materials: Materials) -> AnswerPlan:
                 )
             )
             continue
-        proposal = _match_question(item.field_id, item.label, item.required, item.current_value, item.confidence, materials)
+        proposal = _match_question(
+            item.field_id,
+            item.label,
+            item.required,
+            item.current_value,
+            item.confidence,
+            item.question_kind,
+            materials,
+        )
+        proposal.input_type = item.input_type or "textarea"
+        proposal.name = item.name
+        proposal.element_id = item.element_id
+        _fit_listed_choices(proposal, item.options)
         if proposal.existing_value:
             plan.preserved.append(proposal)
-        elif proposal.match_kind == "exact" and proposal.eligible_for_fill:
+        elif proposal.match_kind in {"exact_match", "equivalent_match"} and proposal.eligible_for_fill:
             plan.matched.append(proposal)
-        elif proposal.match_kind in {"uncertain", "ambiguous"}:
+        elif proposal.match_kind == "uncertain_match" or proposal.match_kind in {"exact_match", "equivalent_match"}:
             plan.ambiguous.append(proposal)
         else:
             plan.missing.append(proposal)
+    _attach_saved_drafts(plan, materials)
     return plan
 
 
-def _match_question(field_id, label, required, existing, confidence, materials: Materials) -> AnswerProposal:
+def _match_question(field_id, label, required, existing, confidence, question_kind: str, materials: Materials) -> AnswerProposal:
+    from app.autofill.answer_match import judge_answers
+
     base = AnswerProposal(
         field_id=field_id,
         label=_clip(label),
         required=required,
-        match_kind="none",
+        match_kind="no_match",
         proposed_text=None,
         proposed_replacement=None,
         existing_value=existing,
@@ -223,87 +239,146 @@ def _match_question(field_id, label, required, existing, confidence, materials: 
         eligible_for_fill=False,
         review_required=True,
         uncertainty="No approved answer matches this question.",
+        explanation="No approved answer matches this question.",
     )
     usable_job = [item for item in materials.job_answers if _usable(item)]
     usable_library = [item for item in materials.library_answers if _usable(item) and item.is_reusable]
-    fingerprint = question_fingerprint(label)
-    exact_job = [item for item in usable_job if question_fingerprint(item.question) == fingerprint]
-    exact_library = [item for item in usable_library if question_fingerprint(item.question) == fingerprint]
-    chosen, kind = _choose_exact(exact_job, exact_library)
-    if kind == "ambiguous":
-        base.match_kind = "ambiguous"
-        base.uncertainty = "More than one approved answer matches this question exactly."
-        return base
-    if chosen is None:
-        uncertain = _uncertain_matches(fingerprint, usable_job + usable_library)
-        if len(uncertain) == 1:
-            answer = uncertain[0]
-            base.match_kind = "uncertain"
-            base.proposed_text = None if existing else answer.answer_text
-            base.proposed_replacement = answer.answer_text if existing and not _same(existing, answer.answer_text) else None
-            base.source = answer.source
-            base.source_id = answer.id
-            base.approval_status = answer.approval_status
-            base.origin = answer.origin
-            base.uncertainty = "The approved question is similar but not the same, so it needs review."
-            return base
-        if len(uncertain) > 1:
-            base.match_kind = "ambiguous"
-            base.uncertainty = "Several approved answers are similar, and none was selected."
-            return base
-        if required:
+    judged = judge_answers(
+        label,
+        question_kind,
+        [*usable_job, *usable_library],
+        employer=materials.employer,
+        role=materials.role,
+    )
+    if judged.answer is None:
+        base.match_kind = judged.match_kind
+        base.explanation = judged.explanation
+        if required and judged.match_kind == "no_match":
             base.uncertainty = "A required question has no approved answer."
+            base.explanation = base.uncertainty
+        elif judged.match_kind != "no_match":
+            base.uncertainty = judged.explanation
         return base
+    chosen = judged.answer
     text = chosen.answer_text
     base.source = chosen.source
     base.source_id = chosen.id
     base.approval_status = chosen.approval_status
     base.origin = chosen.origin
-    base.match_kind = "exact"
+    base.match_kind = judged.match_kind
+    base.explanation = judged.explanation
     if existing:
-        base.proposed_text = None
         base.proposed_replacement = None if _same(existing, text) else text
         base.uncertainty = "The field already has a value. Replacing it requires approval."
-        return base
-    if confidence != "high":
-        base.proposed_text = text
-        base.uncertainty = "The question label is not reliable enough to fill automatically."
+        base.explanation = base.uncertainty
         return base
     base.proposed_text = text
+    if not judged.auto or confidence != "high":
+        base.match_kind = "uncertain_match"
+        base.uncertainty = (
+            judged.explanation
+            if not judged.auto
+            else "The question label is not reliable enough to fill automatically."
+        )
+        base.explanation = base.uncertainty
+        return base
     base.uncertainty = None
     base.review_required = False
     base.eligible_for_fill = True
     return base
 
 
-def _choose_exact(job: list[AnswerView], library: list[AnswerView]) -> tuple[AnswerView | None, str]:
-    if len(job) == 1:
-        return job[0], "exact"
-    if len(job) > 1:
-        return None, "ambiguous"
-    if len(library) == 1:
-        return library[0], "exact"
-    if len(library) > 1:
-        preferred = [item for item in library if item.is_preferred]
-        if len(preferred) == 1:
-            return preferred[0], "exact"
-        return None, "ambiguous"
-    return None, "none"
+def _attach_saved_drafts(plan: AnswerPlan, materials: Materials) -> None:
+    """Show a saved draft on a no_match question. Never mark it fillable."""
+    saved: dict[str, AnswerView] = {}
+    for item in materials.draft_answers:
+        saved.setdefault(question_fingerprint(item.question), item)
+    if not saved:
+        return
+    for proposal in plan.missing:
+        if proposal.match_kind != "no_match":
+            continue
+        draft = saved.get(question_fingerprint(proposal.label))
+        if draft is None:
+            continue
+        proposal.source = "job_specific"
+        proposal.source_id = draft.id
+        proposal.approval_status = draft.approval_status
+        proposal.origin = draft.origin
+        proposal.eligible_for_fill = False
+        proposal.review_required = True
+        proposal.supporting_facts = list(draft.fact_labels)
+        proposal.proposed_text = draft.answer_text.strip() or None
+        if draft.approval_status == "rejected":
+            proposal.explanation = "You rejected this draft. It will not be filled."
+            proposal.uncertainty = proposal.explanation
+            continue
+        if draft.missing_notes:
+            proposal.uncertainty = draft.missing_notes[0]
+        else:
+            proposal.uncertainty = "This draft is not filled until you approve it."
+        facts = ", ".join(draft.fact_labels) if draft.fact_labels else "none on file"
+        proposal.explanation = f"Draft only. Supported by verified facts: {facts}."
 
 
-def _uncertain_matches(fingerprint: str, answers: list[AnswerView]) -> list[AnswerView]:
-    found = []
-    asked = _content_tokens(fingerprint)
-    for answer in answers:
-        other_fp = question_fingerprint(answer.question)
-        if other_fp == fingerprint:
-            continue
-        other = _content_tokens(other_fp)
-        if not asked or not other:
-            continue
-        if asked == other or _jaccard(asked, other) >= 0.67 and len(asked & other) >= 3:
-            found.append(answer)
-    return found
+def _fit_listed_choices(proposal: AnswerProposal, options: list[str]) -> None:
+    """An approved answer can fill a choice control only when every value is listed."""
+    searchable = proposal.input_type == "combobox"
+    if proposal.input_type not in {"select", "radio", "checkbox", "checkboxes", "multi_select"} and not searchable:
+        return
+    if not proposal.eligible_for_fill:
+        return
+    text = (proposal.proposed_text or proposal.proposed_replacement or "").strip()
+    if not text:
+        proposal.eligible_for_fill = False
+        proposal.review_required = True
+        proposal.uncertainty = "This control's choices are not visible, so nothing was selected."
+        proposal.explanation = proposal.uncertainty
+        return
+    if searchable and not options:
+        return
+    if not options:
+        proposal.eligible_for_fill = False
+        proposal.review_required = True
+        proposal.uncertainty = "This control's choices are not visible, so nothing was selected."
+        proposal.explanation = proposal.uncertainty
+        return
+    parts = _choice_parts(text, options)
+    chosen: list[str] = []
+    for part in parts:
+        match = _exact_listed(part, options)
+        if match is None:
+            proposal.eligible_for_fill = False
+            proposal.review_required = True
+            proposal.uncertainty = "No listed choice exactly matches the approved answer."
+            proposal.explanation = proposal.uncertainty
+            return
+        if match not in chosen:
+            chosen.append(match)
+    if searchable and len(chosen) != 1:
+        proposal.eligible_for_fill = False
+        proposal.review_required = True
+        proposal.uncertainty = "This dropdown accepts one choice, so nothing was selected."
+        proposal.explanation = proposal.uncertainty
+        return
+    fitted = "\n".join(chosen)
+    if proposal.proposed_replacement:
+        proposal.proposed_replacement = fitted
+    else:
+        proposal.proposed_text = fitted
+
+
+def _choice_parts(text: str, options: list[str]) -> list[str]:
+    exact = _exact_listed(text, options)
+    if exact is not None:
+        return [exact]
+    parts = [part.strip() for part in re.split(r"\s*[,;\n]\s*", text) if part.strip()]
+    return parts or [text]
+
+
+def _exact_listed(value: str, options: list[str]) -> str | None:
+    matches = [option for option in options if option.strip() and option.strip().casefold() == value.strip().casefold()]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _usable(answer: AnswerView) -> bool:
@@ -431,17 +506,6 @@ def _readable(path: str | None) -> bool:
     except OSError:
         return False
     return True
-
-
-def _content_tokens(fingerprint: str) -> set[str]:
-    return {_SYNONYMS.get(token, token) for token in fingerprint.split() if token not in _STOP and len(token) > 2}
-
-
-def _jaccard(left: set[str], right: set[str]) -> float:
-    union = left | right
-    if not union:
-        return 0.0
-    return len(left & right) / len(union)
 
 
 def _consentish(label: str) -> bool:

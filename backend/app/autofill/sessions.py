@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 from playwright.sync_api import sync_playwright
 
-from app.autofill.actions import decide_fill, resume_marker, reviewed_fields
+from app.autofill.actions import decide_fill, revealed_actions, resume_marker, reviewed_fields
 from app.autofill.browser_fill import FillReport, NavigationBlocked, apply_actions, open_application
 from app.autofill.mapping import AutofillPlan
 from app.autofill.submission import SubmissionGate
@@ -182,6 +182,9 @@ def start_session(preparation_id: int, *, headed: bool = True) -> AutofillRun:
         run.identity_detail = detail
         plan = _plan_for(run, html, final_url)
         run.plan = plan
+        if _ensure_drafts(run):
+            plan = _plan_for(run, html, final_url)
+            run.plan = plan
         run.reviewed = reviewed_fields(plan)
         marker = resume_marker(plan)
         if marker is not None:
@@ -283,10 +286,37 @@ def fill_session(session_id: str, *, included: set[str], overwrite: set[str], at
         for field_id in decision.preserved:
             report.outcomes.append(_outcome(field_id, "preserved", "The existing value was kept."))
         for field_id in decision.stale:
-            report.outcomes.append(_outcome(field_id, "stale", "The form changed since review, so this field was skipped."))
+            report.outcomes.append(
+                _outcome(
+                    field_id,
+                    "stale",
+                    decision.stale_details.get(field_id, "The form changed since review, so this field was skipped."),
+                )
+            )
         for field_id in decision.skipped:
             report.outcomes.append(_outcome(field_id, "skipped", "This field is no longer eligible."))
         still_same, still_detail = same_greenhouse_application(page.url, run.apply_url)
+        if still_same and not run.cancel.is_set():
+            revealed_html = page.content()
+            revealed = _plan_for(run, revealed_html, page.url)
+            if "captcha" not in revealed.blockers and "mfa" not in revealed.blockers:
+                follow = revealed_actions(
+                    run.reviewed,
+                    revealed,
+                    done={action.field_id for action in decision.actions},
+                )
+                if follow.actions:
+                    extra = apply_actions(
+                        page,
+                        follow.actions,
+                        resume_field_id=None,
+                        resume_path=None,
+                        resume_name="",
+                        cancel=run.cancel,
+                    )
+                    report.outcomes.extend(extra.outcomes)
+                    if extra.stopped and not report.stopped:
+                        report.stopped = extra.stopped
         run.identity_matches = still_same
         run.identity_detail = still_detail
         fresh_html = page.content()
@@ -513,6 +543,82 @@ def _close_worker(run: AutofillRun) -> None:
     if worker is not None:
         _log("browser_cleanup", session_id=run.id, preparation_id=run.preparation_id)
         worker.close()
+
+
+def refresh_session(session_id: str) -> AutofillRun:
+    """Rebuild the review plan from the open page. Does not generate or submit."""
+    run = _get(session_id)
+    if run._worker is None:
+        raise ValidationError("The browser window is not open.")
+    html, url = run._worker.call(lambda page: (page.content(), page.url), timeout=20)
+    matches, detail = same_greenhouse_application(url, run.apply_url)
+    run.identity_matches = matches
+    run.identity_detail = detail
+    plan = _plan_for(run, html, url)
+    run.plan = plan
+    run.reviewed = reviewed_fields(plan)
+    marker = resume_marker(plan)
+    if marker is not None:
+        run.reviewed[marker.field_id] = marker
+    return run
+
+
+def regenerate_session_draft(session_id: str, field_id: str) -> AutofillRun:
+    """Write one new draft for a question the user asked to regenerate."""
+    run = _get(session_id)
+    if run.preparation_id is None or run.plan is None:
+        raise ValidationError("This session has no application to draft.")
+    proposal = _proposal_for(run.plan, field_id)
+    if proposal is None or proposal.match_kind in {"sensitive", "uncertain_match"}:
+        raise ValidationError("This question is not drafted automatically.")
+    with session_scope() as db:
+        candidate = db.get(Candidate, run.candidate_id)
+        if candidate is None:
+            raise NotFoundError("No candidate profile exists yet. Create one first.")
+        from app.services.greenhouse_drafts import regenerate_form_draft
+
+        regenerate_form_draft(db, candidate, run.preparation_id, proposal.label)
+    return refresh_session(session_id)
+
+
+def _proposal_for(plan: AutofillPlan, field_id: str):
+    groups = (
+        plan.answers.missing,
+        plan.answers.ambiguous,
+        plan.answers.matched,
+        plan.answers.preserved,
+        plan.answers.sensitive,
+    )
+    for group in groups:
+        for item in group:
+            if item.field_id == field_id:
+                return item
+    return None
+
+
+def _ensure_drafts(run: AutofillRun) -> bool:
+    """Save drafts once. A failure here leaves the browser open."""
+    if run.plan is None or not run.preparation_id or not run.candidate_id:
+        return False
+    try:
+        with session_scope() as db:
+            if not hasattr(db, "get"):
+                return False
+            candidate = db.get(Candidate, run.candidate_id)
+            if candidate is None:
+                return False
+            from app.services.greenhouse_drafts import ensure_form_drafts
+
+            ensure_form_drafts(db, candidate, run.preparation_id, run.plan)
+    except Exception as exc:
+        _log(
+            "draft_generation_failed",
+            session_id=run.id,
+            preparation_id=run.preparation_id,
+            error_type=type(exc).__name__,
+        )
+        return False
+    return True
 
 
 def _plan_for(run: AutofillRun, html: str, url: str | None = None) -> AutofillPlan:

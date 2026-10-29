@@ -160,21 +160,21 @@ def test_job_specific_exact_answer_beats_the_library_and_is_not_rewritten(tmp_pa
     assert plan.answers.writing_style_profile_id == 3
 
 
-def test_similar_library_question_is_uncertain_and_ambiguous_matches_are_not_chosen(tmp_path):
+def test_equivalent_interest_wording_is_reused_and_conflicts_are_not_chosen(tmp_path):
     near = _answer(3, "Why are you interested in this position?", SECRET)
     plan = _plan(tmp_path / "a.pdf", library_answers=[near])
-    assert plan.answers.matched == []
-    uncertain = plan.answers.ambiguous[0]
-    assert uncertain.match_kind == "uncertain"
-    assert uncertain.eligible_for_fill is False
-    assert uncertain.proposed_text == SECRET
-    assert uncertain.review_required is True
+    matched = plan.answers.matched[0]
+    assert matched.match_kind == "equivalent_match"
+    assert matched.eligible_for_fill is True
+    assert matched.proposed_text == SECRET
+    assert "equivalent" in matched.explanation
     first = _answer(4, "Why are you interested in this role?", "One.")
     second = _answer(5, "Why are you interested in this role?", "Two.")
     ambiguous = _plan(tmp_path / "a.pdf", library_answers=[first, second])
     assert ambiguous.answers.matched == []
     assert ambiguous.answers.ambiguous[0].proposed_text is None
-    assert ambiguous.answers.ambiguous[0].match_kind == "ambiguous"
+    assert ambiguous.answers.ambiguous[0].match_kind == "uncertain_match"
+    assert "more than one" in ambiguous.answers.ambiguous[0].explanation.casefold()
 
 
 def test_unapproved_drafts_and_sensitive_answers_are_not_inserted(tmp_path):

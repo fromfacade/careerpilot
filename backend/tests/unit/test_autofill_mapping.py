@@ -1,4 +1,5 @@
 from app.autofill.mapping import FactView, ProfileView, explain_location_miss, match_listed_location, plan_autofill
+from app.autofill.materials import AnswerView, Materials
 from app.schemas.autofill import to_plan_result
 
 URL = "https://boards.greenhouse.io/acme/jobs/12345"
@@ -336,7 +337,7 @@ def test_explicit_country_is_not_guessed_from_a_shared_prefix():
     assert ready["city"].proposed_value == "Austin, TX"
     school = _by_id(plan.clarification)["school"]
     assert school.eligible_for_fill is False
-    assert "does not expose" in (school.uncertainty or "")
+    assert "No verified value" in (school.uncertainty or "")
     native = """
     <form>
       <label for="phone">Phone</label>
@@ -371,3 +372,94 @@ def test_city_and_state_selects_one_suggestion_and_a_bare_city_does_not():
     assert match_listed_location("Santa Cruz CA", options) == "Santa Cruz, California, United States"
     assert match_listed_location("Santa Cruz", options) is None
     assert "Add the state" in explain_location_miss("Santa Cruz", options)
+
+
+QUESTIONS = """
+<form id="application">
+  <label for="grad">Expected graduation</label>
+  <input id="grad" name="graduation" type="text">
+  <label for="gpa">What is your GPA?</label>
+  <input id="gpa" name="gpa" type="text">
+  <label for="start">Start date</label>
+  <input id="start" name="start" type="text">
+  <label for="move">Are you willing to relocate?</label>
+  <select id="move" name="move"><option>Yes</option><option>No</option></select>
+  <label for="school">Current school</label>
+  <select id="school" name="school"><option>Example State University</option></select>
+  <label for="degree">Highest level of education</label>
+  <select id="degree" name="degree"><option>Bachelor's</option></select>
+  <label for="major">What is your major?</label>
+  <input id="major" name="major" type="text">
+  <label for="employer">Current employer</label>
+  <input id="employer" name="employer" type="text">
+  <label for="experience">Describe your relevant experience</label>
+  <textarea id="experience" name="experience"></textarea>
+  <label for="github">Link to your GitHub</label>
+  <input id="github" name="github" type="url">
+</form>
+"""
+
+
+def test_classified_questions_reuse_verified_facts_and_do_not_invent_the_rest():
+    education = _fact(
+        3,
+        "Example State University",
+        "",
+        fact_type="education",
+        fact_value={
+            "institution": "Example State University",
+            "degree": "B.S. Computer Science",
+            "major": "Computer Science",
+            "end_date": "2027-05",
+        },
+    )
+    profile = ProfileView(
+        candidate_id=7,
+        full_name="Ada Lovelace",
+        email="ada@example.com",
+        github_url="https://github.com/ada",
+        school="Should Not Override",
+        major="Should Not Override",
+    )
+    plan = plan_autofill(URL, QUESTIONS, [education], profile)
+    ready = _by_id(plan.ready)
+    assert ready["school"].proposed_value == "Example State University"
+    assert ready["major"].proposed_value == "Computer Science"
+    assert ready["github"].proposed_value == "https://github.com/ada"
+    assert ready["degree"].proposed_value == "Bachelor's"
+    assert "matches your verified degree: B.S. Computer Science" in ready["degree"].match_note
+    assert education.fact_value["degree"] == "B.S. Computer Science"
+    blocked = ["graduation", "gpa", "start", "move", "employer", "experience"]
+    for field_id in blocked:
+        item = _by_id(plan.unsupported)[field_id]
+        assert item.proposed_value is None
+        assert item.eligible_for_fill is False
+    assert all("2027" not in (item.proposed_value or "") for item in plan.ready)
+    draft = AnswerView(
+        id=8,
+        question="What is your GPA?",
+        answer_text="3.9",
+        approval_status="draft",
+        origin="ai_draft",
+        category="other",
+    )
+    withheld = plan_autofill(URL, QUESTIONS, [education], profile, Materials(library_answers=[draft]))
+    gpa = next(item for item in withheld.answers.missing if item.field_id == "gpa")
+    assert gpa.proposed_text is None
+    assert gpa.eligible_for_fill is False
+    approved = AnswerView(
+        id=9,
+        question="What is your GPA?",
+        answer_text="3.4",
+        approval_status="approved",
+        origin="manual",
+        category="other",
+        is_reusable=True,
+        source="library",
+    )
+    reused = plan_autofill(URL, QUESTIONS, [education], profile, Materials(library_answers=[approved]))
+    reviewed = next(item for item in reused.answers.ambiguous if item.field_id == "gpa")
+    assert reviewed.proposed_text == "3.4"
+    assert reviewed.match_kind == "uncertain_match"
+    assert reviewed.eligible_for_fill is False
+    assert "GPA" in reviewed.explanation
