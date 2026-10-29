@@ -58,7 +58,10 @@ def open_autofill_session(
     payload: AutofillSessionCreate,
     _: None = Depends(require_browser_token),
 ) -> AutofillSessionRead:
-    return to_session_result(start_session(payload.preparation_id, headed=True))
+    try:
+        return to_session_result(start_session(payload.preparation_id, headed=True))
+    except ValidationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/sessions/{session_id}", response_model=AutofillSessionRead)

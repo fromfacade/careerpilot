@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import type { ApplicationPreparation, AutofillAnswerField, AutofillPlanField, AutofillSession } from '../api/types'
 import localToken from 'virtual:careerpilot-token'
+import { beginAutofillOpening, releaseAutofillOpening } from './autofillOpening'
 
 export function AutofillReview({
   prep,
@@ -18,10 +19,9 @@ export function AutofillReview({
   const [included, setIncluded] = useState<Record<string, boolean>>({})
   const [overwrite, setOverwrite] = useState<Record<string, boolean>>({})
   const [attachResume, setAttachResume] = useState(true)
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState(autoStart)
   const [error, setError] = useState<string | null>(null)
   const [confirmed, setConfirmed] = useState(false)
-  const started = useRef(false)
   const publicUrl = prep.snapshot_apply_url || ''
   const formUrl = prep.greenhouse_apply_url || (publicUrl.includes('greenhouse.io') ? publicUrl : '')
   const note = prep.greenhouse_autofill_note || ''
@@ -93,37 +93,45 @@ export function AutofillReview({
   }
 
   useEffect(() => {
-    if (!autoStart || started.current || !formUrl) return
-    started.current = true
-    void (async () => {
-      setBusy(true)
-      setError(null)
-      try {
-        const opened = await api.openAutofillSession(prep.id)
-        const included = approvedIds(opened)
-        const filled = await api.fillAutofillSession(opened.id, {
-          included_field_ids: included,
-          overwrite_field_ids: [],
-          attach_resume: Boolean(opened.plan?.resume.eligible_for_attach),
-        })
+    if (!autoStart || !formUrl) return
+    let active = true
+    void beginAutofillOpening(prep.id, async (opened) => {
+      const included = approvedIds(opened)
+      return api.fillAutofillSession(opened.id, {
+        included_field_ids: included,
+        overwrite_field_ids: [],
+        attach_resume: Boolean(opened.plan?.resume.eligible_for_attach),
+      })
+    })
+      .then((filled) => {
+        if (!active) return
         setSession(filled)
+        if (filled.state === 'failed' || filled.state === 'cancelled') {
+          setError(filled.message || 'The browser could not stay open.')
+        }
         const choices: Record<string, boolean> = {}
-        included.forEach((id) => {
+        approvedIds(filled).forEach((id) => {
           choices[id] = true
         })
         setIncluded(choices)
         setAttachResume(Boolean(filled.plan?.resume.eligible_for_attach))
         if (filled.application_status) onApplicationStatus?.(filled.application_status)
-      } catch (err) {
+      })
+      .catch((err: unknown) => {
+        if (!active) return
         setError(err instanceof Error ? err.message : 'The application form could not be prepared.')
-      } finally {
-        setBusy(false)
-      }
-    })()
+      })
+      .finally(() => {
+        if (active) setBusy(false)
+      })
+    return () => {
+      active = false
+    }
   }, [autoStart, formUrl, prep.id, onApplicationStatus])
 
   async function stop() {
     if (!session) return
+    releaseAutofillOpening(prep.id)
     setBusy(true)
     try {
       setSession(await api.cancelAutofillSession(session.id))

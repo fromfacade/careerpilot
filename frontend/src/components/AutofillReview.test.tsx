@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApplicationPreparation, AutofillSession } from '../api/types'
 import { AutofillReview } from './AutofillReview'
+import { resetAutofillOpenings } from './autofillOpening'
 
 vi.mock('../api/client', () => ({
   api: {
@@ -81,7 +82,10 @@ const session: AutofillSession = {
 }
 
 describe('AutofillReview', () => {
-  afterEach(() => cleanup())
+  afterEach(() => {
+    resetAutofillOpenings()
+    cleanup()
+  })
 
   it('shows the plan and can exclude a field before filling', async () => {
     vi.mocked(api.openAutofillSession).mockResolvedValue(session)
@@ -221,6 +225,52 @@ describe('AutofillReview', () => {
       apply_url: 'https://boards.greenhouse.io/northwind/jobs/15',
     })
     expect(await screen.findByText(/Successfully submitted/)).toBeInTheDocument()
+  })
+
+  it('opens one browser when two reviews start together and does not submit', async () => {
+    vi.mocked(api.openAutofillSession).mockResolvedValue({
+      ...session,
+      readiness: { status: 'needs_review', checks: [{ code: 'required_fields', status: 'needs_review', detail: 'Phone has not been filled yet.' }] },
+    })
+    vi.mocked(api.fillAutofillSession).mockResolvedValue({
+      ...session,
+      state: 'filled_for_review',
+      application_status: 'needs_review',
+      message: 'The browser is open for review. CareerPilot did not submit the application.',
+      readiness: { status: 'needs_review', checks: [{ code: 'required_fields', status: 'needs_review', detail: 'Phone has not been filled yet.' }] },
+      result: { outcomes: [], resume_status: 'skipped', resume_detail: '', stopped: null, submitted: false, unresolved: ['Phone'] },
+    })
+    render(
+      <>
+        <AutofillReview prep={prep} autoStart hideLauncher />
+        <AutofillReview prep={prep} autoStart hideLauncher />
+      </>,
+    )
+    expect(await screen.findAllByText(/Needs review before submission/)).toHaveLength(2)
+    expect(api.openAutofillSession).toHaveBeenCalledTimes(1)
+    expect(api.fillAutofillSession).toHaveBeenCalledTimes(1)
+    expect(api.submitAutofillSession).not.toHaveBeenCalled()
+    expect(api.cancelAutofillSession).not.toHaveBeenCalled()
+  })
+
+  it('shows a navigation failure and can still stop a session that stayed open', async () => {
+    vi.mocked(api.openAutofillSession).mockResolvedValue({
+      ...session,
+      state: 'failed',
+      message: 'The browser left the Greenhouse application page.',
+    })
+    render(<AutofillReview prep={prep} autoStart hideLauncher />)
+    expect((await screen.findAllByText(/The browser left the Greenhouse application page/)).length).toBeGreaterThan(0)
+    expect(api.fillAutofillSession).not.toHaveBeenCalled()
+    expect(api.submitAutofillSession).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument()
+    vi.mocked(api.openAutofillSession).mockResolvedValue(session)
+    fireEvent.click(screen.getByRole('button', { name: 'Try the form again' }))
+    expect(await screen.findByText(/ready to fill/)).toBeInTheDocument()
+    vi.mocked(api.cancelAutofillSession).mockResolvedValue({ ...session, state: 'cancelled', message: 'The browser session was stopped.' })
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+    expect(await screen.findByText(/The browser session was stopped/)).toBeInTheDocument()
+    expect(api.cancelAutofillSession).toHaveBeenCalledWith('sess')
   })
 
   it('stays hidden for a non-Greenhouse preparation', () => {

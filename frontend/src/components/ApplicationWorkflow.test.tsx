@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Job } from '../api/types'
 import { ApplicationWorkflow } from './ApplicationWorkflow'
+import { resetAutofillOpenings } from './autofillOpening'
 
 vi.mock('virtual:careerpilot-token', () => ({ default: 'test-token' }))
 
@@ -45,7 +46,10 @@ const preparation = {
 }
 
 describe('ApplicationWorkflow', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetAutofillOpenings()
+  })
   afterEach(() => cleanup())
 
   it('prepares and fills approved fields without submitting', async () => {
@@ -119,7 +123,7 @@ describe('ApplicationWorkflow', () => {
     render(<ApplicationWorkflow job={job} onStarted={() => undefined} />)
     fireEvent.click(screen.getByRole('button', { name: 'Apply with CareerPilot' }))
     expect(await screen.findByText(/Eligibility: unknown/)).toBeInTheDocument()
-    expect(screen.getByText(/No approved resume/)).toBeInTheDocument()
+    expect(screen.getAllByText(/No approved resume/).length).toBeGreaterThan(0)
     expect(await screen.findByText(/Needs review before submission/)).toBeInTheDocument()
     expect(api.fillAutofillSession).toHaveBeenCalledWith('sess', {
       included_field_ids: ['email'],

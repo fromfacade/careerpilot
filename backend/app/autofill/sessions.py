@@ -26,6 +26,7 @@ from app.services import autofill_service, candidate_service, preparation_servic
 
 _LOCK = threading.Lock()
 _SESSIONS: dict[str, "AutofillRun"] = {}
+_KEEP_OPEN = {"detecting", "ready_to_fill", "filling", "needs_review", "filled_for_review"}
 
 
 @dataclass
@@ -56,6 +57,7 @@ class AutofillRun:
     submit_gate: SubmissionGate = field(default_factory=SubmissionGate)
     cancel: threading.Event = field(default_factory=threading.Event)
     reviewed: dict = field(default_factory=dict)
+    opened: threading.Event = field(default_factory=threading.Event)
     _worker: "BrowserWorker | None" = None
 
 
@@ -117,17 +119,27 @@ class BrowserWorker:
 
 def start_session(preparation_id: int, *, headed: bool = True) -> AutofillRun:
     with _LOCK:
-        _close_active_unlocked()
-        run = AutofillRun(
-            id=secrets.token_urlsafe(12),
-            preparation_id=preparation_id,
-            candidate_id=0,
-            state="detecting",
-            employer="",
-            job_title="",
-            apply_url="",
-        )
-        _SESSIONS[run.id] = run
+        existing = _reusable_unlocked(preparation_id)
+        if existing is not None:
+            run = existing
+            owner = False
+        else:
+            _close_active_unlocked()
+            run = AutofillRun(
+                id=secrets.token_urlsafe(12),
+                preparation_id=preparation_id,
+                candidate_id=0,
+                state="detecting",
+                employer="",
+                job_title="",
+                apply_url="",
+            )
+            _SESSIONS[run.id] = run
+            owner = True
+    if not owner:
+        if not run.opened.wait(60):
+            raise ValidationError("This application is still opening. CareerPilot did not start a second browser.")
+        return run
     try:
         with session_scope() as db:
             candidate = candidate_service.get_candidate_or_404(db)
@@ -184,6 +196,8 @@ def start_session(preparation_id: int, *, headed: bool = True) -> AutofillRun:
             run.message = _public_error(exc)
         _close_worker(run)
         return run
+    finally:
+        run.opened.set()
 
 
 def fill_session(session_id: str, *, included: set[str], overwrite: set[str], attach_resume: bool) -> AutofillRun:
@@ -454,11 +468,19 @@ def _get(session_id: str) -> AutofillRun:
     return run
 
 
+def _reusable_unlocked(preparation_id: int) -> AutofillRun | None:
+    for run in _SESSIONS.values():
+        if run.preparation_id == preparation_id and run.state in _KEEP_OPEN and not run.cancel.is_set():
+            return run
+    return None
+
+
 def _close_active_unlocked() -> None:
     for run in list(_SESSIONS.values()):
-        if run.state in {"detecting", "ready_to_fill", "filling", "needs_review", "filled_for_review"}:
+        if run.state in _KEEP_OPEN:
             run.cancel.set()
             run.state = "cancelled"
+            run.opened.set()
             _close_worker(run)
 
 
