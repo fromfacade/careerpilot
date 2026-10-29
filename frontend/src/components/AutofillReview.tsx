@@ -22,6 +22,7 @@ export function AutofillReview({
   const [busy, setBusy] = useState(autoStart)
   const [error, setError] = useState<string | null>(null)
   const [confirmed, setConfirmed] = useState(false)
+  const [draftText, setDraftText] = useState<Record<string, string>>({})
   const publicUrl = prep.snapshot_apply_url || ''
   const formUrl = prep.greenhouse_apply_url || (publicUrl.includes('greenhouse.io') ? publicUrl : '')
   const note = prep.greenhouse_autofill_note || ''
@@ -49,6 +50,57 @@ export function AutofillReview({
       setAttachResume(Boolean(next.plan?.resume.eligible_for_attach))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'The browser could not be opened.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function draftValue(field: AutofillAnswerField) {
+    return draftText[field.field_id] ?? field.proposed_text ?? ''
+  }
+
+  async function saveDraft(field: AutofillAnswerField, status: 'draft' | 'approved' | 'rejected') {
+    if (!session || field.source_id == null) return
+    setBusy(true)
+    setError(null)
+    try {
+      const text = draftValue(field)
+      await api.updatePreparationAnswer(prep.id, field.source_id, {
+        ...(text === (field.proposed_text ?? '') ? {} : { answer_text: text }),
+        status,
+      })
+      const refreshed = await api.refreshAutofillSession(session.id)
+      if (status !== 'approved') {
+        setSession(refreshed)
+        return
+      }
+      const filled = await api.fillAutofillSession(session.id, {
+        included_field_ids: [field.field_id],
+        overwrite_field_ids: [],
+        attach_resume: false,
+      })
+      setSession(filled)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The draft could not be saved.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function regenerateDraft(field: AutofillAnswerField) {
+    if (!session) return
+    setBusy(true)
+    setError(null)
+    try {
+      const next = await api.regenerateAutofillDraft(session.id, field.field_id)
+      setDraftText((current) => {
+        const copy = { ...current }
+        delete copy[field.field_id]
+        return copy
+      })
+      setSession(next)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The draft could not be regenerated.')
     } finally {
       setBusy(false)
     }
@@ -250,6 +302,16 @@ export function AutofillReview({
                 fields={[...plan.preserve_existing, ...plan.answers.preserved.map(asPlanField)]}
                 overwrite={overwrite}
                 onToggle={(id, on) => setOverwrite((current) => ({ ...current, [id]: on }))}
+              />
+              <DraftAnswers
+                fields={plan.answers.missing.filter(isSavedDraft)}
+                textFor={draftValue}
+                busy={busy}
+                onChange={(id, value) => setDraftText((current) => ({ ...current, [id]: value }))}
+                onSave={(field) => saveDraft(field, 'draft')}
+                onApprove={(field) => saveDraft(field, 'approved')}
+                onReject={(field) => saveDraft(field, 'rejected')}
+                onRegenerate={regenerateDraft}
               />
               <PlainList title="Missing candidate data" rows={missingRows(plan)} />
               <PlainList title="Not selected" rows={unmatchedRows(plan)} />
@@ -471,12 +533,90 @@ function answerReason(field: AutofillAnswerField): string {
   return `${field.label}: ${matchLabel(field.match_kind)} ${reason} ${permission}`.replace(/\s+/g, ' ').trim()
 }
 
+function isSavedDraft(field: AutofillAnswerField) {
+  return (
+    field.source_id != null &&
+    (field.approval_status === 'draft' || field.approval_status === 'needs_review' || field.approval_status === 'rejected')
+  )
+}
+
 function missingRows(plan: NonNullable<AutofillSession['plan']>): string[] {
   return [
     ...plan.missing_required.map(fieldReason),
-    ...plan.answers.missing.map(answerReason),
+    ...plan.answers.missing.filter((field) => !isSavedDraft(field)).map(answerReason),
     ...plan.clarification.filter((field) => isMissing(field.uncertainty)).map(fieldReason),
   ]
+}
+
+function DraftAnswers({
+  fields,
+  textFor,
+  busy,
+  onChange,
+  onSave,
+  onApprove,
+  onReject,
+  onRegenerate,
+}: {
+  fields: AutofillAnswerField[]
+  textFor: (field: AutofillAnswerField) => string
+  busy: boolean
+  onChange: (id: string, value: string) => void
+  onSave: (field: AutofillAnswerField) => void
+  onApprove: (field: AutofillAnswerField) => void
+  onReject: (field: AutofillAnswerField) => void
+  onRegenerate: (field: AutofillAnswerField) => void
+}) {
+  if (fields.length === 0) return null
+  return (
+    <div>
+      <p className="font-medium text-slate-900">Draft answers</p>
+      <ul className="mt-1 space-y-3">
+        {fields.map((field) => {
+          const text = textFor(field)
+          const factual = (field.uncertainty || '').includes('will not guess')
+          return (
+            <li key={field.field_id} className="rounded-md border border-slate-200 p-2">
+              <p className="font-medium text-slate-900">{field.label}</p>
+              <p className="text-xs text-slate-600">{field.explanation || field.uncertainty}</p>
+              {(field.supporting_facts || []).length > 0 && (
+                <p className="text-xs text-slate-600">Supported by verified facts: {field.supporting_facts?.join(', ')}</p>
+              )}
+              <textarea
+                aria-label={`Draft for ${field.label}`}
+                value={text}
+                onChange={(event) => onChange(field.field_id, event.target.value)}
+                className="mt-1 w-full rounded-md border border-slate-300 p-1 text-xs"
+                rows={4}
+              />
+              <p className="text-xs text-slate-500">{text.length} characters. This draft is not filled until you approve it.</p>
+              <div className="mt-1 flex flex-wrap gap-1">
+                <button type="button" disabled={busy} onClick={() => onSave(field)} className="rounded-md border border-slate-300 px-2 py-1 text-xs">
+                  Save {field.label}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || !text.trim()}
+                  onClick={() => onApprove(field)}
+                  className="rounded-md bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-50"
+                >
+                  Approve {field.label}
+                </button>
+                <button type="button" disabled={busy} onClick={() => onReject(field)} className="rounded-md border border-slate-300 px-2 py-1 text-xs">
+                  Reject {field.label}
+                </button>
+                {!factual && (
+                  <button type="button" disabled={busy} onClick={() => onRegenerate(field)} className="rounded-md border border-slate-300 px-2 py-1 text-xs">
+                    Regenerate {field.label}
+                  </button>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
 }
 
 function unmatchedRows(plan: NonNullable<AutofillSession['plan']>): string[] {

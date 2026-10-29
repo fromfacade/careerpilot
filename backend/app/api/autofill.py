@@ -10,13 +10,22 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from app.autofill.greenhouse import detect_application
-from app.autofill.sessions import cancel_session, fill_session, get_session, start_session, submit_session
+from app.autofill.sessions import (
+    cancel_session,
+    fill_session,
+    get_session,
+    refresh_session,
+    regenerate_session_draft,
+    start_session,
+    submit_session,
+)
 from app.core.db import get_db
 from app.core.exceptions import NotFoundError, ValidationError
 from app.core.local_auth import token_matches
 from app.schemas.autofill import (
     AutofillDetectRequest,
     AutofillDetectResult,
+    AutofillDraftRequest,
     AutofillFillRequest,
     AutofillPlanRead,
     AutofillPlanRequest,
@@ -90,6 +99,30 @@ def fill_autofill_session(
     except ValidationError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return to_session_result(run)
+
+
+@router.post("/sessions/{session_id}/refresh", response_model=AutofillSessionRead)
+def refresh_autofill_session(session_id: str, _: None = Depends(require_browser_token)) -> AutofillSessionRead:
+    try:
+        return to_session_result(refresh_session(session_id))
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValidationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/sessions/{session_id}/drafts/regenerate", response_model=AutofillSessionRead)
+def regenerate_autofill_draft(
+    session_id: str,
+    payload: AutofillDraftRequest,
+    _: None = Depends(require_browser_token),
+) -> AutofillSessionRead:
+    try:
+        return to_session_result(regenerate_session_draft(session_id, payload.field_id))
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValidationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/sessions/{session_id}/submit", response_model=AutofillSessionRead)

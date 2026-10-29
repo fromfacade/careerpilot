@@ -33,7 +33,8 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
 - **Phase 2.5.4 (complete on `feature/application-readiness`)**: confirmation phrases, manual resolution, and status history.
 - **Phase 2.5.5 (complete on `main`)**: one Apply with CareerPilot action from a job listing. Preparation and approved-field fill start there. Submission still requires a fresh check and an explicit confirmation for that job.
 - **Phase 3.1.1 (complete on `feature/greenhouse-completion`)**: Greenhouse question classification. Common questions receive a `question_kind`. Verified school, degree, major, and link fields still use the existing fact path. Other kinds are not invented.
-- **Phase 3.1.2 (this increment)**: context-aware reuse of approved answers. Equivalent wording can match. A different employer, role, or technology does not autofill. Drafts are not promoted.
+- **Phase 3.1.2 (complete on `feature/greenhouse-completion`)**: context-aware reuse of approved answers. Equivalent wording can match. A different employer, role, or technology does not autofill. Drafts are not promoted.
+- **Phase 3.1.3 (this increment)**: draft an answer only when matching finds nothing. The draft stays unapproved until the user edits, approves, rejects, or regenerates it. Approval can fill that one field. Sensitive questions stay manual.
 
 ## 2. Phase 1 increments (checklist)
 
@@ -973,4 +974,14 @@ Automatic reuse requires one approved answer, a high-confidence label, compatibl
 
 The review plan shows the match type, the explanation, whether autofill is permitted, and whether review is required.
 
-Status: **3.1.2 implemented.** Draft generation is not part of this increment.
+Status: **3.1.2 implemented.**
+
+### 3.1.3 Draft generation and approval
+
+When matching returns `no_match` for an open-ended written question, CareerPilot asks the existing Gemini path for one draft. The draft uses the preparation's employer, role, and job description, the candidate's verified facts, and the existing writing-style profile. It is saved on the preparation as unapproved, with the fact ids and the style profile id. Opening the same page again reuses that draft. A new draft is requested only when the user asks, or when the saved application snapshot changes.
+
+An approved answer, an uncertain match, and a sensitive question do not get a draft. GPA, graduation date, and start date are not sent to the model; a missing value is flagged for the user. A draft is not filled. After the user approves it, the plan is refreshed and only that answer can be filled. A value already on the form is left in place unless the user approves replacing it. Nothing is submitted.
+
+If the model is unavailable, the question is marked for review and the failure is not retried until the user asks. Claims that are not in the verified facts must be edited before approval. After approval, the answer joins the library used by context-aware matching.
+
+Status: **3.1.3 implemented.** Form controls beyond this question set are not part of this increment.

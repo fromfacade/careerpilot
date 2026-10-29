@@ -379,6 +379,10 @@ answer only when the question meaning, employer, role, and technology still
 fit. Equivalent wording can match. A different employer or technology does
 not autofill. Uncertain matches and time-sensitive library answers stay for
 review. Drafts are not promoted, and sensitive questions stay manual.
+Phase 3.1.3 drafts an open-ended question only when matching finds nothing.
+The draft is grounded in verified facts and the current writing-style profile,
+and it is not filled until the user approves it. GPA, graduation, start date,
+and sensitive questions are never sent to the model.
 
 The browser is a locally controlled headed Playwright window, with one
 adapter per site. The reason for that choice, and why a browser

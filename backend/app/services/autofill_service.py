@@ -13,7 +13,8 @@ from app.autofill.mapping import AutofillPlan, FactView, ProfileView, plan_autof
 from app.autofill.materials import AnswerView, Materials, ResumeFileView, TailoredFileView
 from app.autofill.urls import same_greenhouse_application
 from app.models.candidate import Candidate
-from app.models.enums import OPEN_PREPARATION_STATES
+from app.models.canonical import CanonicalFact
+from app.models.enums import OPEN_PREPARATION_STATES, PreparationItemStatus
 from app.models.resume import Resume
 from app.models.writing_style import WritingStyleProfile
 from app.services import answer_service, canonical_service, preparation_service
@@ -103,18 +104,19 @@ def _materials(db: Session, candidate: Candidate, url: str, preparation_id: int 
             docx_path=preparation.docx_path,
         ),
         job_answers=[
-            AnswerView(
-                id=row.id,
-                question=row.question,
-                answer_text=row.answer_text,
-                approval_status=row.status.value,
-                origin=row.origin.value,
-                category=row.category.value,
-                is_sensitive=bool(row.is_sensitive),
-                source="job_specific",
-                role=preparation.snapshot_job_title,
+            _job_answer(row, preparation.snapshot_job_title)
+            for row in preparation.answers
+            if row.status is PreparationItemStatus.APPROVED
+        ],
+        draft_answers=[
+            _job_answer(
+                row,
+                preparation.snapshot_job_title,
+                fact_labels=_fact_labels(db, row.canonical_fact_ids),
+                missing_notes=tuple(str(item) for item in (row.missing_information or []) if str(item).strip()),
             )
             for row in preparation.answers
+            if row.status in {PreparationItemStatus.DRAFT, PreparationItemStatus.NEEDS_REVIEW, PreparationItemStatus.REJECTED}
         ],
         library_answers=library,
         writing_style_profile_id=style,
@@ -122,6 +124,32 @@ def _materials(db: Session, candidate: Candidate, url: str, preparation_id: int 
         employer=preparation.snapshot_employer,
         role=preparation.snapshot_job_title,
     )
+
+
+def _job_answer(row, role: str, *, fact_labels: tuple[str, ...] = (), missing_notes: tuple[str, ...] = ()) -> AnswerView:
+    return AnswerView(
+        id=row.id,
+        question=row.question,
+        answer_text=row.answer_text,
+        approval_status=row.status.value,
+        origin=row.origin.value,
+        category=row.category.value,
+        is_sensitive=bool(row.is_sensitive),
+        source="job_specific",
+        role=role,
+        fact_labels=fact_labels,
+        missing_notes=missing_notes,
+    )
+
+
+def _fact_labels(db: Session, fact_ids) -> tuple[str, ...]:
+    labels: list[str] = []
+    for fact_id in fact_ids or []:
+        fact = db.get(CanonicalFact, int(fact_id))
+        if fact is None:
+            continue
+        labels.append(f"{fact.fact_type.value}: {fact.fact_key}")
+    return tuple(labels)
 
 
 def _preparation(db: Session, candidate: Candidate, url: str, preparation_id: int | None):

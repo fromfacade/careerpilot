@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ApplicationPreparation, AutofillSession } from '../api/types'
 import { AutofillReview } from './AutofillReview'
@@ -8,6 +8,9 @@ vi.mock('../api/client', () => ({
   api: {
     openAutofillSession: vi.fn(),
     fillAutofillSession: vi.fn(),
+    refreshAutofillSession: vi.fn(),
+    regenerateAutofillDraft: vi.fn(),
+    updatePreparationAnswer: vi.fn(),
     cancelAutofillSession: vi.fn(),
     submitAutofillSession: vi.fn(),
   },
@@ -278,6 +281,64 @@ describe('AutofillReview', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
     expect(await screen.findByText(/The browser session was stopped/)).toBeInTheDocument()
     expect(api.cancelAutofillSession).toHaveBeenCalledWith('sess')
+  })
+
+  it('reviews a draft and fills only that answer after approval', async () => {
+    const drafted: AutofillSession = {
+      ...session,
+      plan: {
+        ...session.plan!,
+        answers: {
+          ...session.plan!.answers,
+          missing: [
+            {
+              field_id: 'project',
+              label: 'Describe a technical project you built.',
+              required: false,
+              proposed_text: 'I built the Lantern API.',
+              proposed_replacement: null,
+              existing_value: null,
+              source: 'job_specific',
+              source_id: 44,
+              approval_status: 'draft',
+              uncertainty: 'This draft is not filled until you approve it.',
+              match_kind: 'no_match',
+              explanation: 'Draft only. Supported by verified facts: project: Lantern.',
+              supporting_facts: ['project: Lantern'],
+              eligible_for_fill: false,
+              review_required: true,
+            },
+          ],
+        },
+      },
+    }
+    vi.mocked(api.openAutofillSession).mockResolvedValue(drafted)
+    vi.mocked(api.updatePreparationAnswer).mockResolvedValue(prep)
+    vi.mocked(api.refreshAutofillSession).mockResolvedValue(drafted)
+    vi.mocked(api.fillAutofillSession).mockResolvedValue({ ...drafted, state: 'filled_for_review' })
+    render(<AutofillReview prep={prep} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Apply with CareerPilot' }))
+    expect(await screen.findByText('Draft answers')).toBeInTheDocument()
+    expect(screen.getAllByText(/project: Lantern/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/not filled until you approve it/)).toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: /Describe a technical project/ })).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Draft for Describe a technical project you built.'), {
+      target: { value: 'I built the Lantern API for merchants.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Describe a technical project you built.' }))
+    await waitFor(() => {
+      expect(api.fillAutofillSession).toHaveBeenCalledWith('sess', {
+        included_field_ids: ['project'],
+        overwrite_field_ids: [],
+        attach_resume: false,
+      })
+    })
+    expect(api.updatePreparationAnswer).toHaveBeenCalledWith(9, 44, {
+      answer_text: 'I built the Lantern API for merchants.',
+      status: 'approved',
+    })
+    expect(api.refreshAutofillSession).toHaveBeenCalledWith('sess')
+    expect(api.submitAutofillSession).not.toHaveBeenCalled()
   })
 
   it('stays hidden for a non-Greenhouse preparation', () => {

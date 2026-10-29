@@ -1,7 +1,8 @@
 """Choose an already selected resume and match approved answers.
 
 This module only reads. It does not generate a resume, rewrite an answer,
-call an AI provider, or attach a file to a page.
+call an AI provider, or attach a file to a page. Saved drafts are shown
+for review and are not eligible to fill.
 """
 
 from __future__ import annotations
@@ -52,6 +53,8 @@ class AnswerView:
     is_preferred: bool = False
     source: str = "library"
     role: str = ""
+    fact_labels: tuple[str, ...] = ()
+    missing_notes: tuple[str, ...] = ()
 
 
 @dataclass
@@ -65,6 +68,7 @@ class Materials:
     link_problem: str | None = None
     employer: str = ""
     role: str = ""
+    draft_answers: list[AnswerView] = field(default_factory=list)
 
 
 @dataclass
@@ -102,6 +106,7 @@ class AnswerProposal:
     review_required: bool
     uncertainty: str | None
     explanation: str = ""
+    supporting_facts: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -205,6 +210,7 @@ def match_answers(detection: FormDetection, materials: Materials) -> AnswerPlan:
             plan.ambiguous.append(proposal)
         else:
             plan.missing.append(proposal)
+    _attach_saved_drafts(plan, materials)
     return plan
 
 
@@ -273,6 +279,39 @@ def _match_question(field_id, label, required, existing, confidence, question_ki
     base.review_required = False
     base.eligible_for_fill = True
     return base
+
+
+def _attach_saved_drafts(plan: AnswerPlan, materials: Materials) -> None:
+    """Show a saved draft on a no_match question. Never mark it fillable."""
+    saved: dict[str, AnswerView] = {}
+    for item in materials.draft_answers:
+        saved.setdefault(question_fingerprint(item.question), item)
+    if not saved:
+        return
+    for proposal in plan.missing:
+        if proposal.match_kind != "no_match":
+            continue
+        draft = saved.get(question_fingerprint(proposal.label))
+        if draft is None:
+            continue
+        proposal.source = "job_specific"
+        proposal.source_id = draft.id
+        proposal.approval_status = draft.approval_status
+        proposal.origin = draft.origin
+        proposal.eligible_for_fill = False
+        proposal.review_required = True
+        proposal.supporting_facts = list(draft.fact_labels)
+        proposal.proposed_text = draft.answer_text.strip() or None
+        if draft.approval_status == "rejected":
+            proposal.explanation = "You rejected this draft. It will not be filled."
+            proposal.uncertainty = proposal.explanation
+            continue
+        if draft.missing_notes:
+            proposal.uncertainty = draft.missing_notes[0]
+        else:
+            proposal.uncertainty = "This draft is not filled until you approve it."
+        facts = ", ".join(draft.fact_labels) if draft.fact_labels else "none on file"
+        proposal.explanation = f"Draft only. Supported by verified facts: {facts}."
 
 
 def _usable(answer: AnswerView) -> bool:

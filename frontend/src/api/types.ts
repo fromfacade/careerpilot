@@ -614,10 +614,12 @@ export interface AutofillAnswerField {
   proposed_replacement: string | null;
   existing_value: string | null;
   source: string | null;
+  source_id?: number | null;
   approval_status: string | null;
   uncertainty: string | null;
   match_kind?: string;
   explanation?: string;
+  supporting_facts?: string[];
   eligible_for_fill?: boolean;
   review_required?: boolean;
 }

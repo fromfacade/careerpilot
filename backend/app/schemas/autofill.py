@@ -24,6 +24,10 @@ class AutofillFillRequest(BaseModel):
     attach_resume: bool = True
 
 
+class AutofillDraftRequest(BaseModel):
+    field_id: str = Field(min_length=1, max_length=200)
+
+
 class AutofillSubmitRequest(BaseModel):
     confirm: bool = False
     preparation_id: int
@@ -148,6 +152,7 @@ class AnswerProposalRead(BaseModel):
     review_required: bool
     uncertainty: str | None
     explanation: str = ""
+    supporting_facts: list[str] = Field(default_factory=list)
 
 
 class AnswerPlanRead(BaseModel):
