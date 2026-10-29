@@ -36,6 +36,7 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
 - **Phase 3.1.2 (complete on `feature/greenhouse-completion`)**: context-aware reuse of approved answers. Equivalent wording can match. A different employer, role, or technology does not autofill. Drafts are not promoted.
 - **Phase 3.1.3 (complete on `feature/greenhouse-completion`)**: draft an answer only when matching finds nothing. The draft stays unapproved until the user edits, approves, rejects, or regenerates it. Approval can fill that one field. Sensitive questions stay manual.
 - **Phase 3.1.4 (complete on `feature/greenhouse-completion`)**: common Greenhouse controls keep their question when the markup changes. Listed choices and verified follow-up fields can be filled. Unmatched controls stay for review.
+- **Phase 3.1.5 (complete on `feature/greenhouse-completion`)**: common searchable dropdowns fill from one exact verified fact or approved answer. The review screen leads with what still needs attention and a completion count. Submission stays explicit.
 
 ## 2. Phase 1 increments (checklist)
 
@@ -992,3 +993,11 @@ Status: **3.1.3 implemented.**
 A reviewed question stays with its control when the element id or name changes, as long as the label and meaning still identify one field. Two fields with the same question are left for review. Native dropdowns, radio groups, checkbox groups, and multi-selects are filled only with choices that exactly match an approved answer or a verified fact. Searchable school, degree, and major fields can be typed and accepted when the opened list shows that exact value. A verified field that was hidden until another answer is selected is filled on the next pass. The selection is read back before it counts as filled. Sensitive questions, CAPTCHA, and MFA still stop the fill. Nothing is submitted.
 
 Status: **3.1.4 implemented.** Other employer sites are not part of this increment.
+
+### 3.1.5 Application completion
+
+Common searchable questions can be filled when one listed choice matches a verified fact or an approved answer. Graduation year uses a verified education end date. Engineering specialization uses a verified major. Preferred office uses the verified location only when the option text is the same. Employment type, experience categories, and availability use an approved answer, and only when the choice is listed. A reusable library answer for availability or graduation stays for review. A similar option is not selected. A custom question that appears after another answer stays for review.
+
+The review screen shows how many applicable fields were filled automatically, how many were already complete, how many need attention, and how many required fields are still unanswered. Completed fields can be expanded. Drafts, sensitive questions, unsupported controls, and ambiguous choices stay visible. Approving a draft refills that question and refreshes readiness on the same session. Apply with CareerPilot still prepares, fills, and tracks from the job card. Nothing is submitted without the existing confirmation.
+
+Status: **3.1.5 implemented.** Automatic submission is not part of this increment.

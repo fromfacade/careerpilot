@@ -323,12 +323,21 @@ def _attach_saved_drafts(plan: AnswerPlan, materials: Materials) -> None:
 
 def _fit_listed_choices(proposal: AnswerProposal, options: list[str]) -> None:
     """An approved answer can fill a choice control only when every value is listed."""
-    if proposal.input_type not in {"select", "radio", "checkbox", "checkboxes", "multi_select"}:
+    searchable = proposal.input_type == "combobox"
+    if proposal.input_type not in {"select", "radio", "checkbox", "checkboxes", "multi_select"} and not searchable:
         return
     if not proposal.eligible_for_fill:
         return
     text = (proposal.proposed_text or proposal.proposed_replacement or "").strip()
-    if not text or not options:
+    if not text:
+        proposal.eligible_for_fill = False
+        proposal.review_required = True
+        proposal.uncertainty = "This control's choices are not visible, so nothing was selected."
+        proposal.explanation = proposal.uncertainty
+        return
+    if searchable and not options:
+        return
+    if not options:
         proposal.eligible_for_fill = False
         proposal.review_required = True
         proposal.uncertainty = "This control's choices are not visible, so nothing was selected."
@@ -346,6 +355,12 @@ def _fit_listed_choices(proposal: AnswerProposal, options: list[str]) -> None:
             return
         if match not in chosen:
             chosen.append(match)
+    if searchable and len(chosen) != 1:
+        proposal.eligible_for_fill = False
+        proposal.review_required = True
+        proposal.uncertainty = "This dropdown accepts one choice, so nothing was selected."
+        proposal.explanation = proposal.uncertainty
+        return
     fitted = "\n".join(chosen)
     if proposal.proposed_replacement:
         proposal.proposed_replacement = fitted

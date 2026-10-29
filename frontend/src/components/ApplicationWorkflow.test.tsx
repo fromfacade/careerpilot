@@ -119,12 +119,15 @@ describe('ApplicationWorkflow', () => {
         answers: { matched: [], missing: [], ambiguous: [], sensitive: [], preserved: [] },
       },
       result: { outcomes: [{ field_id: 'email', label: 'Email', status: 'filled', detail: '' }], resume_status: 'skipped', resume_detail: 'No approved resume.', stopped: null, submitted: false, unresolved: ['Phone'] },
+      completion: { total: 4, autofilled: 1, already_completed: 0, manual: 3, required_unanswered: 1, percent: 25 },
     } as never)
     render(<ApplicationWorkflow job={job} onStarted={() => undefined} />)
     fireEvent.click(screen.getByRole('button', { name: 'Apply with CareerPilot' }))
     expect(await screen.findByText(/Eligibility: unknown/)).toBeInTheDocument()
     expect(screen.getAllByText(/No approved resume/).length).toBeGreaterThan(0)
     expect(await screen.findByText(/Needs review before submission/)).toBeInTheDocument()
+    expect(screen.getByText('1 of 4 fields completed.')).toBeInTheDocument()
+    expect(screen.getByText(/Eligibility: unknown/)).toBeInTheDocument()
     expect(api.fillAutofillSession).toHaveBeenCalledWith('sess', {
       included_field_ids: ['email'],
       overwrite_field_ids: [],

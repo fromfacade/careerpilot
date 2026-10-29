@@ -192,6 +192,15 @@ class ReadinessRead(BaseModel):
     checks: list[ReadinessCheckRead]
 
 
+class CompletionRead(BaseModel):
+    total: int
+    autofilled: int
+    already_completed: int
+    manual: int
+    required_unanswered: int
+    percent: int
+
+
 class AutofillSessionRead(BaseModel):
     id: str
     state: str
@@ -203,12 +212,15 @@ class AutofillSessionRead(BaseModel):
     plan: AutofillPlanRead | None = None
     result: FillReportRead | None = None
     readiness: ReadinessRead | None = None
+    completion: CompletionRead | None = None
     application_status: str | None = None
 
 
 def to_session_result(run) -> AutofillSessionRead:
+    from app.autofill.completion import completion_for
     from app.autofill.readiness import readiness_for_run
 
+    completion = completion_for(run.plan, run.result) if run.plan is not None else None
     return AutofillSessionRead(
         id=run.id,
         state=run.state,
@@ -220,6 +232,7 @@ def to_session_result(run) -> AutofillSessionRead:
         plan=to_plan_result(run.plan) if run.plan is not None else None,
         result=FillReportRead.model_validate(run.result, from_attributes=True) if run.result is not None else None,
         readiness=ReadinessRead.model_validate(readiness_for_run(run), from_attributes=True),
+        completion=CompletionRead.model_validate(completion, from_attributes=True) if completion is not None else None,
         application_status=run.application_status or None,
     )
 

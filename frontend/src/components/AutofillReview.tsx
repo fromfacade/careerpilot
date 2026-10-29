@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
-import type { ApplicationPreparation, AutofillAnswerField, AutofillPlanField, AutofillSession } from '../api/types'
+import type { ApplicationPreparation, AutofillAnswerField, AutofillPlanField, AutofillSession, CompletionMetrics } from '../api/types'
 import localToken from 'virtual:careerpilot-token'
 import { beginAutofillOpening, releaseAutofillOpening } from './autofillOpening'
 
@@ -281,28 +281,40 @@ export function AutofillReview({
                   Attach this resume
                 </label>
               )}
-              <FieldChoices
-                title="Proposed fields"
-                fields={plan.ready.map((field) => ({
-                  id: field.field_id,
-                  label: field.label,
-                  value: field.proposed_value,
-                  source: field.source_kind,
-                }))}
-                included={included}
-                onToggle={(id, on) => setIncluded((current) => ({ ...current, [id]: on }))}
-              />
-              <AnswerChoices
-                title="Approved answers"
-                fields={plan.answers.matched}
-                included={included}
-                onToggle={(id, on) => setIncluded((current) => ({ ...current, [id]: on }))}
-              />
-              <ReplaceChoices
-                fields={[...plan.preserve_existing, ...plan.answers.preserved.map(asPlanField)]}
-                overwrite={overwrite}
-                onToggle={(id, on) => setOverwrite((current) => ({ ...current, [id]: on }))}
-              />
+              {session.completion && <CompletionSummary metrics={session.completion} />}
+              {completedRows(session).length > 0 && (
+                <details className="rounded-md bg-slate-50 p-2">
+                  <summary className="cursor-pointer font-medium text-slate-900">Inspect completed fields</summary>
+                  <PlainList title="Verified on the form" rows={completedRows(session)} />
+                </details>
+              )}
+              <details className="rounded-md bg-slate-50 p-2">
+                <summary className="cursor-pointer font-medium text-slate-900">Approved fields</summary>
+                <div className="mt-2 space-y-2">
+                  <FieldChoices
+                    title="Verified information"
+                    fields={plan.ready.map((field) => ({
+                      id: field.field_id,
+                      label: field.label,
+                      value: field.proposed_value,
+                      source: field.source_kind,
+                    }))}
+                    included={included}
+                    onToggle={(id, on) => setIncluded((current) => ({ ...current, [id]: on }))}
+                  />
+                  <AnswerChoices
+                    title="Approved answers"
+                    fields={plan.answers.matched}
+                    included={included}
+                    onToggle={(id, on) => setIncluded((current) => ({ ...current, [id]: on }))}
+                  />
+                  <ReplaceChoices
+                    fields={[...plan.preserve_existing, ...plan.answers.preserved.map(asPlanField)]}
+                    overwrite={overwrite}
+                    onToggle={(id, on) => setOverwrite((current) => ({ ...current, [id]: on }))}
+                  />
+                </div>
+              </details>
               <DraftAnswers
                 fields={plan.answers.missing.filter(isSavedDraft)}
                 textFor={draftValue}
@@ -316,7 +328,7 @@ export function AutofillReview({
               <PlainList title="Missing candidate data" rows={missingRows(plan)} />
               <PlainList title="Not selected" rows={unmatchedRows(plan)} />
               <PlainList title="Sensitive questions" rows={[...plan.sensitive.map(fieldReason), ...plan.answers.sensitive.map(answerReason)]} />
-              <PlainList title="Unsupported form controls" rows={plan.unsupported.map(fieldReason)} />
+              <PlainList title="Unsupported form controls" rows={plan.unsupported.filter((field) => !answeredIds(plan).has(field.field_id)).map(fieldReason)} />
             </>
           )}
           {['ready_to_fill', 'filled_for_review', 'needs_review'].includes(session.state) && (
@@ -362,8 +374,7 @@ export function AutofillReview({
               <p className="font-medium text-slate-900">After filling</p>
               <p className="text-xs">Resume: {session.result.resume_status}. {session.result.resume_detail}</p>
               <p className="text-xs">Submitted by CareerPilot: {session.result.submitted ? 'yes' : 'no'}</p>
-              <PlainList title="Filled" rows={session.result.outcomes.filter((item) => item.status === 'filled').map((item) => item.label)} />
-              <PlainList title="Failed" rows={session.result.outcomes.filter((item) => item.status === 'failed' || item.status === 'stale').map((item) => `${item.label}: ${item.detail}`)} />
+              <PlainList title="Needs another look" rows={session.result.outcomes.filter((item) => item.status === 'failed' || item.status === 'stale').map((item) => `${item.label}: ${item.detail}`)} />
               <PlainList title="Unresolved required fields" rows={session.result.unresolved} />
             </div>
           )}
@@ -373,6 +384,39 @@ export function AutofillReview({
         </div>
       )}
     </div>
+  )
+}
+
+function completedRows(session: AutofillSession) {
+  return (session.result?.outcomes || [])
+    .filter((item) => item.status === 'filled' || item.status === 'preserved')
+    .map((item) => `${item.label}: ${item.status === 'preserved' ? 'already complete' : 'filled automatically'}`)
+}
+
+function CompletionSummary({ metrics }: { metrics: CompletionMetrics }) {
+  const done = metrics.autofilled + metrics.already_completed
+  return (
+    <div className="rounded-md bg-slate-50 p-2 text-xs text-slate-700">
+      <p className="font-medium text-slate-900">
+        {metrics.total === 0 ? 'No applicable fields were found.' : `${done} of ${metrics.total} fields completed.`}
+      </p>
+      <p className="mt-1">
+        {metrics.autofilled} filled automatically. {metrics.already_completed} already complete. {metrics.manual} need attention.{' '}
+        {metrics.required_unanswered} required still unanswered. {metrics.percent}% complete.
+      </p>
+    </div>
+  )
+}
+
+function answeredIds(plan: NonNullable<AutofillSession['plan']>) {
+  return new Set(
+    [
+      ...plan.answers.matched,
+      ...plan.answers.missing,
+      ...plan.answers.ambiguous,
+      ...plan.answers.sensitive,
+      ...plan.answers.preserved,
+    ].map((field) => field.field_id),
   )
 }
 

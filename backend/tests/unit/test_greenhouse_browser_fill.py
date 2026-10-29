@@ -557,6 +557,64 @@ def test_browser_keeps_selected_choices_and_fills_a_revealed_field(tmp_path):
         browser.close()
 
 
+def test_browser_selects_one_exact_searchable_choice_and_leaves_a_near_match():
+    html = """
+    <form id="application" onsubmit="window.__submitted = true; return false;">
+      <div class="select">
+        <label for="employment">Employment type</label>
+        <input id="employment" role="combobox" aria-controls="employment-list" aria-label="Employment type">
+        <div id="employment-value" class="select__single-value"></div>
+      </div>
+      <ul id="employment-list" role="listbox" hidden>
+        <li role="option">Internship</li>
+        <li role="option">Full-time</li>
+      </ul>
+      <div class="select">
+        <label for="office">Preferred office</label>
+        <input id="office" role="combobox" aria-controls="office-list" aria-label="Preferred office">
+        <div id="office-value" class="select__single-value"></div>
+      </div>
+      <ul id="office-list" role="listbox" hidden>
+        <li role="option">Austin</li>
+        <li role="option">Remote</li>
+      </ul>
+      <button type="submit">Submit application</button>
+    </form>
+    <script>
+      window.__submitted = false;
+      for (const id of ["employment", "office"]) {
+        const input = document.getElementById(id);
+        const list = document.getElementById(id + "-list");
+        input.addEventListener("input", () => { list.hidden = false; });
+        list.addEventListener("click", (event) => {
+          const option = event.target.closest("[role=option]");
+          if (!option) return;
+          document.getElementById(id + "-value").textContent = option.textContent;
+          input.value = option.textContent;
+          list.hidden = true;
+        });
+      }
+    </script>
+    """
+    actions = [
+        FillAction("employment", "combobox", "employment", "employment", "Employment type", "Internship", "answer"),
+        FillAction("office", "combobox", "office", "office", "Preferred office", "Austin, TX", "answer"),
+    ]
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.set_content(html)
+        report = apply_actions(page, actions, resume_field_id=None, resume_path=None, resume_name="")
+        by_id = {item.field_id: item for item in report.outcomes}
+        assert report.submitted is False
+        assert page.evaluate("() => window.__submitted") is False
+        assert by_id["employment"].status == "filled"
+        assert page.locator("#employment-value").inner_text() == "Internship"
+        assert by_id["office"].status == "failed"
+        assert page.locator("#office-value").inner_text() == ""
+        browser.close()
+
+
 def test_browser_token_is_required_before_a_session_route_runs():
     app = FastAPI()
 

@@ -386,7 +386,10 @@ and sensitive questions are never sent to the model. Phase 3.1.4 keeps a
 question attached to its dropdown, radio, checkbox, or searchable list when
 the control is redrawn, and fills a verified follow-up that appears after
 another answer. A choice is used only when it is listed. A control that
-cannot be matched is left for review.
+cannot be matched is left for review. Phase 3.1.5 fills common searchable
+dropdowns from one exact verified fact or approved answer, and the review
+screen counts completed fields separately from the questions that still
+need attention. Submission still requires an explicit confirmation.
 
 The browser is a locally controlled headed Playwright window, with one
 adapter per site. The reason for that choice, and why a browser

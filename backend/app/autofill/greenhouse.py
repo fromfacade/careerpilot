@@ -66,6 +66,7 @@ _LABELS = {
     "personal website": "portfolio",
     "city": "location",
     "location city": "location",
+    "preferred location": "location",
     "country": "phone_country",
     "country code": "phone_country",
     "phone country": "phone_country",
@@ -154,6 +155,8 @@ _ANSWER_KINDS = frozenset(
         "relocation",
         "current_employer",
         "experience",
+        "employment_type",
+        "office",
         "written_question",
     }
 )
@@ -245,6 +248,22 @@ _EXPERIENCE = (
     "professional experience",
     "years of experience",
     "years of relevant experience",
+    "experience categories",
+)
+_EMPLOYMENT = (
+    "employment type",
+    "type of employment",
+)
+_OFFICE = (
+    "preferred office",
+    "which office",
+    "office preference",
+    "office location",
+)
+_SPECIALIZATION = (
+    "engineering specialization",
+    "area of specialization",
+    "technical specialization",
 )
 _WRITTEN_EXACT = frozenset({"additional information", "additional comments", "anything else"})
 _WRITTEN_PREFIX = ("why ", "how ", "what ", "describe ", "tell us ", "tell me ", "explain ", "please ")
@@ -620,6 +639,10 @@ def _classify(node: Node, label: str, label_source: str) -> tuple[str, str]:
     if auto:
         return auto, "high"
     kind = _question_kind(label, normalized)
+    if kind == "major" and normalized not in _MAJOR_EXACT:
+        if _input_type(node) in {"select", "combobox", "radio", "multi_select"}:
+            return "discipline", confidence
+        return "custom_question", confidence
     linked = _FACT_KINDS.get(kind)
     if linked and not _link_username(kind, normalized):
         return linked, confidence
@@ -654,6 +677,12 @@ def _question_kind(label: str, normalized: str) -> str:
         return "current_employer"
     if _matches_experience(normalized):
         return "experience"
+    if normalized in _EMPLOYMENT or any(phrase in normalized for phrase in _EMPLOYMENT):
+        return "employment_type"
+    if normalized in _OFFICE or any(phrase in normalized for phrase in _OFFICE):
+        return "office"
+    if normalized in _SPECIALIZATION or normalized == "specialization":
+        return "major"
     if normalized in _MAJOR_EXACT:
         return "major"
     if normalized in _DEGREE_EXACT:

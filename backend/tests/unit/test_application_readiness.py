@@ -128,6 +128,20 @@ def test_required_field_not_filled_yet_needs_review():
     assert "Email has not been filled yet." in check.detail
 
 
+def test_a_required_question_is_checked_once():
+    view = _ready()
+    view.fields.append(
+        FieldView("why", "Why this role?", True, "unsupported", uncertainty="This control is not a supported application field.")
+    )
+    view.answers.append(AnswerView("why", "Why this role?", True, "matched"))
+    view.included_field_ids.add("why")
+    view.outcomes.append(OutcomeView("why", "filled", "Verified."))
+    _, required = _check(view, "required_fields")
+    _, answers = _check(view, "approved_answers")
+    assert "Why this role" not in required.detail
+    assert answers.status == "passed"
+
+
 def test_failed_required_fill_needs_review():
     view = _ready()
     view.outcomes = [OutcomeView("email", "failed", "The value did not stay on the form.")]

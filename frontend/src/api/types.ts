@@ -666,6 +666,15 @@ export interface ReadinessCheck {
   detail: string;
 }
 
+export interface CompletionMetrics {
+  total: number;
+  autofilled: number;
+  already_completed: number;
+  manual: number;
+  required_unanswered: number;
+  percent: number;
+}
+
 export interface AutofillSession {
   id: string;
   state: string;
@@ -680,6 +689,7 @@ export interface AutofillSession {
     status: string;
     checks: ReadinessCheck[];
   } | null;
+  completion?: CompletionMetrics | null;
   application_status?: string | null;
 }
 

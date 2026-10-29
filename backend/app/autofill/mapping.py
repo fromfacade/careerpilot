@@ -190,7 +190,100 @@ def plan_autofill(
         item = _map_field(detected, facts, profile)
         getattr(plan, _bucket(item)).append(item)
     apply_materials(plan, detection, materials)
+    _apply_verified_choices(plan, detection, facts, profile)
     return plan
+
+
+_CHOICE_TYPES = frozenset({"select", "combobox", "radio", "multi_select"})
+
+
+def _apply_verified_choices(plan: AutofillPlan, detection, facts: list[FactView], profile: ProfileView) -> None:
+    """Fill a listed choice from one verified fact when no approved answer applies."""
+    detected = {item.field_id: item for item in detection.fields}
+    years = _graduation_years(facts)
+    location = _verified_location(facts, profile)
+    for proposal in list(plan.answers.missing):
+        field = detected.get(proposal.field_id)
+        if field is None or proposal.match_kind != "no_match" or proposal.existing_value or proposal.proposed_text:
+            continue
+        if field.input_type not in _CHOICE_TYPES:
+            continue
+        if field.question_kind == "graduation_date":
+            _offer_verified_choice(
+                plan,
+                proposal,
+                field,
+                years,
+                "More than one verified graduation year matches this field.",
+                "No listed choice exactly matches the verified graduation year.",
+                "Verified graduation year.",
+            )
+        elif field.question_kind == "office":
+            _offer_verified_choice(
+                plan,
+                proposal,
+                field,
+                [location] if location else [],
+                "More than one verified location matches this field.",
+                "No listed choice exactly matches the verified location.",
+                "Verified location.",
+            )
+
+
+def _offer_verified_choice(plan: AutofillPlan, proposal, field: DetectedField, values: list[str], many: str, missed: str, explanation: str) -> None:
+    distinct: list[str] = []
+    for value in values:
+        if value and value not in distinct:
+            distinct.append(value)
+    if len(distinct) > 1:
+        proposal.uncertainty = many
+        proposal.explanation = many
+        return
+    if len(distinct) != 1:
+        return
+    chosen = distinct[0]
+    if field.options:
+        matched = _exact_option(chosen, field.options)
+        if matched is None:
+            proposal.uncertainty = missed
+            proposal.explanation = missed
+            return
+        chosen = matched
+    elif field.input_type != "combobox":
+        proposal.uncertainty = "This control's choices are not visible, so nothing was selected."
+        proposal.explanation = proposal.uncertainty
+        return
+    proposal.proposed_text = chosen
+    proposal.eligible_for_fill = True
+    proposal.review_required = False
+    proposal.match_kind = "exact_match"
+    proposal.uncertainty = None
+    proposal.explanation = explanation
+    proposal.source = "verified_fact"
+    plan.answers.missing.remove(proposal)
+    plan.answers.matched.append(proposal)
+
+
+def _graduation_years(facts: list[FactView]) -> list[str]:
+    found: list[str] = []
+    for fact in facts:
+        if fact.fact_type != "education" or not _usable(fact):
+            continue
+        raw = (fact.fact_value or {}).get("end_date") or (fact.fact_value or {}).get("graduation_date")
+        if not isinstance(raw, str):
+            continue
+        years = re.findall(r"\b(?:19|20)\d{2}\b", raw)
+        if len(years) != 1 or years[0] in found:
+            continue
+        found.append(years[0])
+    return found
+
+
+def _verified_location(facts: list[FactView], profile: ProfileView) -> str | None:
+    proposal = _proposal("location", facts, profile)
+    if proposal.value and proposal.confidence == "high" and not proposal.uncertainty and not proposal.alternatives:
+        return proposal.value
+    return None
 
 
 def _map_field(detected: DetectedField, facts: list[FactView], profile: ProfileView) -> PlanField:

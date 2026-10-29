@@ -315,7 +315,14 @@ describe('AutofillReview', () => {
     vi.mocked(api.openAutofillSession).mockResolvedValue(drafted)
     vi.mocked(api.updatePreparationAnswer).mockResolvedValue(prep)
     vi.mocked(api.refreshAutofillSession).mockResolvedValue(drafted)
-    vi.mocked(api.fillAutofillSession).mockResolvedValue({ ...drafted, state: 'filled_for_review' })
+    vi.mocked(api.fillAutofillSession).mockResolvedValue({
+      ...drafted,
+      state: 'filled_for_review',
+      readiness: {
+        status: 'needs_review',
+        checks: [{ code: 'required_fields', status: 'needs_review', detail: 'Phone is still unanswered.' }],
+      },
+    })
     render(<AutofillReview prep={prep} />)
     fireEvent.click(screen.getByRole('button', { name: 'Apply with CareerPilot' }))
     expect(await screen.findByText('Draft answers')).toBeInTheDocument()
@@ -339,6 +346,7 @@ describe('AutofillReview', () => {
     })
     expect(api.refreshAutofillSession).toHaveBeenCalledWith('sess')
     expect(api.submitAutofillSession).not.toHaveBeenCalled()
+    expect(await screen.findByText(/Phone is still unanswered/)).toBeInTheDocument()
   })
 
   it('stays hidden for a non-Greenhouse preparation', () => {

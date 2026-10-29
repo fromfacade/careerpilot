@@ -153,8 +153,9 @@ def _work_authorization(view: ReadinessView) -> ReadinessCheck:
 def _required_fields(view: ReadinessView) -> ReadinessCheck:
     problems: list[str] = []
     outcomes = {item.field_id: item for item in view.outcomes}
+    answered = {item.field_id for item in view.answers}
     for field in view.fields:
-        if field.required is not True or field.bucket == "sensitive":
+        if field.required is not True or field.bucket == "sensitive" or field.field_id in answered:
             continue
         label = field.label or field.field_id
         if field.bucket in {"missing_required", "clarification", "unsupported"}:
