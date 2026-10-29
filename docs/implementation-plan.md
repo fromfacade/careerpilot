@@ -32,6 +32,7 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
 - **Phase 2.5.3 (complete on `feature/application-readiness`)**: explicit Greenhouse submission for one confirmed application.
 - **Phase 2.5.4 (complete on `feature/application-readiness`)**: confirmation phrases, manual resolution, and status history.
 - **Phase 2.5.5 (complete on `main`)**: one Apply with CareerPilot action from a job listing. Preparation and approved-field fill start there. Submission still requires a fresh check and an explicit confirmation for that job.
+- **Phase 3.1 (complete on `feature/greenhouse-completion`)**: Greenhouse question completion. Apply prepares, fills, reviews, and tracks an application. A draft is filled only after approval. School and degree options can match one equivalent verified value. Submission still requires an explicit confirmation.
 - **Phase 3.1.1 (complete on `feature/greenhouse-completion`)**: Greenhouse question classification. Common questions receive a `question_kind`. Verified school, degree, major, and link fields still use the existing fact path. Other kinds are not invented.
 - **Phase 3.1.2 (complete on `feature/greenhouse-completion`)**: context-aware reuse of approved answers. Equivalent wording can match. A different employer, role, or technology does not autofill. Drafts are not promoted.
 - **Phase 3.1.3 (complete on `feature/greenhouse-completion`)**: draft an answer only when matching finds nothing. The draft stays unapproved until the user edits, approves, rejects, or regenerates it. Approval can fill that one field. Sensitive questions stay manual.
@@ -958,6 +959,10 @@ user confirms that exact application.
 Status: **2.5.5 implemented.** This is the last increment of Phase 2.5.
 
 ## 18. Phase 3.1 — Greenhouse question completion
+
+Status: **Phase 3.1 complete** on `feature/greenhouse-completion`.
+
+Apply with CareerPilot prepares one Greenhouse application, fills supported fields, and leaves the rest for review on the job card. Questions are classified, approved answers are reused when the employer, role, and technology still fit, and an open-ended draft is filled only after the user approves it. Dropdowns, radios, checkboxes, and searchable lists are filled when one listed choice matches. A verified school or degree can match an equivalent employer option, and the stored fact is not rewritten. Completion counts verified fills separately from values already on the form. CAPTCHA, MFA, sensitive questions, and a second submission stay blocked. Nothing is submitted without the existing confirmation for that job.
 
 Working branch: `feature/greenhouse-completion`.
 
