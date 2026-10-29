@@ -6,11 +6,12 @@ const openings = new Map<number, Promise<AutofillSession>>()
 export function beginAutofillOpening(
   preparationId: number,
   continueWith: (opened: AutofillSession) => Promise<AutofillSession>,
+  options?: { autoApply?: boolean },
 ): Promise<AutofillSession> {
   const existing = openings.get(preparationId)
   if (existing) return existing
   const promise = (async () => {
-    const opened = await api.openAutofillSession(preparationId)
+    const opened = await api.openAutofillSession(preparationId, { autoApply: options?.autoApply })
     if (opened.state === 'failed' || opened.state === 'cancelled' || opened.state === 'submitted') return opened
     return continueWith(opened)
   })()

@@ -351,11 +351,13 @@ export const api = {
       body: JSON.stringify(data),
     }),
   preparationPdfPreviewUrl: (id: number) => `${BASE_URL}/api/preparations/${id}/documents/pdf?inline=1`,
-  openAutofillSession: (preparationId: number) =>
+  openAutofillSession: (preparationId: number, options?: { autoApply?: boolean }) =>
     request<import('./types').AutofillSession>('/api/autofill/sessions', {
       method: 'POST',
-      body: JSON.stringify({ preparation_id: preparationId }),
+      body: JSON.stringify({ preparation_id: preparationId, auto_apply: options?.autoApply ?? false }),
     }),
+  attemptAutoApply: (sessionId: string) =>
+    request<import('./types').AutofillSession>(`/api/autofill/sessions/${sessionId}/auto-apply`, { method: 'POST' }),
   fillAutofillSession: (
     sessionId: string,
     body: { included_field_ids: string[]; overwrite_field_ids: string[]; attach_resume: boolean },

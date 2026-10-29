@@ -326,6 +326,7 @@ def test_detect_route_returns_fields_and_one_confirmed_submit_path():
         "/api/autofill/sessions/{session_id}/refresh",
         "/api/autofill/sessions/{session_id}/drafts/regenerate",
         "/api/autofill/sessions/{session_id}/submit",
+        "/api/autofill/sessions/{session_id}/auto-apply",
         "/api/autofill/sessions/{session_id}/cancel",
     }
     assert sum("submit" in route.path for route in router.routes) == 1

@@ -77,6 +77,7 @@ class ApplicationWorkflowRead(BaseModel):
     can_open_browser: bool
     eligibility: str
     eligibility_detail: str
+    mode: str
     message: str
     preparation: ApplicationPreparationRead
 

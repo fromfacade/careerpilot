@@ -83,6 +83,7 @@ def test_workflow_reuses_one_preparation_and_does_not_submit(client, db_session)
     assert body["reused"] is False
     assert body["can_open_browser"] is True
     assert body["eligibility"] == "unknown"
+    assert body["mode"] == "review"
     assert "not" in body["eligibility_detail"].casefold() or "unknown" in body["message"].casefold()
     assert body["preparation"]["application_status"] == "preparing"
     assert "No approved resume" in body["message"]

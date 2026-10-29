@@ -558,6 +558,7 @@ export interface ApplicationWorkflow {
   can_open_browser: boolean;
   eligibility: string;
   eligibility_detail: string;
+  mode?: 'review' | 'auto_apply';
   message: string;
   preparation: ApplicationPreparation;
 }
@@ -731,6 +732,9 @@ export interface AutofillSession {
   } | null;
   completion?: CompletionMetrics | null;
   application_status?: string | null;
+  mode?: 'review' | 'auto_apply';
+  phase?: string;
+  auto_apply_reasons?: string[];
 }
 
 export interface AIStatus {

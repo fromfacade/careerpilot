@@ -22,6 +22,7 @@ _DUPLICATE_STATUS = {
     "submitting": "A submission is already in progress.",
     "submitted": "The application has already been submitted.",
     "confirmation_unknown": "Submission confirmation is unresolved.",
+    "submission_failed": "A previous submission failed. Review it before sending again.",
 }
 
 _READINESS_REASONS = {
@@ -111,10 +112,11 @@ def decide(
     counts: UsageCounts,
     now: datetime,
 ) -> AutoApplyDecision:
-    """Return whether a later increment could submit this job.
+    """Return whether this job is inside the grant.
 
-    `submits` is always false. Saving or evaluating a grant does not send an
-    application.
+    `submits` stays false. Evaluating a grant does not send an application.
+    The existing Greenhouse submit path is the only click, and it runs only
+    after a caller has a permitted result.
     """
     reasons: list[str] = []
     if not settings.enabled:

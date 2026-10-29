@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -20,13 +20,14 @@ from app.auto_apply.authorization import (
 )
 from app.core.exceptions import ConflictError, ValidationError
 from app.models.application import TrackedApplication
-from app.models.auto_apply import AutoApplyAuthorization
+from app.models.auto_apply import AutoApplyAuthorization, AutoApplyReservation
 from app.models.candidate import Candidate
 from app.models.enums import ApplicationStatus, EmploymentType, RoleCategory
 from app.models.resume import Resume
 from app.schemas.auto_apply import AutoApplyRead, AutoApplyResumeRead, AutoApplyUpdate
 
 _COUNTED = (ApplicationStatus.SUBMITTING, ApplicationStatus.SUBMITTED)
+_LIMIT_OUTCOMES = (ApplicationStatus.CONFIRMATION_UNKNOWN, ApplicationStatus.SUBMISSION_FAILED)
 
 
 def now_utc() -> datetime:
@@ -130,6 +131,30 @@ def save_authorization(
     return read_authorization(db, candidate, current)
 
 
+def limit_counts(
+    db: Session,
+    candidate_id: int,
+    session_started_at: datetime | None,
+    now: datetime,
+    *,
+    exclude_application_id: int | None = None,
+) -> UsageCounts:
+    """Tracked submissions plus slots held for other Auto-Apply clicks.
+
+    A held reservation for this same application is excluded so a retry of
+    that click does not count itself twice. A settled failure or an
+    uncertain outcome still counts, and it is not released for another
+    automatic attempt.
+    """
+    base = usage_counts(db, candidate_id, session_started_at, now)
+    start = now.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    return UsageCounts(
+        submitted_today=base.submitted_today + _reservation_extra(db, candidate_id, start, exclude_application_id),
+        submitted_this_session=base.submitted_this_session
+        + (_reservation_extra(db, candidate_id, session_started_at, exclude_application_id) if session_started_at else 0),
+    )
+
+
 def usage_counts(db: Session, candidate_id: int, session_started_at: datetime | None, now: datetime) -> UsageCounts:
     """Count existing tracked submissions. This does not record a new one."""
     start = now.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -137,6 +162,31 @@ def usage_counts(db: Session, candidate_id: int, session_started_at: datetime | 
     today = _count_since(db, candidate_id, stamp, start)
     session = _count_since(db, candidate_id, stamp, session_started_at) if session_started_at is not None else 0
     return UsageCounts(submitted_today=today, submitted_this_session=session)
+
+
+def _reservation_extra(db: Session, candidate_id: int, start: datetime, exclude_application_id: int | None) -> int:
+    statement = (
+        select(func.count())
+        .select_from(AutoApplyReservation)
+        .join(TrackedApplication, TrackedApplication.id == AutoApplyReservation.application_id)
+        .where(
+            AutoApplyReservation.candidate_id == candidate_id,
+            AutoApplyReservation.created_at >= start,
+            or_(
+                and_(
+                    AutoApplyReservation.state == "held",
+                    TrackedApplication.status.notin_(_COUNTED),
+                ),
+                and_(
+                    AutoApplyReservation.state == "settled",
+                    TrackedApplication.status.in_(_LIMIT_OUTCOMES),
+                ),
+            ),
+        )
+    )
+    if exclude_application_id is not None:
+        statement = statement.where(AutoApplyReservation.application_id != exclude_application_id)
+    return int(db.scalar(statement) or 0)
 
 
 def _count_since(db: Session, candidate_id: int, stamp, start: datetime) -> int:

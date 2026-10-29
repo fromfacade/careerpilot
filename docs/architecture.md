@@ -130,8 +130,8 @@ careerpilot/
 | 7 | Resume Tailoring & Versioning | **Implemented for Phase 2.3.1.** Uploaded files are resume profiles (category, approval, default). Prepare Application selects an approved original file and explains why. Tailoring is optional and never replaces the selected original. Generated PDFs are validated for extractable text. |
 | 8 | AI Provider Management | **Partial (Phase 2.2).** Common `AnswerProvider` interface, Gemini adapter (httpx), mock for tests. Disabled unless `AI_ENABLED` and a key are set. Status endpoint never returns the key. Resume parsing still has zero AI calls. |
 | 9 | Application Answer Library | **Implemented (Phase 2.2 / 2.2.1).** Manual and AI-draft answers, writing-style profile, approved writing samples as untrusted style references, grounded generation, and rewrite-without-overwrite. No form filling or submission. |
-| 10 | Form Automation Adapters | **Greenhouse workflow (Phase 2.5.5).** Apply with CareerPilot on a job card prepares the application and fills approved fields in a headed Chromium window. Submit runs only after a fresh readiness check and a confirmation for that application. Success requires a receipt on the page. |
-| 11 | Submission Authorization Policy Engine | **One confirmed Greenhouse submit (Phase 2.5.5), plus an opt-in Auto-Apply grant (Phase 3.4.1).** Each Review Mode attempt still needs a current readiness result and an explicit confirmation of that employer and job. Auto-Apply is off until the user acknowledges it and sets a Greenhouse-only scope, limits, approved resumes, and an expiration time. Saving that grant does not submit, and it does not move a tracked application to `submitting` or `submitted`. |
+| 10 | Form Automation Adapters | **Greenhouse workflow (Phase 2.5.5 and 3.4.2).** Apply with CareerPilot prepares the application and fills approved fields in a headed Chromium window. Review Mode submits only after a fresh readiness check and a confirmation for that application. An active Auto-Apply grant can use that same click after a fresh authorization check. Success requires a receipt on the page. |
+| 11 | Submission Authorization Policy Engine | **Review Mode confirmation, plus an opt-in Auto-Apply grant (Phase 3.4.2).** Review Mode still needs a current readiness result and an explicit confirmation of that employer and job. Auto-Apply is off until the user acknowledges it and sets a Greenhouse-only scope, limits, approved resumes, and an expiration time. Saving the grant does not submit. A later Apply click reloads the grant, holds one limit slot, and only then uses the existing Greenhouse submit path. |
 | 12 | Application Queue & State Machine | **Partial (Phase 2.5.5).** `tracked_applications` moves through an authorized submit. `application_events` records each status change. The job-card workflow reuses one open preparation and one tracked row. |
 | 13 | Application Tracker | **Partial (Phase 2.5.5).** The job card and the preparation detail show status, confirmation, submission time, history, and a correction when the outcome is unknown. |
 | 14 | Analytics & Notifications | Not built beyond discovery-run status surfaced in the dashboard. |
@@ -389,7 +389,7 @@ another answer. A choice is used only when it is listed. A control that
 cannot be matched is left for review. Phase 3.1.5 fills common searchable
 dropdowns from one exact verified fact or approved answer, and the review
 screen counts completed fields separately from the questions that still
-need attention. Submission still requires an explicit confirmation.
+need attention. Review Mode submission still requires an explicit confirmation.
 Phase 3.1.6 matches a verified school or degree to one equivalent employer
 option. The stored fact is left unchanged, and more than one match stays
 for review. Phase 3.1 is complete. The same confirmation, readiness, and
@@ -402,9 +402,12 @@ explicit acknowledgement, a future expiration time, and a scope of
 categories, employment types, locations, a minimum match score, daily
 and session limits, and approved resume profiles. An empty scope
 authorizes nothing. Disabling the grant or letting it expire blocks a
-future automatic submission. The decision function reads that Phase 3.1 readiness result and can say a
-fictional job would be inside the grant. This increment never calls the
-existing submit path and never changes `tracked_applications`. CAPTCHA,
+future automatic submission. The decision function reads that Phase 3.1 readiness result. Phase 3.4.2
+uses a permitted result as the authorization for one click on the existing
+Greenhouse submit path. The grant is reloaded immediately before that click,
+and a locked reservation keeps two applications from sharing the last slot.
+Review Mode still requires a confirmation for that job. A paused Auto-Apply
+attempt leaves the browser open and does not send itself later. CAPTCHA,
 MFA, unknown eligibility, an unapproved resume or answer, a required
 sensitive question, and an already submitted or unconfirmed application
 stay outside the grant.

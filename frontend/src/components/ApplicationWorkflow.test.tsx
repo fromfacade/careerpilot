@@ -13,6 +13,7 @@ vi.mock('../api/client', () => ({
     resolveApplication: vi.fn(),
     openAutofillSession: vi.fn(),
     fillAutofillSession: vi.fn(),
+    attemptAutoApply: vi.fn(),
     submitAutofillSession: vi.fn(),
     cancelAutofillSession: vi.fn(),
   },
@@ -134,7 +135,75 @@ describe('ApplicationWorkflow', () => {
       attach_resume: false,
     })
     expect(api.submitAutofillSession).not.toHaveBeenCalled()
+    expect(api.attemptAutoApply).not.toHaveBeenCalled()
+    expect(screen.getByText('Workflow mode: Review.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Submit this application' })).not.toBeInTheDocument()
+  })
+
+  it('submits from one click only when Auto-Apply returns a result', async () => {
+    vi.mocked(api.startApplicationWorkflow).mockResolvedValue({
+      reused: false,
+      can_open_browser: true,
+      eligibility: 'eligible',
+      eligibility_detail: 'Eligible.',
+      mode: 'auto_apply',
+      message: 'Auto-Apply will check this form after approved fields are filled.',
+      preparation: preparation as never,
+    })
+    vi.mocked(api.getApplication).mockResolvedValue({
+      id: 4,
+      status: 'preparing',
+      submitted_at: null,
+      confirmation: null,
+      failure_reason: null,
+      resubmit_after: null,
+      events: [],
+    } as never)
+    vi.mocked(api.openAutofillSession).mockResolvedValue({
+      id: 'sess',
+      state: 'ready_to_fill',
+      preparation_id: 9,
+      employer: 'Northwind',
+      job_title: 'Backend Intern',
+      apply_url: 'https://boards.greenhouse.io/northwind/jobs/15',
+      message: 'Review the plan.',
+      plan: { ready: [], answers: { matched: [] }, resume: { eligible_for_attach: false } },
+    } as never)
+    vi.mocked(api.fillAutofillSession).mockResolvedValue({
+      id: 'sess',
+      state: 'filled_for_review',
+      preparation_id: 9,
+      employer: 'Northwind',
+      job_title: 'Backend Intern',
+      apply_url: 'https://boards.greenhouse.io/northwind/jobs/15',
+      message: 'Filled.',
+      readiness: { status: 'ready_to_submit', checks: [] },
+      plan: { ready: [], answers: { matched: [] }, resume: { eligible_for_attach: false, display_name: '', kind: 'original', reason: '', status: 'missing', file_format: null, review_required: false } },
+    } as never)
+    vi.mocked(api.attemptAutoApply).mockResolvedValue({
+      id: 'sess',
+      state: 'needs_review',
+      phase: 'needs_review',
+      mode: 'auto_apply',
+      preparation_id: 9,
+      employer: 'Northwind',
+      job_title: 'Backend Intern',
+      apply_url: 'https://boards.greenhouse.io/northwind/jobs/15',
+      message: 'The job category is outside the authorized categories.',
+      auto_apply_reasons: ['The job category is outside the authorized categories.'],
+      application_status: 'needs_review',
+      readiness: { status: 'needs_review', checks: [] },
+      plan: null,
+      result: null,
+    } as never)
+    render(<ApplicationWorkflow job={job} onStarted={() => undefined} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Apply with CareerPilot' }))
+    expect(await screen.findByText('Workflow mode: Auto-Apply.')).toBeInTheDocument()
+    expect(await screen.findByText('The job category is outside the authorized categories.')).toBeInTheDocument()
+    expect(screen.getByText('Workflow: Needs review')).toBeInTheDocument()
+    expect(api.attemptAutoApply).toHaveBeenCalledWith('sess')
+    expect(api.submitAutofillSession).not.toHaveBeenCalled()
+    expect(screen.getByText(/Auto-Apply paused/)).toBeInTheDocument()
   })
 
   it('shows an unsupported board without opening a browser', async () => {

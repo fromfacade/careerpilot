@@ -37,6 +37,7 @@ class WorkflowStart:
     can_open_browser: bool
     eligibility: str
     eligibility_detail: str
+    mode: str
     message: str
 
 
@@ -53,19 +54,28 @@ def begin_workflow(db: Session, candidate: Candidate, job_id: int) -> WorkflowSt
             can_open_browser=False,
             eligibility=eligibility,
             eligibility_detail=eligibility_detail,
+            mode=_mode(db, candidate),
             message=blocked,
         )
     if blocked:
         raise ValidationError(blocked)
     reused = existing is not None
     preparation = preparation_service.create_or_get_preparation(db, candidate, job.id)
-    message = _start_message(preparation, reused=reused, eligibility=eligibility, eligibility_detail=eligibility_detail)
+    mode = _mode(db, candidate)
+    message = _start_message(
+        preparation,
+        reused=reused,
+        eligibility=eligibility,
+        eligibility_detail=eligibility_detail,
+        mode=mode,
+    )
     return WorkflowStart(
         preparation=preparation,
         reused=reused,
         can_open_browser=True,
         eligibility=eligibility,
         eligibility_detail=eligibility_detail,
+        mode=mode,
         message=message,
     )
 
@@ -128,7 +138,20 @@ def _eligibility(db: Session, candidate: Candidate, job: Job) -> tuple[str, str]
     return status, detail or "The saved eligibility check passed. The live form is checked again before submission."
 
 
-def _start_message(preparation: ApplicationPreparation, *, reused: bool, eligibility: str, eligibility_detail: str) -> str:
+def _mode(db, candidate: Candidate) -> str:
+    from app.services.auto_apply import read_authorization
+
+    return "auto_apply" if read_authorization(db, candidate).active else "review"
+
+
+def _start_message(
+    preparation: ApplicationPreparation,
+    *,
+    reused: bool,
+    eligibility: str,
+    eligibility_detail: str,
+    mode: str,
+) -> str:
     parts = [
         "Using the existing preparation." if reused else "Prepared this application from the job and your verified profile.",
     ]
@@ -138,5 +161,12 @@ def _start_message(preparation: ApplicationPreparation, *, reused: bool, eligibi
         parts.append(preparation.resume_selection_reason)
     if eligibility != "eligible":
         parts.append(eligibility_detail)
-    parts.append("Approved fields can be filled for review. Nothing is sent until you confirm this employer and job.")
+    if mode == "auto_apply":
+        parts.append(
+            "Auto-Apply will check this form after approved fields are filled. "
+            "A covered application can be sent without another confirmation. "
+            "If a check fails, the form stays open for review."
+        )
+    else:
+        parts.append("Approved fields can be filled for review. Nothing is sent until you confirm this employer and job.")
     return " ".join(part.strip() for part in parts if part and part.strip())

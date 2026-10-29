@@ -39,7 +39,8 @@ Credentials live only in `backend/.env` (gitignored) — see README for exact va
 - **Phase 3.1.4 (complete on `feature/greenhouse-completion`)**: common Greenhouse controls keep their question when the markup changes. Listed choices and verified follow-up fields can be filled. Unmatched controls stay for review.
 - **Phase 3.1.5 (complete on `feature/greenhouse-completion`)**: common searchable dropdowns fill from one exact verified fact or approved answer. The review screen leads with what still needs attention and a completion count. Submission stays explicit.
 - **Phase 3.1.6 (complete on `feature/greenhouse-completion`)**: a verified school or degree can match one equivalent employer option. The stored fact stays unchanged. Ambiguous and nearby names stay for review.
-- **Phase 3.4.1 (complete on `feature/auto-apply`)**: optional Auto-Apply authorization. The user can opt in to a Greenhouse-only scope, limits, approved resumes, and an expiration time. Review Mode stays the default. This increment does not submit automatically.
+- **Phase 3.4.1 (complete on `feature/auto-apply`)**: optional Auto-Apply authorization. The user can opt in to a Greenhouse-only scope, limits, approved resumes, and an expiration time. Review Mode stays the default.
+- **Phase 3.4.2 (this increment)**: one-click Auto-Apply. An active grant can send one covered Greenhouse application through the existing submit path after the live readiness check. Review Mode still confirms each job.
 
 ## 2. Phase 1 increments (checklist)
 
@@ -1027,4 +1028,14 @@ The configurable scope is job categories, employment types, location labels, a m
 
 The dashboard Auto-Apply section shows the current mode, whether the grant is active, the scope, the limits, the approved resumes, the expiration, and the enable or disable control.
 
-Status: **3.4.1 implemented.** Automatic submission is not part of this increment.
+Status: **3.4.1 implemented.** Automatic submission is Phase 3.4.2.
+
+## 20. Phase 3.4.2 — One-click Auto-Apply execution
+
+Apply with CareerPilot still prepares one Greenhouse application and fills approved fields. When the Auto-Apply grant is active, that same click then calls `POST /api/autofill/sessions/{id}/auto-apply` once. The attempt reloads the grant, checks the live readiness result, and holds one daily or session slot with a row lock before it calls the existing `submit_session` click. Review Mode still requires the confirmation for that job. Submission requires that confirmation or a valid Auto-Apply grant.
+
+The slot is released when the click never happens. A click that is received, fails, or stays uncertain settles the slot. An uncertain result is not retried. A paused attempt leaves the browser open, shows the reason, and waits for a new Apply click or the existing Review Mode confirmation. Approving a draft does not submit by itself.
+
+Application events store `initiation` as `review` or `auto_apply` and the authorization id. They do not store answers or credentials. The workflow card shows Review or Auto-Apply and the current step.
+
+Status: **3.4.2 implemented.**

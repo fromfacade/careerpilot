@@ -191,6 +191,20 @@ def _close_run(run: AutofillRun) -> None:
         _SESSIONS.pop(run.id, None)
 
 
+def test_auto_apply_without_a_grant_does_not_open_submit(client):
+    run = _open_run(candidate_id=0, auto_apply_armed=False)
+    headers = {"X-CareerPilot-Token": load_or_create_token()}
+    try:
+        paused = client.post(f"/api/autofill/sessions/{run.id}/auto-apply", headers=headers)
+        assert paused.status_code == 200, paused.text
+        body = paused.json()
+        assert body["phase"] == "needs_review"
+        assert "not requested" in body["message"]
+        assert body["state"] == "needs_review"
+    finally:
+        _close_run(run)
+
+
 def test_submit_route_rejects_missing_confirmation_and_a_stale_session(client):
     run = _open_run()
     body = {"confirm": True, "preparation_id": 9, "apply_url": URL}

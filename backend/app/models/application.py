@@ -64,6 +64,10 @@ class ApplicationEvent(Base):
         pg_enum(ApplicationStatus, "application_status_enum"), nullable=False
     )
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    initiation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    authorization_id: Mapped[int | None] = mapped_column(
+        ForeignKey("auto_apply_authorizations.id", ondelete="SET NULL"), nullable=True
+    )
     source: Mapped[ApplicationEventSource] = mapped_column(
         pg_enum(ApplicationEventSource, "application_event_source_enum"), nullable=False
     )

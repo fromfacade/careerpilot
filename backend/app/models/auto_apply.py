@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import ARRAY, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, SmallInteger, Text
+from sqlalchemy import ARRAY, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, SmallInteger, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -64,4 +64,37 @@ class AutoApplyAuthorization(TimestampMixin, Base):
         ),
         CheckConstraint("max_per_day >= 0 AND max_per_day <= 25", name="ck_auto_apply_daily_limit"),
         CheckConstraint("max_per_session >= 0 AND max_per_session <= 25", name="ck_auto_apply_session_limit"),
+    )
+
+
+class AutoApplyReservation(Base):
+    """One in-flight or settled Auto-Apply slot for a tracked application.
+
+    A held row counts against the daily and session limits before the click.
+    It is released when nothing was sent, and settled when a click happened.
+    An uncertain result stays settled so it is not retried automatically.
+    """
+
+    __tablename__ = "auto_apply_reservations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False)
+    authorization_id: Mapped[int] = mapped_column(
+        ForeignKey("auto_apply_authorizations.id", ondelete="CASCADE"), nullable=False
+    )
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("tracked_applications.id", ondelete="CASCADE"), nullable=False
+    )
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("state IN ('held', 'released', 'settled')", name="ck_auto_apply_reservation_state"),
+        Index(
+            "uq_auto_apply_reservation_held",
+            "application_id",
+            unique=True,
+            postgresql_where=text("state = 'held'"),
+        ),
     )
