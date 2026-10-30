@@ -148,6 +148,8 @@ def claim_for_submission(
     candidate_id: int,
     preparation_id: int,
     session_started_at: datetime | None = None,
+    initiation: str = "review",
+    authorization_id: int | None = None,
 ) -> TrackedApplication:
     """Move ready_to_submit to submitting. A second caller cannot enter submitting."""
     preparation = db.get(ApplicationPreparation, preparation_id)
@@ -177,7 +179,13 @@ def claim_for_submission(
         raise ValidationError(
             "Open a new browser session, review readiness, and confirm again before sending this application."
         )
-    transition(row, ApplicationStatus.SUBMITTING, source=ApplicationEventSource.BROWSER)
+    transition(
+        row,
+        ApplicationStatus.SUBMITTING,
+        source=ApplicationEventSource.BROWSER,
+        initiation=initiation,
+        authorization_id=authorization_id,
+    )
     db.commit()
     db.refresh(row)
     return row
@@ -201,12 +209,37 @@ def record_submission_outcome(
         raise NotFoundError(f"No tracked application with id={application_id}.")
     if row.status is not ApplicationStatus.SUBMITTING:
         raise ValidationError("This application is not in the middle of a submission.")
+    prior = _latest_event(db, row.id)
+    initiation = prior.initiation if prior is not None else None
+    authorization_id = prior.authorization_id if prior is not None else None
     if status is ApplicationStatus.SUBMITTED:
-        transition(row, status, confirmation=note, source=ApplicationEventSource.BROWSER)
+        transition(
+            row,
+            status,
+            confirmation=note,
+            source=ApplicationEventSource.BROWSER,
+            initiation=initiation,
+            authorization_id=authorization_id,
+        )
     elif status is ApplicationStatus.CONFIRMATION_UNKNOWN:
-        transition(row, status, failure_reason=note, confirmation=note, source=ApplicationEventSource.BROWSER)
+        transition(
+            row,
+            status,
+            failure_reason=note,
+            confirmation=note,
+            source=ApplicationEventSource.BROWSER,
+            initiation=initiation,
+            authorization_id=authorization_id,
+        )
     else:
-        transition(row, status, failure_reason=note, source=ApplicationEventSource.BROWSER)
+        transition(
+            row,
+            status,
+            failure_reason=note,
+            source=ApplicationEventSource.BROWSER,
+            initiation=initiation,
+            authorization_id=authorization_id,
+        )
     db.commit()
     db.refresh(row)
     return row
@@ -307,6 +340,8 @@ def transition(
     confirmation: str | None = None,
     submitted_at: datetime | None = None,
     source: ApplicationEventSource = ApplicationEventSource.BROWSER,
+    initiation: str | None = None,
+    authorization_id: int | None = None,
 ) -> TrackedApplication:
     previous = row.status
     changing = new_status != previous
@@ -327,8 +362,17 @@ def transition(
     elif new_status is not ApplicationStatus.CONFIRMATION_UNKNOWN:
         row.submitted_at = None
     if changing:
-        _record_event(row, previous, new_status, source)
+        _record_event(row, previous, new_status, source, initiation=initiation, authorization_id=authorization_id)
     return row
+
+
+def _latest_event(db: Session, application_id: int) -> ApplicationEvent | None:
+    return db.scalar(
+        select(ApplicationEvent)
+        .where(ApplicationEvent.application_id == application_id)
+        .order_by(ApplicationEvent.id.desc())
+        .limit(1)
+    )
 
 
 def _record_event(
@@ -336,6 +380,9 @@ def _record_event(
     previous: ApplicationStatus,
     new_status: ApplicationStatus,
     source: ApplicationEventSource,
+    *,
+    initiation: str | None = None,
+    authorization_id: int | None = None,
 ) -> None:
     if row.id is None:
         return
@@ -349,6 +396,8 @@ def _record_event(
             previous_status=previous,
             new_status=new_status,
             reason=_clean(reason, 300),
+            initiation=initiation if initiation in {"review", "auto_apply"} else None,
+            authorization_id=authorization_id,
             source=source,
             created_at=datetime.now(timezone.utc),
         )

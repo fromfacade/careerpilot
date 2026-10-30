@@ -9,11 +9,13 @@ export function AutofillReview({
   onApplicationStatus,
   autoStart = false,
   hideLauncher = false,
+  mode = 'review',
 }: {
   prep: ApplicationPreparation
   onApplicationStatus?: (status: string) => void
   autoStart?: boolean
   hideLauncher?: boolean
+  mode?: 'review' | 'auto_apply'
 }) {
   const [session, setSession] = useState<AutofillSession | null>(null)
   const [included, setIncluded] = useState<Record<string, boolean>>({})
@@ -22,6 +24,7 @@ export function AutofillReview({
   const [busy, setBusy] = useState(autoStart)
   const [error, setError] = useState<string | null>(null)
   const [confirmed, setConfirmed] = useState(false)
+  const [phase, setPhase] = useState(mode === 'auto_apply' ? 'preparing' : 'review')
   const [draftText, setDraftText] = useState<Record<string, string>>({})
   const publicUrl = prep.snapshot_apply_url || ''
   const formUrl = prep.greenhouse_apply_url || (publicUrl.includes('greenhouse.io') ? publicUrl : '')
@@ -148,13 +151,17 @@ export function AutofillReview({
     if (!autoStart || !formUrl) return
     let active = true
     void beginAutofillOpening(prep.id, async (opened) => {
+      if (mode === 'auto_apply') setPhase('filling')
       const included = approvedIds(opened)
-      return api.fillAutofillSession(opened.id, {
+      const filled = await api.fillAutofillSession(opened.id, {
         included_field_ids: included,
         overwrite_field_ids: [],
         attach_resume: Boolean(opened.plan?.resume.eligible_for_attach),
       })
-    })
+      if (mode !== 'auto_apply' || filled.state === 'failed' || filled.state === 'cancelled') return filled
+      setPhase('checking_authorization')
+      return api.attemptAutoApply(filled.id)
+    }, { autoApply: mode === 'auto_apply' })
       .then((filled) => {
         if (!active) return
         setSession(filled)
@@ -167,6 +174,7 @@ export function AutofillReview({
         })
         setIncluded(choices)
         setAttachResume(Boolean(filled.plan?.resume.eligible_for_attach))
+        if (filled.phase) setPhase(filled.phase)
         if (filled.application_status) onApplicationStatus?.(filled.application_status)
       })
       .catch((err: unknown) => {
@@ -179,7 +187,7 @@ export function AutofillReview({
     return () => {
       active = false
     }
-  }, [autoStart, formUrl, prep.id, onApplicationStatus])
+  }, [autoStart, formUrl, mode, prep.id, onApplicationStatus])
 
   async function stop() {
     if (!session) return
@@ -218,10 +226,17 @@ export function AutofillReview({
         )}
       </div>
       <p className="mt-1 text-xs text-slate-500">
-        Opens a visible browser and fills only approved fields. Sending an application requires a separate confirmation for that job.
+        {mode === 'auto_apply'
+          ? 'Auto-Apply fills approved fields and submits only when the current grant and the live form both allow it.'
+          : 'Opens a visible browser and fills only approved fields. Sending an application requires a separate confirmation for that job.'}
       </p>
+      <p className="mt-1 text-sm font-medium text-slate-900">Workflow: {phaseLabel(session?.phase || phase)}</p>
       {autoStart && busy && !session && (
-        <p className="mt-2 text-sm text-slate-700">Opening the Greenhouse form and filling approved fields. Nothing is submitted.</p>
+        <p className="mt-2 text-sm text-slate-700">
+          {mode === 'auto_apply'
+            ? 'Preparing the application. Auto-Apply will check it after the form is filled.'
+            : 'Opening the Greenhouse form and filling approved fields. Nothing is submitted.'}
+        </p>
       )}
       {publicUrl && <p className="mt-1 break-all text-xs text-slate-500">Posting: {publicUrl}</p>}
       {formUrl && <p className="mt-1 break-all text-xs text-slate-500">Application form: {formUrl}</p>}
@@ -250,11 +265,14 @@ export function AutofillReview({
           </p>
           {session.readiness && (
             <div className="rounded-md bg-slate-50 p-2 text-xs text-slate-700">
-              <p className="font-medium text-slate-900">
-                {session.readiness.status === 'ready_to_submit'
-                  ? 'Ready for submission. Nothing is sent until you confirm this application below.'
-                  : 'Needs review before submission. CareerPilot will not submit.'}
-              </p>
+              <p className="font-medium text-slate-900">{readinessHeadline(session, mode)}</p>
+              {mode === 'auto_apply' && (session.auto_apply_reasons || []).length > 0 && (
+                <ul className="mt-1 list-disc pl-4">
+                  {session.auto_apply_reasons?.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+              )}
               <ul className="mt-1 list-disc pl-4">
                 {session.readiness.checks
                   .filter((item) => item.status !== 'passed')
@@ -423,6 +441,33 @@ function answeredIds(plan: NonNullable<AutofillSession['plan']>) {
       ...plan.answers.preserved,
     ].map((field) => field.field_id),
   )
+}
+
+function readinessHeadline(session: AutofillSession, mode: 'review' | 'auto_apply') {
+  if (session.application_status === 'submitted') return 'The employer page confirmed this application was received.'
+  if (mode === 'auto_apply' && session.phase === 'needs_review') {
+    return 'Auto-Apply paused. The form is still open. CareerPilot will not send it unless you confirm this job below.'
+  }
+  if (session.readiness?.status === 'ready_to_submit') {
+    return 'Ready for submission. Nothing is sent until you confirm this application below.'
+  }
+  return 'Needs review before submission. CareerPilot will not submit.'
+}
+
+function phaseLabel(phase: string) {
+  const labels: Record<string, string> = {
+    review: 'Review',
+    preparing: 'Preparing',
+    filling: 'Filling',
+    checking_readiness: 'Checking readiness',
+    checking_authorization: 'Checking authorization',
+    submitting: 'Submitting',
+    submitted: 'Submitted',
+    needs_review: 'Needs review',
+    failed: 'Failed',
+    confirmation_unknown: 'Confirmation unknown',
+  }
+  return labels[phase] || phase.replaceAll('_', ' ')
 }
 
 function canSubmit(session: AutofillSession) {

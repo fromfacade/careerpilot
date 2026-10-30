@@ -1,7 +1,8 @@
 """One visible Greenhouse browser at a time. The window stays open for review.
 
 Playwright calls stay on the thread that launched Chromium. Filling never
-clicks Submit. Submission is a separate confirmation for this session only.
+clicks Submit. Review Mode still requires a confirmation for this session.
+Auto-Apply can pass the same click only after a fresh grant check.
 """
 
 from __future__ import annotations
@@ -60,6 +61,11 @@ class AutofillRun:
     application_status: str = ""
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     submit_expires_at: datetime | None = None
+    auto_apply_armed: bool = False
+    auto_apply_used: bool = False
+    mode: str = "review"
+    phase: str = "preparing"
+    auto_apply_reasons: list[str] = field(default_factory=list)
     submit_gate: SubmissionGate = field(default_factory=SubmissionGate)
     cancel: threading.Event = field(default_factory=threading.Event)
     reviewed: dict = field(default_factory=dict)
@@ -126,7 +132,7 @@ class BrowserWorker:
             playwright.stop()
 
 
-def start_session(preparation_id: int, *, headed: bool = True) -> AutofillRun:
+def start_session(preparation_id: int, *, headed: bool = True, auto_apply: bool = False) -> AutofillRun:
     with _LOCK:
         existing = _reusable_unlocked(preparation_id)
         if existing is not None:
@@ -149,6 +155,9 @@ def start_session(preparation_id: int, *, headed: bool = True) -> AutofillRun:
     if not owner:
         if not run.opened.wait(60):
             raise ValidationError("This application is still opening. CareerPilot did not start a second browser.")
+        if auto_apply:
+            with session_scope() as db:
+                _arm_auto_apply(run, db, True)
         return run
     try:
         with session_scope() as db:
@@ -160,6 +169,7 @@ def start_session(preparation_id: int, *, headed: bool = True) -> AutofillRun:
             _remember_eligibility(run, db, candidate, preparation)
             form_url, note = preparation_service.greenhouse_target(db, preparation)
             run.apply_url = form_url or preparation.snapshot_apply_url
+            _arm_auto_apply(run, db, auto_apply)
         if not form_url:
             run.state = "failed"
             run.message = note or "This preparation is not a supported Greenhouse application."
@@ -356,10 +366,23 @@ def fill_session(session_id: str, *, included: set[str], overwrite: set[str], at
     return run
 
 
-def submit_session(session_id: str, *, confirm: bool, preparation_id: int, apply_url: str) -> AutofillRun:
-    """Submit only when this request confirms the open preparation and the live page is ready."""
+def submit_session(
+    session_id: str,
+    *,
+    confirm: bool,
+    preparation_id: int,
+    apply_url: str,
+    grant: bool = False,
+) -> AutofillRun:
+    """Submit through the existing Greenhouse click.
+
+    Review Mode requires this request to confirm the open preparation.
+    Auto-Apply sets grant=True only for one armed attempt and rechecks the
+    saved grant immediately before that click.
+    """
     from datetime import datetime, timezone
 
+    from app.auto_apply.execution import evaluate_and_reserve, release_reservation, settle_reservation
     from app.autofill.readiness import readiness_for_run
     from app.autofill.submission import (
         authorization_problem,
@@ -372,29 +395,37 @@ def submit_session(session_id: str, *, confirm: bool, preparation_id: int, apply
 
     run = _get(session_id)
     now = datetime.now(timezone.utc)
-    problem = authorization_problem(
-        confirm=confirm,
-        preparation_id=preparation_id,
-        apply_url=apply_url,
-        session_preparation_id=run.preparation_id,
-        session_apply_url=run.apply_url,
-        expires_at=run.submit_expires_at,
-        now=now,
-    )
-    if problem:
-        raise ValidationError(problem)
+    if grant:
+        if preparation_id != run.preparation_id or (apply_url or "") != (run.apply_url or ""):
+            raise ValidationError("That confirmation belongs to a different application.")
+        if not run.auto_apply_armed or run.auto_apply_used:
+            _pause(run, "Auto-Apply was not requested for this attempt. Confirm this job to submit from Review Mode.")
+            return run
+        run.auto_apply_used = True
+        run.phase = "checking_readiness"
+    else:
+        problem = authorization_problem(
+            confirm=confirm,
+            preparation_id=preparation_id,
+            apply_url=apply_url,
+            session_preparation_id=run.preparation_id,
+            session_apply_url=run.apply_url,
+            expires_at=run.submit_expires_at,
+            now=now,
+        )
+        if problem:
+            raise ValidationError(problem)
     if run._worker is None:
         raise ValidationError("The browser window is not open.")
     if run.state not in {"ready_to_fill", "filled_for_review", "needs_review"}:
         raise ValidationError("This browser session cannot submit right now.")
     if not run.submit_gate.acquire():
         raise ValidationError("Another submission is already in progress.")
-    claimed_id: int | None = None
+    holder = {"claimed_id": None, "reservation_id": None}
     try:
         def _submit(page):
-            nonlocal claimed_id
             if not page.url or not classify_apply_url(page.url).supported:
-                return "needs_review", "The browser left the Greenhouse application page.", False
+                return "needs_review", "The browser left the Greenhouse application page.", False, ()
             html = page.content()
             live = _plan_for(run, html, page.url)
             run.plan = live
@@ -411,24 +442,46 @@ def submit_session(session_id: str, *, confirm: bool, preparation_id: int, apply
                 already_submitted=run.already_submitted,
             )
             if not prepared.ok or prepared.control is None:
-                return "needs_review", prepared.detail, False
+                return "needs_review", prepared.detail, False, ()
+            initiation = "review"
+            authorization_id = None
+            if grant:
+                run.phase = "checking_authorization"
+                with session_scope() as db:
+                    reserved = evaluate_and_reserve(
+                        db,
+                        candidate_id=run.candidate_id,
+                        preparation_id=run.preparation_id,
+                        readiness=readiness,
+                        now=now,
+                    )
+                if not reserved.permitted:
+                    return "needs_review", " ".join(reserved.reasons), False, reserved.reasons
+                holder["reservation_id"] = reserved.reservation_id
+                initiation = "auto_apply"
+                authorization_id = reserved.authorization_id
+            run.phase = "submitting"
             with session_scope() as db:
                 claimed = claim_for_submission(
                     db,
                     candidate_id=run.candidate_id,
                     preparation_id=run.preparation_id,
                     session_started_at=run.started_at,
+                    initiation=initiation,
+                    authorization_id=authorization_id,
                 )
-                claimed_id = claimed.id
+                holder["claimed_id"] = claimed.id
             clicked = click_authorized_submit(page, prepared.control, authorized=True)
             if not clicked.clicked:
                 status, note = "submission_failed", clicked.error or "The submit control was not used. Nothing was sent."
+                _finish_reservation(holder["reservation_id"], sent=False)
             else:
                 status, note = interpret_submission(clicked.html, clicked=True, timed_out=clicked.timed_out)
+                _finish_reservation(holder["reservation_id"], sent=True)
             with session_scope() as db:
-                saved = record_submission_outcome(
+                record_submission_outcome(
                     db,
-                    application_id=claimed_id,
+                    application_id=holder["claimed_id"],
                     status=ApplicationStatus(status),
                     note=note,
                 )
@@ -438,35 +491,93 @@ def submit_session(session_id: str, *, confirm: bool, preparation_id: int, apply
             report.submitted = status == "submitted"
             report.stopped = None if status == "submitted" else note
             run.result = report
-            return status, note, True
+            return status, note, True, ()
 
         try:
-            status, note, sent = run._worker.call(_submit, timeout=90)
-        except ValidationError:
+            status, note, sent, reasons = run._worker.call(_submit, timeout=90)
+        except ValidationError as exc:
+            _finish_reservation(holder["reservation_id"], sent=holder["claimed_id"] is not None)
+            if grant:
+                _pause(run, str(exc))
+                return run
             raise
         except (TimeoutError, queue.Empty):
-            if claimed_id is None:
-                _hold_review(run, "The browser did not answer in time, so nothing was submitted.")
-            else:
-                _record_unknown(run, claimed_id)
+            _interrupted(run, holder, "The browser did not answer in time, so nothing was submitted.")
             return run
         except Exception:
-            if claimed_id is None:
-                _hold_review(run, "The submission could not start, so nothing was sent.")
-            else:
-                _record_unknown(run, claimed_id)
+            _interrupted(run, holder, "The submission could not start, so nothing was sent.")
             return run
         if not sent:
-            _hold_review(run, note)
+            _pause(run, note, reasons)
             return run
         run.application_status = status
         run.state = status
+        run.phase = _phase_for(status)
         run.message = note
+        run.auto_apply_reasons = []
         if status != "submitted":
             run.submit_expires_at = None
         return run
     finally:
         run.submit_gate.release()
+
+
+def _phase_for(status: str) -> str:
+    return {
+        "submitted": "submitted",
+        "submission_failed": "failed",
+        "confirmation_unknown": "confirmation_unknown",
+        "needs_review": "needs_review",
+    }.get(status, status)
+
+
+def _finish_reservation(reservation_id: int | None, *, sent: bool) -> None:
+    if reservation_id is None:
+        return
+    from app.auto_apply.execution import release_reservation, settle_reservation
+
+    with session_scope() as db:
+        if sent:
+            settle_reservation(db, reservation_id)
+        else:
+            release_reservation(db, reservation_id)
+
+
+def _interrupted(run: AutofillRun, holder: dict, detail: str) -> None:
+    claimed = holder.get("claimed_id")
+    if claimed is None:
+        _finish_reservation(holder.get("reservation_id"), sent=False)
+        _pause(run, detail)
+        return
+    _finish_reservation(holder.get("reservation_id"), sent=True)
+    _record_unknown(run, claimed)
+
+
+def _pause(run: AutofillRun, detail: str, reasons: tuple[str, ...] | list[str] = ()) -> None:
+    run.auto_apply_reasons = [item for item in reasons if item] or ([detail] if detail else [])
+    run.phase = "needs_review"
+    if run.candidate_id:
+        _hold_review(run, detail)
+        return
+    run.state = "needs_review"
+    run.message = detail
+
+
+def _arm_auto_apply(run: AutofillRun, db, requested: bool) -> None:
+    """Arm one Auto-Apply attempt when the saved grant is active. A later fill does not arm itself."""
+    if not requested:
+        return
+    from app.services.auto_apply import read_authorization
+
+    candidate = db.get(Candidate, run.candidate_id)
+    active = False
+    if candidate is not None:
+        active = read_authorization(db, candidate).active
+    run.auto_apply_armed = active
+    run.auto_apply_used = False
+    run.mode = "auto_apply" if active else "review"
+    if not active:
+        run.auto_apply_reasons = ["Auto-Apply is not active."]
 
 
 def _hold_review(run: AutofillRun, detail: str) -> None:
@@ -495,6 +606,7 @@ def _record_unknown(run: AutofillRun, application_id: int) -> None:
         except ValidationError:
             return
     run.state = "confirmation_unknown"
+    run.phase = "confirmation_unknown"
     run.message = note
     run.application_status = "confirmation_unknown"
     run.submit_expires_at = None

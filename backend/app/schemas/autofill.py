@@ -16,6 +16,7 @@ class AutofillPlanRequest(AutofillDetectRequest):
 
 class AutofillSessionCreate(BaseModel):
     preparation_id: int
+    auto_apply: bool = False
 
 
 class AutofillFillRequest(BaseModel):
@@ -215,6 +216,9 @@ class AutofillSessionRead(BaseModel):
     readiness: ReadinessRead | None = None
     completion: CompletionRead | None = None
     application_status: str | None = None
+    mode: str = "review"
+    phase: str = "preparing"
+    auto_apply_reasons: list[str] = Field(default_factory=list)
 
 
 def to_session_result(run) -> AutofillSessionRead:
@@ -235,6 +239,9 @@ def to_session_result(run) -> AutofillSessionRead:
         readiness=ReadinessRead.model_validate(readiness_for_run(run), from_attributes=True),
         completion=CompletionRead.model_validate(completion, from_attributes=True) if completion is not None else None,
         application_status=run.application_status or None,
+        mode=getattr(run, "mode", "review") or "review",
+        phase=getattr(run, "phase", "preparing") or "preparing",
+        auto_apply_reasons=list(getattr(run, "auto_apply_reasons", []) or []),
     )
 
 

@@ -4,6 +4,7 @@ import { DiscoveryPanel } from '../components/DiscoveryPanel'
 import { JobSourcesPanel } from '../components/JobSourcesPanel'
 import { ApplicationPreparationPanel } from '../components/ApplicationPreparationPanel'
 import { JobsSection } from '../components/JobsSection'
+import { AutoApplyPanel } from '../components/AutoApplyPanel'
 import { PreferencesPanel } from '../components/PreferencesPanel'
 import { ProfilePanel } from '../components/ProfilePanel'
 import { AnswerLibraryPanel } from '../components/AnswerLibraryPanel'
@@ -42,6 +43,7 @@ export function Dashboard() {
 
       <ProfilePanel onChanged={bump} />
       <PreferencesPanel onChanged={bump} />
+      <AutoApplyPanel />
       <ResumePanel />
       <KnowledgeBasePanel />
       <WritingStylePanel />

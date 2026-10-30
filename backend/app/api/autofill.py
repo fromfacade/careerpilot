@@ -1,7 +1,8 @@
 """Form detection, review plans, and a headed Greenhouse browser.
 
-Opening the browser and submitting require the local token. Submission
-also requires an explicit confirmation for that session's preparation.
+Opening the browser and submitting require the local token. Review Mode
+submission requires an explicit confirmation. Auto-Apply uses the saved
+grant for one armed attempt and does not accept that confirmation flag.
 """
 
 from __future__ import annotations
@@ -68,7 +69,7 @@ def open_autofill_session(
     _: None = Depends(require_browser_token),
 ) -> AutofillSessionRead:
     try:
-        return to_session_result(start_session(payload.preparation_id, headed=True))
+        return to_session_result(start_session(payload.preparation_id, headed=True, auto_apply=payload.auto_apply))
     except ValidationError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -119,6 +120,26 @@ def regenerate_autofill_draft(
 ) -> AutofillSessionRead:
     try:
         return to_session_result(regenerate_session_draft(session_id, payload.field_id))
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValidationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/sessions/{session_id}/auto-apply", response_model=AutofillSessionRead)
+def auto_apply_autofill_session(session_id: str, _: None = Depends(require_browser_token)) -> AutofillSessionRead:
+    """One armed Auto-Apply attempt. Review Mode confirmation is a different route."""
+    try:
+        run = get_session(session_id)
+        return to_session_result(
+            submit_session(
+                session_id,
+                confirm=False,
+                preparation_id=run.preparation_id,
+                apply_url=run.apply_url,
+                grant=True,
+            )
+        )
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValidationError as exc:

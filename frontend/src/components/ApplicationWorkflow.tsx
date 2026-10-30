@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import type { ApplicationPreparation, Job } from '../api/types'
 import { ApplicationStatusCard } from './ApplicationPreparationPanel'
 import { AutofillReview } from './AutofillReview'
+import { releaseAutofillOpening } from './autofillOpening'
 
 export function ApplicationWorkflow({
   job,
@@ -16,6 +17,8 @@ export function ApplicationWorkflow({
   const [eligibility, setEligibility] = useState<string | null>(null)
   const [canOpen, setCanOpen] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
+  const [mode, setMode] = useState<'review' | 'auto_apply'>('review')
+  const [attempt, setAttempt] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const starting = useRef(false)
@@ -27,10 +30,13 @@ export function ApplicationWorkflow({
     setError(null)
     try {
       const result = await api.startApplicationWorkflow(job.id)
+      if (prep) releaseAutofillOpening(prep.id)
       setPrep(result.preparation)
       setMessage(result.message)
       setEligibility(result.eligibility)
       setCanOpen(result.can_open_browser)
+      setMode(result.mode === 'auto_apply' ? 'auto_apply' : 'review')
+      setAttempt((current) => current + 1)
       setStatus(result.preparation.application_status ?? null)
       onStarted(result.preparation.id)
     } catch (err) {
@@ -58,12 +64,22 @@ export function ApplicationWorkflow({
           <h4 className="text-sm font-semibold text-slate-900">
             {job.title} · {job.employer_name}
           </h4>
+          <p className="mt-1 text-sm text-slate-700">Workflow mode: {mode === 'auto_apply' ? 'Auto-Apply' : 'Review'}.</p>
           <p className="mt-1 text-sm text-slate-700">Eligibility: {eligibility || job.assessment?.eligibility || 'unknown'}.</p>
           <p className="mt-1 text-sm text-slate-700">Selected resume: {prep.selected_resume_name || 'None'}.</p>
           {prep.resume_selection_reason && <p className="mt-1 text-xs text-slate-600">{prep.resume_selection_reason}</p>}
           {message && <p className="mt-2 text-sm text-slate-700">{message}</p>}
           <ApplicationStatusCard prep={{ ...prep, application_status: status || prep.application_status }} applicationStatus={status || prep.application_status} onResolved={setStatus} />
-          {canOpen && <AutofillReview prep={prep} autoStart hideLauncher onApplicationStatus={setStatus} />}
+          {canOpen && (
+            <AutofillReview
+              key={attempt}
+              prep={prep}
+              autoStart
+              hideLauncher
+              mode={mode}
+              onApplicationStatus={setStatus}
+            />
+          )}
           {!canOpen && <p className="mt-2 text-sm text-amber-800">CareerPilot did not open a browser and did not submit this application.</p>}
         </section>
       )}

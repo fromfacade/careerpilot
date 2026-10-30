@@ -93,6 +93,7 @@ def start_application_workflow(payload: PreparationCreate, db: Session = Depends
         can_open_browser=started.can_open_browser,
         eligibility=started.eligibility,
         eligibility_detail=started.eligibility_detail,
+        mode=started.mode,
         message=started.message,
         preparation=_out(db, started.preparation),
     )
